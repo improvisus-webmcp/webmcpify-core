@@ -148,6 +148,14 @@ API operations
 are allowlisted and validated; state changes stop at an explicit human
 approval checkpoint, and instruction-like input is treated as untrusted data.
 
+The `/privacy` route is a third page-scoped example. Its tools are
+`get_privacy_status`, `export_demo_privacy_data`, `request_analytics_consent`,
+and `open_privacy_playground`. They demonstrate data minimization, redacted
+export, session-only consent, and human approval without collecting personal
+data or contacting an analytics or payment provider. Navigation between Home,
+Playground, and Privacy replaces the available tool set; agents should call
+`getTools()` again after each navigation.
+
 Run it locally:
 
 ```bash
