@@ -127,8 +127,10 @@ with `document.modelContext`:
 - `get_webmcpify_npm_setup` — explain installation and use of the published npm
   package.
 
-The homepage also provides `open_webmcpify_playground`, and the playground
-provides `return_to_webmcpify_home`. Tools are page-scoped: after navigation,
+The homepage provides `open_webmcpify_playground` and
+`open_webmcpify_privacy`; the playground provides
+`return_to_webmcpify_home` and `open_webmcpify_privacy`; and the privacy page
+provides `open_webmcpify_playground`. Tools are page-scoped: after navigation,
 the agent should discover the new document's tools again; it does not receive
 both pages' tools as one combined list. On the playground, a consequential
 tool returns `approvalRequired` and displays a human approval request. The

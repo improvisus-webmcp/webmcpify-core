@@ -41,6 +41,12 @@ export default function Home() {
         execute: () => { window.location.assign("/playground"); return { ok: true, navigatingTo: "/playground" }; },
       }, { signal: controller.signal });
       await context.registerTool({
+        name: "open_webmcpify_privacy",
+        description: "Navigate to the WebMCPify privacy page. Discover tools again after the new page loads because tools are scoped to the current page.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        execute: () => { window.location.assign("/privacy"); return { ok: true, navigatingTo: "/privacy" }; },
+      }, { signal: controller.signal });
+      await context.registerTool({
         name: "show_workflow_step",
         description: "Highlight a WebMCPify workflow step on this page: Discover, Baseline, Generate, Review, Apply, WebMCP test, Repair, or Evaluate.",
         inputSchema: { type: "object", properties: { step: { type: "string" } }, required: ["step"] },

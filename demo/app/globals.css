@@ -177,7 +177,11 @@ button { font: inherit; }
 .playground-points h3 { margin: 18px 0 8px; font: 600 15px "Space Grotesk", sans-serif; }
 .playground-points p { margin: 0; font-size: 13px; }
 .playground-points code { color: #627a32; font: 11px "DM Mono", monospace; }
+<<<<<<< Updated upstream
 @media (max-width: 800px) { .playground-grid, .privacy-layout, .playground-explain { grid-template-columns: 1fr; gap: 25px; } .playground-points { grid-template-columns: 1fr 1fr; } }
+=======
+@media (max-width: 800px) { .playground-grid, .privacy-layout, .playground-explain { grid-template-columns: 1fr; gap: 25px; } .playground-points { grid-template-columns: 1fr 1fr; } .privacy-hero::after { position: static; display: inline-block; margin-top: 20px; } }
+>>>>>>> Stashed changes
 @media (max-width: 560px) { .playground-actions, .playground-points { grid-template-columns: 1fr; } .playground-status { flex-direction: column; gap: 10px; } }
 
 

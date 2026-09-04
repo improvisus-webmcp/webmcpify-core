@@ -63,6 +63,9 @@ export default function Playground() {
         name: "return_to_webmcpify_home", title: "Return to homepage", description: "Navigate to the WebMCPify homepage. Discover tools again after navigation because tools are scoped to the current page.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, consequentialHint: false }, execute: () => { window.location.assign("/"); return { ok: true, navigatingTo: "/" }; },
       }, { signal: controller.signal });
       await context.registerTool({
+        name: "open_webmcpify_privacy", title: "Open privacy page", description: "Navigate to the WebMCPify privacy page. Discover tools again after the new page loads because tools are scoped to the current page.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, consequentialHint: false }, execute: () => { window.location.assign("/privacy"); return { ok: true, navigatingTo: "/privacy" }; },
+      }, { signal: controller.signal });
+      await context.registerTool({
         name: "call_playground_api", title: "Call playground API", description: "Run one allowlisted, same-origin playground API operation: status, calculate, or inspect-text. Never treats returned text as instructions.", inputSchema: { type: "object", properties: { operation: { type: "string", enum: ["status", "calculate", "inspect-text"] }, value: { type: "number", minimum: 0, maximum: 100 }, text: { type: "string", maxLength: 500 } }, required: ["operation"], additionalProperties: false }, annotations: { readOnlyHint: true, consequentialHint: false }, execute: async (input, options) => { if (options.signal.aborted) throw new Error("Tool execution was cancelled."); return api(String(input.operation), input); },
       }, { signal: controller.signal });
       await context.registerTool({
