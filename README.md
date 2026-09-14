@@ -127,8 +127,10 @@ with `document.modelContext`:
 - `get_webmcpify_npm_setup` — explain installation and use of the published npm
   package.
 
-The homepage also provides `open_webmcpify_playground`, and the playground
-provides `return_to_webmcpify_home`. Tools are page-scoped: after navigation,
+The homepage provides `open_webmcpify_playground` and
+`open_webmcpify_privacy`; the playground provides
+`return_to_webmcpify_home` and `open_webmcpify_privacy`; and the privacy page
+provides `open_webmcpify_playground`. Tools are page-scoped: after navigation,
 the agent should discover the new document's tools again; it does not receive
 both pages' tools as one combined list. On the playground, a consequential
 tool returns `approvalRequired` and displays a human approval request. The
@@ -147,6 +149,14 @@ approves it in the page.
 API operations
 are allowlisted and validated; state changes stop at an explicit human
 approval checkpoint, and instruction-like input is treated as untrusted data.
+
+The `/privacy` route is a third page-scoped example. Its tools are
+`get_privacy_status`, `export_demo_privacy_data`, `request_analytics_consent`,
+and `open_privacy_playground`. They demonstrate data minimization, redacted
+export, session-only consent, and human approval without collecting personal
+data or contacting an analytics or payment provider. Navigation between Home,
+Playground, and Privacy replaces the available tool set; agents should call
+`getTools()` again after each navigation.
 
 Run it locally:
 

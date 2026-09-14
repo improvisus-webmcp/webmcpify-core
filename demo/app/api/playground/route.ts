@@ -8,6 +8,7 @@ type RequestBody = {
   text?: unknown;
   paymentId?: unknown;
   currency?: unknown;
+  approved?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -55,6 +56,13 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ ok: true, operation: "payment-confirm", paymentId, status: "simulated_success", realCharge: false, message: "Demo payment confirmed locally; no provider or money movement was used." });
     }
+    case "privacy-status":
+      return NextResponse.json({ ok: true, operation: "privacy-status", collection: "No personal data is collected by this demo.", analytics: "off", storage: "No cookies or persistent identifiers are used.", sharing: "No data is sent to third parties." });
+    case "privacy-export":
+      return NextResponse.json({ ok: true, operation: "privacy-export", format: "json", records: [], redacted: true, message: "The demo has no personal records to export." });
+    case "privacy-consent":
+      if (body.approved !== true) return NextResponse.json({ ok: false, error: "Human approval is required before changing consent." }, { status: 403 });
+      return NextResponse.json({ ok: true, operation: "privacy-consent", analytics: "enabled_for_demo_session_only", expires: "on page close", message: "This is a local demonstration; no tracking service was enabled." });
     default:
       return NextResponse.json({ ok: false, error: "Unknown operation. Use status, calculate, or inspect-text." }, { status: 400 });
   }
