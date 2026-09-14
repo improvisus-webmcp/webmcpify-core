@@ -32,8 +32,13 @@ const tasks = Array.from({ length: 5 }, (_, index) => ({ id: `task_${index + 1}`
 assert.ok(taskVerificationIssues({ id: "bad_syntax", description: "Check the result", verify: "document.querySelector(" }).some((issue) => issue.severity === "error"));
 assert.ok(taskVerificationIssues({ id: "trivial", description: "Check the result", verify: "true" }).some((issue) => issue.code === "trivial"));
 assert.ok(taskVerificationIssues({ id: "missing_selector", description: "Check the result", verify: 'document.querySelector("#missing") !== null' }, { discovery }).some((issue) => issue.severity === "warning"));
-const review = runReviewPrompt(sitePath, "4387", { fixture: true });
-await new Promise((resolve) => setTimeout(resolve, 100));
+let reviewReadyResolve;
+const reviewReady = new Promise((resolve) => { reviewReadyResolve = resolve; });
+const review = runReviewPrompt(sitePath, "4387", { fixture: true }, reviewReadyResolve);
+const ready = await reviewReady;
+assert.equal(ready.url, "http://127.0.0.1:4387");
+assert.equal(ready.patchIdentifier, runId);
+assert.equal(ready.approvalPath, path.join(sitePath, ".webmcpify", "approved-tools.json"));
 const editedTool = { ...tool, description: "Edited reviewed action description." };
 const form = (stage) => { const value = new URLSearchParams({ stage, toolIds: tool.id, toolsJson: JSON.stringify({ tools: [editedTool] }), tasksJson: JSON.stringify(tasks), approveSourceDiff: "yes" }); for (const task of tasks) value.append("taskIds", task.id); return value; };
 const response = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("prepare") });
@@ -54,8 +59,10 @@ assert.equal(reopened.approved, true);
 assert.equal(reopened.tasks.length, 5);
 
 await writeFile(path.join(sitePath, ".webmcpify", "pending-diff.meta.json"), `${JSON.stringify({ version: 1, runId: "review-fixture-reject", timestamp: new Date().toISOString(), targetProject: sitePath, changedFiles: ["src/App.tsx"], patchStatus: "awaiting-review", patchPath: path.join(sitePath, ".webmcpify", "pending-diff.patch"), generationTrajectory: generation }, null, 2)}\n`);
-const rejection = runReviewPrompt(sitePath, "4388", { fixture: true });
-await new Promise((resolve) => setTimeout(resolve, 100));
+let rejectionReadyResolve;
+const rejectionReady = new Promise((resolve) => { rejectionReadyResolve = resolve; });
+const rejection = runReviewPrompt(sitePath, "4388", { fixture: true }, rejectionReadyResolve);
+assert.equal((await rejectionReady).url, "http://127.0.0.1:4388");
 const rejectResponse = await fetch("http://127.0.0.1:4388/reject", { method: "POST" });
 assert.equal(rejectResponse.status, 200);
 const rejected = await rejection;

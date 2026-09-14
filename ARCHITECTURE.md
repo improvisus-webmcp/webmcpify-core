@@ -2,6 +2,23 @@
 
 Core is a local CLI and MCP server. It turns discovered application behavior into a reviewable source patch, applies only an exact human-approved patch, and verifies the live result independently.
 
+The hackathon agent adds Strands as the orchestration layer while preserving Core's trust boundaries:
+
+```mermaid
+flowchart LR
+    User[Developer intent] --> Strands[Strands Core Agent]
+    Strands --> MCP[Core MCP server]
+    MCP --> Discover[Discover and draft]
+    Discover --> Security[Security checkpoint]
+    Security --> Review[Trusted local human review]
+    Review -->|approved patch id| Apply[Apply and build]
+    Apply --> Browser[Browser test]
+    Browser --> Evidence[Independent evidence]
+    Review -->|rejected| Stop[Stop unchanged]
+```
+
+Strands can request the review surface and later read its persisted status. It cannot approve the patch: approval is created only by the separate local web surface, and `apply_webmcp` checks the exact patch identifier and manifest again.
+
 ```mermaid
 flowchart LR
     CLI[CLI or Core MCP server] --> Discover[Source discovery]
@@ -35,6 +52,8 @@ flowchart LR
 | `src/cli.ts` | Defines commands, options, package version, and managed-browser wrappers. |
 | `src/mcp/server.ts` | Exposes repository analysis, generation, approved apply, and browser testing over stdio MCP; confines paths to its starting workspace. |
 | `src/temporal/worker.ts` | Starts the optional Temporal worker and loads activities. |
+| `hackathon/strands-core-agent/src/cli.ts` | Runs the interactive Strands agent and connects it to the confined Core MCP server. |
+| `hackathon/strands-core-agent/src/workflow.ts` | Defines the allowed Core tool set, workflow order, and agent security instructions. |
 
 ## Commands
 

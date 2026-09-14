@@ -40,10 +40,13 @@
     "verify:repair": "node scripts/verify-repair.mjs",
     "verify:evaluation": "node scripts/verify-evaluation.mjs",
     "verify:final-eval": "node scripts/verify-final-eval.mjs",
+    "agent:build": "pnpm --dir hackathon/strands-core-agent build",
+    "agent:test": "pnpm --dir hackathon/strands-core-agent test",
+    "agent": "npm run build --silent && npm run agent:build --silent && pnpm --dir hackathon/strands-core-agent start",
     "temporal:worker": "node dist/temporal/worker.js",
     "dev": "tsx watch src/cli.ts",
     "test:mcp": "node scripts/verify-mcp.mjs",
-    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent"
+    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent && npm run agent:test --silent"
   },
   "keywords": [
     "webmcp",

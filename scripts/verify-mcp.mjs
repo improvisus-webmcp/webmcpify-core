@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const fixture = await mkdtemp(path.join(process.cwd(), ".tmp-mcp-"));
 const packageVersion = JSON.parse(await readFile("package.json", "utf8")).version;
 await writeFile(path.join(fixture, "package.json"), JSON.stringify({ name: "mcp-fixture", scripts: { build: "echo ok" } }));
 await writeFile(path.join(fixture, "index.html"), '<form><input name="query"><button type="submit">Search</button></form>');
+await mkdir(path.join(fixture, ".webmcpify"), { recursive: true });
+await writeFile(path.join(fixture, ".webmcpify", "pending-diff.meta.json"), JSON.stringify({
+  version: 1,
+  runId: "mcp-review-fixture",
+  timestamp: new Date().toISOString(),
+  targetProject: fixture,
+  changedFiles: ["index.html"],
+  patchStatus: "awaiting-review",
+  patchPath: path.join(fixture, ".webmcpify", "pending-diff.patch"),
+  generationTrajectory: path.join(fixture, ".webmcpify", "generation.json"),
+}));
 
 try {
   const { writeChromeDevtoolsMcpConfig } = await import("../dist/lib/mcp-config.js");
@@ -29,6 +40,7 @@ try {
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "analyze_repository", arguments: { repositoryPath: fixture } } },
     { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "analyze_repository", arguments: { repositoryPath: "../" } } },
+    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_webmcp_review_status", arguments: { repositoryPath: fixture } } },
   ];
   const { handle } = await import("../dist/mcp/server.js");
   const replies = (await Promise.all(requests.map(async (request) => JSON.parse(await handle(request)))));
@@ -36,12 +48,24 @@ try {
   assert.equal(initialized.result.serverInfo.name, "webmcpify-core");
   assert.equal(initialized.result.serverInfo.version, packageVersion);
   const listed = replies.find((reply) => reply.id === 2);
-  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["analyze_repository", "generate_webmcp", "audit_webmcp_security", "apply_webmcp", "test_webmcp"]);
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name), [
+    "analyze_repository",
+    "generate_webmcp",
+    "audit_webmcp_security",
+    "review_webmcp",
+    "get_webmcp_review_status",
+    "apply_webmcp",
+    "test_webmcp",
+  ]);
   const analyzed = replies.find((reply) => reply.id === 3);
   assert.equal(analyzed.result.structuredContent.project.name, "mcp-fixture");
   assert.ok(analyzed.result.structuredContent.capabilities.includes("forms"));
   const rejected = replies.find((reply) => reply.id === 4);
   assert.equal(rejected.result.isError, true);
+  const reviewStatus = replies.find((reply) => reply.id === 5);
+  assert.equal(reviewStatus.result.structuredContent.status, "awaiting-review");
+  assert.equal(reviewStatus.result.structuredContent.patchIdentifier, "mcp-review-fixture");
+  assert.equal(reviewStatus.result.structuredContent.mayApply, false);
   console.log("MCP end-to-end verification passed");
 } finally {
   await rm(fixture, { recursive: true, force: true });

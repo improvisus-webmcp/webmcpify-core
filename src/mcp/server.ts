@@ -15,9 +15,12 @@ import { packageMetadata } from "../lib/package-info.js";
 import { closeScoringBrowser } from "../lib/scoring.js";
 import { runSecurity } from "../commands/security.js";
 import { securityReportPath } from "../lib/security-audit.js";
+import { runReviewPrompt, type ReviewReady, type ReviewResult } from "../commands/review.js";
+import { approvedManifestPath } from "../lib/tasks.js";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const serverRoot = path.resolve(process.cwd());
+const activeReviews = new Map<string, Promise<ReviewResult>>();
 
 type JsonRpcRequest = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -90,6 +93,16 @@ const tools = [
     inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, strict: { type: "boolean" } }, required: ["repositoryPath"], additionalProperties: false },
   },
   {
+    name: "review_webmcp",
+    description: "Start Core's trusted local review UI for the pending tools, tests, security findings, and exact source patch. Returns the local review URL immediately; only the person using that page can approve or reject the draft.",
+    inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, reviewPort: { type: "string", description: "Optional preferred local port." } }, required: ["repositoryPath"], additionalProperties: false },
+  },
+  {
+    name: "get_webmcp_review_status",
+    description: "Read Core's persisted review status. Use this after the person confirms they acted in the trusted review UI; it never creates approval.",
+    inputSchema: { type: "object", properties: { repositoryPath: { type: "string" } }, required: ["repositoryPath"], additionalProperties: false },
+  },
+  {
     name: "apply_webmcp",
     description: "Apply the explicitly approved pending WebMCP patch, including the existing build check.",
     inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, patchIdentifier: { type: "string", description: "The pending patch runId returned by generate_webmcp." } }, required: ["repositoryPath", "patchIdentifier"], additionalProperties: false },
@@ -120,6 +133,71 @@ async function callTool(name: string, rawArgs: Record<string, unknown>): Promise
     case "audit_webmcp_security": {
       const captured = await capture(() => runSecurity({ path: repositoryPath, strict: rawArgs.strict === true }));
       return textResult({ ...captured.value, artifacts: { securityReport: securityReportPath(repositoryPath) }, logs: captured.logs });
+    }
+    case "review_webmcp": {
+      const metadata = await readPatchMetadata(repositoryPath);
+      if (metadata.patchStatus === "approved" || metadata.patchStatus === "rejected") {
+        return textResult({
+          status: metadata.patchStatus,
+          patchIdentifier: metadata.runId,
+          message: metadata.patchStatus === "approved"
+            ? "The person already approved this exact patch. Confirm with get_webmcp_review_status before applying it."
+            : "The person rejected this draft. Do not apply it.",
+          artifacts: { approval: approvedManifestPath(repositoryPath), metadata: patchMetadataPath(repositoryPath) },
+        });
+      }
+      if (activeReviews.has(repositoryPath)) {
+        return textResult({
+          status: "awaiting-human",
+          patchIdentifier: metadata.runId,
+          message: "A trusted review session is already active. Ask the person to finish it, then call get_webmcp_review_status.",
+          artifacts: { approval: approvedManifestPath(repositoryPath), metadata: patchMetadataPath(repositoryPath) },
+        });
+      }
+      let resolveReady!: (review: ReviewReady) => void;
+      let rejectReady!: (error: unknown) => void;
+      const ready = new Promise<ReviewReady>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+      });
+      const decision = runReviewPrompt(
+        repositoryPath,
+        stringArg(rawArgs, "reviewPort", false),
+        { source: "mcp" },
+        resolveReady,
+      );
+      activeReviews.set(repositoryPath, decision);
+      void decision.finally(() => activeReviews.delete(repositoryPath)).catch(() => undefined);
+      void decision.catch(rejectReady);
+      const review = await ready;
+      return textResult({
+        status: "awaiting-human",
+        reviewUrl: review.url,
+        patchIdentifier: review.patchIdentifier,
+        message: "Open the trusted local review page. Inspect the proposed tools, tests, security findings, and exact patch; approve or reject it there. Then tell the agent to continue.",
+        artifacts: { approval: review.approvalPath, metadata: patchMetadataPath(repositoryPath) },
+      });
+    }
+    case "get_webmcp_review_status": {
+      const metadata = await readPatchMetadata(repositoryPath);
+      const status = metadata.patchStatus === "approved"
+        ? "approved"
+        : metadata.patchStatus === "rejected"
+          ? "rejected"
+          : activeReviews.has(repositoryPath)
+            ? "awaiting-human"
+            : metadata.patchStatus;
+      return textResult({
+        status,
+        patchIdentifier: metadata.runId,
+        mayApply: status === "approved",
+        message: status === "approved"
+          ? "The person approved this exact patch."
+          : status === "rejected"
+            ? "The person rejected this draft. Do not apply it."
+            : "Human approval has not been persisted. Do not apply the patch.",
+        artifacts: { approval: approvedManifestPath(repositoryPath), metadata: patchMetadataPath(repositoryPath) },
+      });
     }
     case "apply_webmcp": {
       const identifier = stringArg(rawArgs, "patchIdentifier")!;

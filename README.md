@@ -10,6 +10,22 @@ Discover → Draft → Security check → Review → Apply → Test → Verify
 
 WebMCP and browser support are experimental. Core checks the available runtime instead of assuming support.
 
+## Strands-powered Core Agent
+
+The Agents for Humans build adds a [Strands Agents SDK](https://strandsagents.com/) orchestrator without increasing the install cost of the published Core package. It connects to Core over MCP, carries the workflow forward autonomously, and stops at the one decision that must remain human: approval of the exact tools, tests, security findings, and source patch.
+
+```bash
+pnpm install
+pnpm agent -- --path /path/to/web-app --url http://localhost:3000 --provider codex
+```
+
+The agent requires Node.js 22+. Strands uses Amazon Bedrock by default, so configure AWS credentials with model access before running it. An AWS Builder ID alone is not a runtime credential. `--provider` selects the coding provider Core uses to draft source changes; it does not select the Strands model.
+
+When the agent returns a local review URL, open it and approve or reject the proposal yourself. Then type `continue` in the same terminal. The agent reads the persisted decision and can apply only the matching approved patch.
+
+- [Agent source and focused setup](hackathon/strands-core-agent/README.md)
+- [Hackathon architecture diagram](docs/hackathon/webmcpify-core-agent-architecture.png)
+
 ## Install
 
 ```bash
@@ -116,10 +132,14 @@ The server exposes:
 - `analyze_repository`
 - `generate_webmcp`
 - `audit_webmcp_security`
+- `review_webmcp`
+- `get_webmcp_review_status`
 - `apply_webmcp`
 - `test_webmcp`
 
 The server rejects paths outside its starting workspace. Generated changes remain pending until the normal human review creates an approval manifest; `apply_webmcp` also requires the matching patch identifier.
+
+`review_webmcp` starts the trusted local review surface and returns its URL. It cannot create approval. `get_webmcp_review_status` only reads the decision persisted by that surface.
 
 ## Core access-control checkpoint
 
@@ -182,6 +202,8 @@ pnpm typecheck
 pnpm test
 npm pack --dry-run
 ```
+
+The Core repository was started on August 31, 2026, during the Agents for Humans submission period. The Strands orchestration package is the hackathon-specific agent layer; Core's existing CLI, MCP server, browser verification, and security pipeline are its disclosed foundation.
 
 `npm test` runs the focused discovery, proposal, security, review, patch, repair, evaluation, final-evaluation, and MCP checks. Publishing runs type checking and the complete test suite before npm creates the package.
 

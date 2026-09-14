@@ -38,6 +38,13 @@ export interface ReviewResult {
   approvedTools: ProposedTool[];
 }
 
+export interface ReviewReady {
+  port: number;
+  url: string;
+  approvalPath: string;
+  patchIdentifier: string;
+}
+
 function htmlEscape(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -90,7 +97,8 @@ function selectedIds(requestBody: { ids?: unknown }): string[] {
 export async function runReviewPrompt(
   sitePath: string,
   requestedPort?: string,
-  trajectoryMetadata: Record<string, unknown> = {}
+  trajectoryMetadata: Record<string, unknown> = {},
+  onReady?: (review: ReviewReady) => void,
 ): Promise<ReviewResult> {
   const discovery = await loadDiscovery(sitePath);
   const proposalFile = proposedToolsPath(sitePath);
@@ -349,6 +357,12 @@ export async function runReviewPrompt(
       const listener = app.listen(candidate, "127.0.0.1", () => {
         server = listener;
         port = candidate;
+        onReady?.({
+          port,
+          url: `http://127.0.0.1:${port}`,
+          approvalPath,
+          patchIdentifier: approvalId,
+        });
         console.log("[review] ============================================================");
         console.log("[review] ACTION REQUIRED: open the approval page and click the green approval button");
         console.log(`[review] APPROVAL PAGE: http://127.0.0.1:${port}`);

@@ -1,3 +1,6 @@
+packages:
+  - hackathon/strands-core-agent
+
 allowBuilds:
   '@swc/core': true
   esbuild: true

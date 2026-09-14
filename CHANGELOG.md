@@ -4,6 +4,13 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Added: Strands-powered Core agent
+
+- Added an isolated Strands Agents SDK workspace that orchestrates WebMCPify Core through its MCP server while preserving Core's Node.js 20 compatibility and small npm package.
+- Added `review_webmcp` and `get_webmcp_review_status` MCP tools so an agent can pause at a trusted local approval boundary and continue only after the human approves the exact patch.
+- Added a persistent interactive CLI, strict workflow instructions, focused tests, architecture assets, a short demo script, and a transparent hackathon submission draft.
+- The Strands agent plans and coordinates work; Core still owns proposal generation, approval evidence, exact-patch enforcement, browser verification, and audit artifacts.
+
 ### Added: Core security checkpoint
 
 - Added per-tool access declarations for user authentication, agent identity, backend authorization, origin scope, quotas, and idempotency.

@@ -15,3 +15,6 @@ coverage/
 
 # Generated run evidence belongs to each target project's .webmcpify folder.
 trajectories/*.json
+
+# Local Devpost workflow state.
+.devpost-hackathon-state.json
