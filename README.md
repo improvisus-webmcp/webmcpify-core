@@ -105,7 +105,7 @@ pnpm webmcpify final-eval --path /path/to/target-project \
 
 Use `--durable` for Temporal-backed repair; it requires `--url` and `--task`. `final-eval` includes the Temporal evaluation stage.
 
-Run the CLI commands below from the WebMCPify checkout, or install the published package with `npm install --global @olumide100/webmcpify`.
+Run the CLI commands below from the WebMCPify checkout. The next organization-scoped release will be published as `@improvisus/webmcpify-core`; that package is not available on npm yet.
 
 ## Hackathon demo homepage
 
@@ -173,9 +173,11 @@ Temporal is required for `final-eval` and durable repair. The plain discovery, g
 
 WebMCPify includes a thin local MCP server. It uses the same discovery, generation, approval, apply, and browser-test functions as the CLI; it does not upload the repository or require GitHub OAuth. Start it from the target repository so the server's workspace boundary is that repository:
 
+The npm command below applies after the first `@improvisus/webmcpify-core` release. Until then, use the local checkout command in the following paragraph.
+
 ```bash
 cd /path/to/target-site
-npx --package @olumide100/webmcpify webmcpify-mcp
+npx --package @improvisus/webmcpify-core webmcpify-mcp
 new or existing app → discover → generate → human review → apply → test → independently evaluate
 ```
 
@@ -187,7 +189,7 @@ The agent discovers real application behaviour and drafts an integration in a di
   "mcpServers": {
     "webmcpify": {
       "command": "npx",
-      "args": ["--package", "@olumide100/webmcpify", "webmcpify-mcp"],
+      "args": ["--package", "@improvisus/webmcpify-core", "webmcpify-mcp"],
       "cwd": "/path/to/target-site"
     }
   }
@@ -196,7 +198,7 @@ The agent discovers real application behaviour and drafts an integration in a di
 
 The server exposes `analyze_repository`, `generate_webmcp`, `apply_webmcp`, and `test_webmcp`. Generation returns a `patchIdentifier` and leaves the existing pending patch awaiting the normal human review checkpoint. `apply_webmcp` requires that identifier and the existing approval manifest. `test_webmcp` accepts an optional running-site `url`, otherwise it uses `WEBMCPIFY_URL` or `http://localhost:3000`. Paths outside the server's starting workspace are rejected.
 
-After publishing, install the npm package with `npm install --global @olumide100/webmcpify`; it provides the `webmcpify` CLI and `webmcpify-mcp` MCP command. For a new release, run `npm run release` (build, bump the patch version, and publish). For local development, use the built `dist/mcp/server.js` path shown above.
+After publishing, install the npm package with `npm install --global @improvisus/webmcpify-core`; it provides the `webmcpify` CLI and `webmcpify-mcp` MCP command. For a new release, run `npm run release` (build, bump the patch version, and publish). For local development, use the built `dist/mcp/server.js` path shown above.
 ## What WebMCPify does
 
 ---
@@ -654,7 +656,7 @@ WebMCPify includes a thin local MCP server. It uses the same discovery, generati
 ```bash
 curl http://127.0.0.1:9222/json/version
 cd /path/to/target-site
-npx --package @olumide100/webmcpify webmcpify-mcp
+npx --package @improvisus/webmcpify-core webmcpify-mcp
 ```
 
 A successful response should contain Chrome/DevTools information.
@@ -679,7 +681,7 @@ For a local checkout, use `node /path/to/WebMCPify/dist/mcp/server.js` after `pn
         "chrome-devtools-mcp@latest",
         "--browser-url=http://127.0.0.1:9222"
       ]
-      "args": ["--package", "@olumide100/webmcpify", "webmcpify-mcp"],
+      "args": ["--package", "@improvisus/webmcpify-core", "webmcpify-mcp"],
       "cwd": "/path/to/target-site"
     }
   }
@@ -1304,12 +1306,12 @@ For this submission, the README and changelog should explicitly distinguish:
 Antigravity — end-to-end tested
 Claude Code — not completed end-to-end
 Codex — end-to-end tested on Linux
-npm install --global @olumide100/webmcpify
+npm install --global @improvisus/webmcpify-core
 webmcpify discover --path /path/to/target-site
 ```
 
 ---
-The package exposes the existing CLI as `webmcpify` and the MCP server as `webmcpify-mcp`. The MCP configuration above can use `npx --package @olumide100/webmcpify webmcpify-mcp`; local development uses the built server path.
+The package exposes the existing CLI as `webmcpify` and the MCP server as `webmcpify-mcp`. The MCP configuration above can use `npx --package @improvisus/webmcpify-core webmcpify-mcp`; local development uses the built server path.
 
 # 26. Three-Project Test Matrix
 ## Browser-agent setup

@@ -1,5 +1,5 @@
 {
-  "name": "@olumide100/webmcpify",
+  "name": "@improvisus/webmcpify-core",
   "version": "1.0.3",
   "description": "A CLI that audits and generates WebMCP tool registrations for a website, verified by an isolated agent driving a real browser, with human approval required before any tool goes live",
   "main": "dist/cli.js",
@@ -44,9 +44,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/abeebridwan/webmcpify.git"
+    "url": "git+https://github.com/improvisus-webmcp/webmcpify-core.git"
   },
-  "homepage": "https://webmcpify-homepage.vercel.app/",
+  "homepage": "https://improvisus.tech/core",
+  "bugs": {
+    "url": "https://github.com/improvisus-webmcp/webmcpify-core/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
