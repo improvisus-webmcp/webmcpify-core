@@ -1,8 +1,0 @@
-{
-  "name": "webmcpify-demo",
-  "private": true,
-  "version": "0.1.0",
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
-  "dependencies": { "next": "^15.5.0", "react": "^19.1.0", "react-dom": "^19.1.0" },
-  "devDependencies": { "@types/node": "^20.19.43", "@types/react": "^19.1.10", "@types/react-dom": "^19.1.7", "typescript": "^5.9.3" }
-}
