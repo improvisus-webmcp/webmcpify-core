@@ -146,11 +146,11 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
     "approved-tools.json"
   );
   const approvalContext = await readApprovalContext(sitePath);
-  const hadMcpConfig = existsSync(path.join(sitePath, ".mcp.json"));
+  const siteMcpConfig = path.join(sitePath, ".mcp.json");
   const mcpConfig = await writeChromeDevtoolsMcpConfig(sitePath);
 
-  if (!hadMcpConfig) {
-    console.log(`[test] no .mcp.json found; created ${mcpConfig} for this audit`);
+  if (mcpConfig !== siteMcpConfig) {
+    console.log(`[test] using generated browser MCP config at ${mcpConfig}`);
   }
 
   console.log(`[test] running isolated ${provider} browser audit against ${url}...`);

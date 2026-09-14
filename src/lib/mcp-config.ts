@@ -1,37 +1,51 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const CHROME_DEVTOOLS_CONFIG = {
-  mcpServers: {
-    "chrome-devtools": {
-      command: "npx",
-      args: [
-        "-y",
-        "chrome-devtools-mcp@1.7.0",
-        "--category-experimental-webmcp",
-        "--autoConnect",
-        "--no-usage-statistics",
-      ],
-      directTools: [
-        "navigate_page",
-        "list_webmcp_tools",
-        "execute_webmcp_tool",
-      ],
-      approveTools: ["execute_webmcp_tool"],
-    },
-  },
+const CHROME_DEVTOOLS_SERVER = {
+  command: "npx",
+  args: [
+    "-y",
+    "chrome-devtools-mcp@1.7.0",
+    "--category-experimental-webmcp",
+    "--autoConnect",
+    "--no-usage-statistics",
+  ],
+  directTools: [
+    "navigate_page",
+    "list_webmcp_tools",
+    "execute_webmcp_tool",
+  ],
+  approveTools: ["execute_webmcp_tool"],
 };
 
+interface McpConfig {
+  mcpServers?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 /**
- * Return an existing site MCP config, or create a project-local fallback for
- * the isolated test command. Existing user configuration is never replaced.
+ * Return a site config that includes Chrome DevTools MCP. An existing config
+ * is reused when complete or merged into a generated project-local file. The
+ * user's .mcp.json is never replaced.
  */
 export async function writeChromeDevtoolsMcpConfig(
   sitePath: string
 ): Promise<string> {
   const existingConfig = path.join(sitePath, ".mcp.json");
-  if (existsSync(existingConfig)) return existingConfig;
+  let existing: McpConfig = {};
+  if (existsSync(existingConfig)) {
+    try {
+      existing = JSON.parse(await readFile(existingConfig, "utf8")) as McpConfig;
+    } catch (error) {
+      throw new Error(
+        `Could not read ${existingConfig}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    if (existing.mcpServers?.["chrome-devtools"]) return existingConfig;
+  }
 
   const configDirectory = path.join(sitePath, ".webmcpify");
   const generatedConfig = path.join(
@@ -41,7 +55,17 @@ export async function writeChromeDevtoolsMcpConfig(
   await mkdir(configDirectory, { recursive: true });
   await writeFile(
     generatedConfig,
-    JSON.stringify(CHROME_DEVTOOLS_CONFIG, null, 2) + "\n",
+    JSON.stringify(
+      {
+        ...existing,
+        mcpServers: {
+          ...(existing.mcpServers ?? {}),
+          "chrome-devtools": CHROME_DEVTOOLS_SERVER,
+        },
+      },
+      null,
+      2,
+    ) + "\n",
     "utf8"
   );
   return generatedConfig;

@@ -14,6 +14,7 @@ import { createTrajectoryArtifact, latestTrajectoryPath } from "../lib/trajector
 import type { TaskScoreSummary, TaskResult } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
 import { loadTemporalClient } from "../lib/temporal.js";
+import { resolveProvider } from "../lib/ai-provider.js";
 
 export interface FinalEvalOptions {
   path?: string;
@@ -248,7 +249,7 @@ async function runTemporalLevel(sitePath: string, url: string, provider: string,
 export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalResult> {
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const url = normalizeTargetUrl(opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000");
-  const provider = opts.provider ?? "antigravity";
+  const provider = resolveProvider(opts.provider);
   console.log(`[final-eval] target: ${sitePath}`);
   console.log(`[final-eval] URL: ${url}`);
   await ensureTargetReachable(url);

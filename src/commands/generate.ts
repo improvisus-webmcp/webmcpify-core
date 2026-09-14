@@ -230,8 +230,9 @@ ${opts.context}`
     workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
     if (!workspaceDiff.trim()) {
       throw new Error(
-        "The generation agent did not modify any files in its disposable workspace. " +
-        "Provider-reported diffs are informational only; no source patch can be created safely."
+        discovery.existingWebMCP.length > 0
+          ? "Existing WebMCP registrations were found, but the generation agent proposed no justified source changes. The target was left unchanged; Core will not invent a patch solely to continue the workflow."
+          : "The generation agent did not modify any files in its disposable workspace. Provider-reported diffs are informational only; no source patch can be created safely."
       );
     }
     try {

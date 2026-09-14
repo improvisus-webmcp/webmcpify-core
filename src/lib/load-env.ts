@@ -7,8 +7,7 @@ const packageRoot = path.resolve(
   "../.."
 );
 
-// Load WebMCPify's local settings even when the command is launched from the
-// site being audited. A site-local .env may add values without overriding the
-// CLI-level settings.
+// Load only Core's own development settings. Never load the target project's
+// .env: provider subprocesses inherit this process environment, so importing
+// application secrets would unnecessarily expose them to the provider.
 dotenv.config({ path: path.join(packageRoot, ".env"), quiet: true });
-dotenv.config({ path: path.join(process.cwd(), ".env"), quiet: true });

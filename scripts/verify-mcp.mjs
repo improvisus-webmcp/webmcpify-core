@@ -8,6 +8,22 @@ await writeFile(path.join(fixture, "package.json"), JSON.stringify({ name: "mcp-
 await writeFile(path.join(fixture, "index.html"), '<form><input name="query"><button type="submit">Search</button></form>');
 
 try {
+  const { writeChromeDevtoolsMcpConfig } = await import("../dist/lib/mcp-config.js");
+  const generatedConfig = await writeChromeDevtoolsMcpConfig(fixture);
+  const generated = JSON.parse(await readFile(generatedConfig, "utf8"));
+  assert.equal(generated.mcpServers["chrome-devtools"].command, "npx");
+
+  const userConfigPath = path.join(fixture, ".mcp.json");
+  await writeFile(userConfigPath, JSON.stringify({ mcpServers: { custom: { command: "custom-mcp" } } }));
+  const mergedConfig = await writeChromeDevtoolsMcpConfig(fixture);
+  assert.notEqual(mergedConfig, userConfigPath);
+  const merged = JSON.parse(await readFile(mergedConfig, "utf8"));
+  assert.equal(merged.mcpServers.custom.command, "custom-mcp");
+  assert.equal(merged.mcpServers["chrome-devtools"].command, "npx");
+
+  await writeFile(userConfigPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: "custom-chrome" } } }));
+  assert.equal(await writeChromeDevtoolsMcpConfig(fixture), userConfigPath);
+
   const requests = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "verify", version: "1" } } },
     { jsonrpc: "2.0", id: 2, method: "tools/list" },

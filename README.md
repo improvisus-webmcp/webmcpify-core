@@ -1,6 +1,6 @@
 # WebMCPify Core
 
-Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/webmcp/) capabilities for an existing web application.
+Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/webmcp/) capabilities for new and existing web applications.
 
 Core inspects what a site already does, asks a coding agent to draft grounded WebMCP tools in an isolated copy, and shows the exact proposal for human approval. Only an approved patch can reach the target repository. The result is tested in a real browser and checked independently of the agent's claim.
 
@@ -18,13 +18,15 @@ npm install --global @improvisus/webmcpify-core
 
 Requirements:
 
-- Node.js 18 or newer.
+- Node.js 20.19 or newer on the Node 20 line, Node.js 22.12 or newer, or Node.js 23+.
 - Git and at least one commit in the target project.
 - Installed target-project dependencies and a running development or staging URL.
-- Chrome or Chromium.
+- Chrome 150+ or a compatible Chromium build with WebMCP support.
 - One authenticated coding-agent CLI: Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity.
 
 Core detects an installed provider when `--provider` is omitted. Set `WEBMCPIFY_PROVIDER` when you want a fixed default.
+
+Browser-agent testing uses Chrome DevTools MCP. Core writes or safely merges a project-local configuration and starts its pinned package with `npx`; a separate global installation is not required. The first use needs registry access unless that package is already cached.
 
 ## Fastest path
 
@@ -50,6 +52,15 @@ webmcpify run --url http://localhost:3000 --provider codex
 6. Exercise approved WebMCP tools and independently verify the resulting page state.
 
 Use `--path /path/to/project` when running outside the target directory. The URL defaults to `http://localhost:3000`.
+
+## New, partial, and existing WebMCP
+
+Core works from the target's real source rather than assuming a blank application:
+
+- **Newly scaffolded app:** Core can add the first tools once the app has source code, installed dependencies, and an initial Git commit. It does not scaffold the web app itself.
+- **App without WebMCP:** discovery maps existing user actions and generation proposes the smallest grounded integration.
+- **Partial WebMCP:** existing registrations are detected. Generation is required to classify them, reuse their integration files, avoid duplicates, and propose only missing or justified repairs.
+- **Complete WebMCP:** generation is instructed to preserve registrations that need no change. If no source change is justified, Core leaves the target unchanged and stops before review/apply instead of inventing a patch. A previously Core-approved app can be retested directly with `webmcpify test`.
 
 ## Safety boundary
 
@@ -108,7 +119,7 @@ The server rejects paths outside its starting workspace. Generated changes remai
 
 ## Advanced durable workflows
 
-The normal `run` command does not require Temporal. Install the optional Temporal packages only when you need durable repair or `final-eval`:
+The normal `run` command does not use Temporal. Temporal is only for resumable failed-task repair and the advanced three-level `final-eval` comparison. Install its optional packages alongside Core:
 
 ```bash
 npm install --global \
@@ -117,7 +128,9 @@ npm install --global \
   @temporalio/workflow
 ```
 
-Start a Temporal development server and the Core worker, then run the advanced command:
+Install the [Temporal CLI](https://docs.temporal.io/cli) separately to run the local development service.
+
+Run the Temporal service, Core worker, and workflow command in separate terminals:
 
 ```bash
 temporal server start-dev
@@ -125,11 +138,11 @@ webmcpify-worker
 webmcpify final-eval --url http://localhost:3000 --provider codex
 ```
 
-These processes run in separate terminals. Temporal provides durable orchestration; it does not bypass review or apply changes on its own.
+The CLI starts a workflow, the Temporal service keeps its state, and `webmcpify-worker` executes Core's test, repair, review, and apply activities. Human approval remains mandatory. Set `WEBMCPIFY_DURABLE=true` only if ordinary `webmcpify repair` calls should use Temporal by default.
 
 ## Configuration
 
-Most users need no configuration. Supported overrides include:
+No `.env` file or executable path is required when the provider CLI and Chrome are already on `PATH`. Run inside the target project, or use `--path`; there is no target-path environment variable. Core does not load the target application's `.env`. Set optional overrides in the shell that starts Core:
 
 ```bash
 WEBMCPIFY_PROVIDER=codex
@@ -156,6 +169,11 @@ npm pack --dry-run
 ```
 
 `npm test` runs the focused discovery, proposal, review, patch, repair, evaluation, final-evaluation, and MCP checks. Publishing runs type checking and the complete test suite before npm creates the package.
+
+## Architecture and contributing
+
+- [Architecture and file map](ARCHITECTURE.md)
+- [Contribution and pull-request guide](CONTRIBUTING.md)
 
 ## Links
 

@@ -8,7 +8,9 @@ All notable changes to WebMCPify are documented here.
 
 - Added `webmcpify run` as the normal discover, draft, review, apply, test, and verification path.
 - Added provider auto-detection and automatic isolated Chrome management for normal browser checks.
+- Safely merges Chrome DevTools MCP into a generated config when a target's `.mcp.json` does not provide it.
 - Made target paths default to the current directory where practical.
+- Stopped loading target-project `.env` files into provider subprocesses.
 - Removed the no-op `init` command and the residual demo project.
 - Moved Temporal to an optional advanced install instead of making every user download its runtime.
 - Restricted npm contents to compiled runtime files and essential documentation.
@@ -16,6 +18,8 @@ All notable changes to WebMCPify are documented here.
 - Moved all run evidence into the target project's ignored `.webmcpify/` directory.
 - Made CLI and MCP version reports read directly from package metadata.
 - Updated the local review server dependencies and resolved the production audit findings.
+- Aligned the Node requirement with the pinned Chrome DevTools MCP runtime.
+- Added concise architecture, target-state, contribution, and release documentation.
 - Replaced the duplicated long-form README with a concise usage and safety guide.
 
 ### Hardened: review, approval, and final-evaluation lifecycle
