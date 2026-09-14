@@ -7,8 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(root, "docs/hackathon/demo-video.html");
 const output = resolve(root, "docs/hackathon/webmcpify-core-agent-demo.mp4");
-const frameRate = 12;
-const duration = 60;
+const frameRate = 8;
+const duration = 155;
 const frameDir = await mkdtemp(join(tmpdir(), "webmcpify-core-video-"));
 const debugPort = 43929;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -74,5 +74,6 @@ try {
 } finally {
   socket?.close();
   chrome.kill("SIGTERM");
+  await sleep(500);
   await rm(frameDir, { recursive: true, force: true });
 }
