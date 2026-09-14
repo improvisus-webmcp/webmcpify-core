@@ -15,3 +15,23 @@ export function normalizeTargetUrl(value: string): string {
   }
   return parsed.toString().replace(/\/$/, "");
 }
+
+export async function ensureTargetReachable(url: string): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    await response.body?.cancel();
+  } catch (error) {
+    throw new Error(
+      `Target URL is not reachable: ${url}. Start the site and try again. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}

@@ -1,5 +1,0 @@
-{
-  "status": "failed",
-  "error": "Command failed with exit code 1: npm run build",
-  "buildScripts": []
-}

@@ -1,8 +1,16 @@
-import { Worker } from "@temporalio/worker";
+#!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import * as activities from "./activities.js";
 
 async function main(): Promise<void> {
+  let Worker: typeof import("@temporalio/worker").Worker;
+  try {
+    ({ Worker } = await import("@temporalio/worker"));
+  } catch {
+    throw new Error(
+      "Temporal support is optional. Install @temporalio/client, @temporalio/worker, and @temporalio/workflow before starting the worker.",
+    );
+  }
   const worker = await Worker.create({
     workflowsPath: fileURLToPath(new URL("./workflows.js", import.meta.url)),
     activities,

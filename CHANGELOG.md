@@ -4,6 +4,20 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Simplified: first-run and package architecture
+
+- Added `webmcpify run` as the normal discover, draft, review, apply, test, and verification path.
+- Added provider auto-detection and automatic isolated Chrome management for normal browser checks.
+- Made target paths default to the current directory where practical.
+- Removed the no-op `init` command and the residual demo project.
+- Moved Temporal to an optional advanced install instead of making every user download its runtime.
+- Restricted npm contents to compiled runtime files and essential documentation.
+- Cleaned compiled output before builds so removed modules cannot enter a release.
+- Moved all run evidence into the target project's ignored `.webmcpify/` directory.
+- Made CLI and MCP version reports read directly from package metadata.
+- Updated the local review server dependencies and resolved the production audit findings.
+- Replaced the duplicated long-form README with a concise usage and safety guide.
+
 ### Hardened: review, approval, and final-evaluation lifecycle
 
 The review boundary now requires a two-step confirmation and persists the

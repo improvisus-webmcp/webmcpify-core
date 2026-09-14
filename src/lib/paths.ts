@@ -5,7 +5,3 @@ import { fileURLToPath } from "node:url";
 export function packageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 }
-
-export function trajectoryPath(name: string): string {
-  return path.join(packageRoot(), "trajectories", name);
-}

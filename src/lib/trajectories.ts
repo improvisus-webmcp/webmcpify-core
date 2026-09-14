@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { packageRoot } from "./paths.js";
 
 export type TrajectoryStatus = "running" | "completed" | "failed";
 
@@ -19,12 +18,8 @@ export interface TrajectoryMetadata {
   [key: string]: unknown;
 }
 
-const legacyTrajectoryDirectory = path.join(packageRoot(), "trajectories");
-
 function trajectoryDirectory(sitePath?: string): string {
-  return sitePath
-    ? path.join(path.resolve(sitePath), ".webmcpify", "trajectories")
-    : legacyTrajectoryDirectory;
+  return path.join(path.resolve(sitePath ?? process.cwd()), ".webmcpify", "trajectories");
 }
 
 function safeSegment(value: string): string {
@@ -153,5 +148,5 @@ export async function latestTrajectoryPath(
 }
 
 export function trajectoryDirectoryPath(): string {
-  return legacyTrajectoryDirectory;
+  return trajectoryDirectory();
 }

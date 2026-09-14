@@ -15,14 +15,14 @@ import { WEBMCP_SPEC_GUIDANCE } from "../lib/webmcp-spec-guidance.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
 
 export async function runBaseline(opts: {
-  path: string;
+  path?: string;
   url: string;
   provider?: string;
   readOnly?: boolean;
 }) {
   const provider = resolveProvider(opts.provider);
   const url = normalizeTargetUrl(opts.url);
-  const sitePath = path.resolve(opts.path);
+  const sitePath = path.resolve(opts.path ?? process.cwd());
   const tasks = await loadApprovedTasks(sitePath);
   const runId = randomUUID();
   const taskSetId = taskFingerprint(tasks);

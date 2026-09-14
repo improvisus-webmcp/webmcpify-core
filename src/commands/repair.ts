@@ -20,6 +20,7 @@ import {
 import { createPendingPatch } from "../lib/patches.js";
 import { runGenerationPreflight } from "../lib/preflight.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
+import { loadTemporalClient } from "../lib/temporal.js";
 import type { TaskResult } from "../lib/scoring.js";
 import type { StoredTestEvaluation } from "./test.js";
 
@@ -305,7 +306,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
     throw new Error("--max-repairs must be a non-negative integer.");
   }
 
-  const { Client, Connection } = await import("@temporalio/client");
+  const { Client, Connection } = await loadTemporalClient();
   const connection = await Connection.connect({
     address: process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233",
   });

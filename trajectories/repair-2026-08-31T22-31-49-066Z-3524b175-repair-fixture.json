@@ -1,6 +1,0 @@
-{
-  "failedTasks": [
-    "task_2"
-  ],
-  "diff": "diff --git a/index.html b/index.html\n--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-<!doctype html><body data-repaired=\"false\"><main>ready</main></body>\n+<!doctype html><body data-repaired=\"true\"><main>ready</main></body>\n"
-}

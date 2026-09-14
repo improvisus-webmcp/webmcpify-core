@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "sitePath": "/tmp/webmcpify-review-vpjk1l",
-  "provider": "fixture",
-  "fixture": true,
-  "role": "generate",
-  "status": "completed",
-  "trajectory": "generate-2026-08-31T22-29-22-918Z-cb7182e6.json"
-}

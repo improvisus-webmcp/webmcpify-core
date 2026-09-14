@@ -1,8 +1,0 @@
-{
-  "status": "passed",
-  "buildScripts": [
-    "build"
-  ],
-  "rollbackPath": "/tmp/webmcpify-repair-fixture-ymJhgG/.webmcpify/rollback/3dd8bca2-d8e3-4170-b3c4-f56b27ee1872",
-  "repairEvaluationPath": "/home/olumide/Desktop/WebMCP/WebMCPify/trajectories/repair-eval-2026-08-31T22-33-19-326Z-7dfabcf3.json"
-}

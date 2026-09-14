@@ -10,6 +10,9 @@ import { runTest } from "../commands/test.js";
 import { patchMetadataPath, readPatchMetadata } from "../lib/patches.js";
 import { discoveryPath } from "../lib/discovery.js";
 import { proposedToolsPath } from "../lib/tool-proposals.js";
+import { withManagedChrome } from "../lib/browser.js";
+import { packageMetadata } from "../lib/package-info.js";
+import { closeScoringBrowser } from "../lib/scoring.js";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const serverRoot = path.resolve(process.cwd());
@@ -117,7 +120,15 @@ async function callTool(name: string, rawArgs: Record<string, unknown>): Promise
     }
     case "test_webmcp": {
       const url = stringArg(rawArgs, "url", false) ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000";
-      const captured = await capture(() => runTest({ path: repositoryPath, url, provider: stringArg(rawArgs, "provider", false) }));
+      const captured = await capture(() =>
+        withManagedChrome(url, async () => {
+          try {
+            return await runTest({ path: repositoryPath, url, provider: stringArg(rawArgs, "provider", false) });
+          } finally {
+            await closeScoringBrowser();
+          }
+        }),
+      );
       return textResult({ ...captured.value, logs: captured.logs });
     }
     default:
@@ -129,7 +140,8 @@ export async function handle(request: JsonRpcRequest): Promise<string | undefine
   if (!request.method) return errorResponse(request.id, -32600, "Invalid JSON-RPC request.");
   if (request.method === "notifications/initialized" || request.method.startsWith("notifications/")) return undefined;
   if (request.method === "initialize") {
-    return response(request.id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: "webmcpify", version: "1.0.0" } });
+    const metadata = packageMetadata();
+    return response(request.id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: "webmcpify-core", version: metadata.version } });
   }
   if (request.method === "ping") return response(request.id, {});
   if (request.method === "tools/list") return response(request.id, { tools });

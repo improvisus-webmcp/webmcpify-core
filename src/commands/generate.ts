@@ -148,7 +148,7 @@ review.`,
 }
 
 export interface GenerateOptions {
-  path: string;
+  path?: string;
   provider?: string;
   method?: string;
   context?: string;
@@ -172,7 +172,7 @@ async function invalidateApprovalState(sitePath: string): Promise<void> {
 export async function runGenerate(opts: GenerateOptions) {
   const provider = resolveProvider(opts.provider);
   const method = resolveMethod(opts.method);
-  const sitePath = path.resolve(opts.path);
+  const sitePath = path.resolve(opts.path ?? process.cwd());
 
   if (!existsSync(sitePath)) {
     throw new Error(`Site path does not exist: ${sitePath}`);

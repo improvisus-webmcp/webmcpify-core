@@ -7,41 +7,40 @@ import { runTest } from "./commands/test.js";
 import { runRepair } from "./commands/repair.js";
 import { runEval } from "./commands/eval.js";
 import { runBaseline } from "./commands/baseline.js";
-import { runInit } from "./commands/init.js";
 import { runApply } from "./commands/apply.js";
 import { runDiscover } from "./commands/discover.js";
 import { runFinalEval } from "./commands/final-eval.js";
+import { runWorkflow } from "./commands/run.js";
+import { withManagedChrome } from "./lib/browser.js";
+import { packageMetadata } from "./lib/package-info.js";
+import { closeScoringBrowser } from "./lib/scoring.js";
 
 const providerHelp =
   "AI provider to use: gemini, antigravity, claude, codex, or opencode";
 
 const program = new Command();
+const metadata = packageMetadata();
 
 program
   .name("webmcpify")
-  .description(
-    "Audit or generate WebMCP tool registrations for a site, verified by an isolated agent driving a real browser."
-  )
-  .version("0.1.0");
+  .description("Create, review, test, and verify WebMCP capabilities.")
+  .version(metadata.version);
 
 program
-  .command("init")
-  .description("Create project settings for the repair loop")
-  .option(
-    "-p, --path <dir>",
-    "path to the site's codebase (defaults to the current directory)"
-  )
-  .option(
-    "--with-temporal",
-    "enable durable execution for the repair loop via Temporal"
-  )
-  .action(runInit);
+  .command("run")
+  .description("Run the normal discover-to-verification workflow")
+  .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
+  .option("-u, --url <url>", "running site URL", "http://localhost:3000")
+  .option("--provider <name>", providerHelp)
+  .option("--method <type>", "generation strategy: declarative, imperative, or auto", "auto")
+  .option("--review-port <number>", "port for the human review page", "4173")
+  .action(runWorkflow);
 
 program
   .command("generate")
   .description("Draft WebMCP tool registrations for a site (no changes applied yet)")
-  .requiredOption("-p, --path <dir>", "path to the site's codebase")
-  .option("--provider <name>", providerHelp, "gemini")
+  .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
+  .option("--provider <name>", providerHelp)
   .option(
     "--method <type>",
     "generation strategy: declarative, imperative, or auto",
@@ -85,9 +84,15 @@ program
     "-p, --path <dir>",
     "path to the site's codebase (defaults to the current directory)"
   )
-  .option("--provider <name>", providerHelp, "gemini")
+  .option("--provider <name>", providerHelp)
   .action(async (opts) => {
-    await runTest(opts);
+    await withManagedChrome(opts.url, async () => {
+      try {
+        await runTest(opts);
+      } finally {
+        await closeScoringBrowser();
+      }
+    });
   });
 
 program
@@ -105,8 +110,16 @@ program
   .option("--max-repairs <number>", "maximum durable repair attempts", "3")
   .option("--durable", "run the repair loop through Temporal (requires --url and --task)")
   .option("--no-durable", "force the plain repair loop for this run")
-  .option("--provider <name>", providerHelp, "gemini")
-  .action(runRepair);
+  .option("--provider <name>", providerHelp)
+  .action(async (opts) => {
+    if (!opts.url) {
+      await runRepair(opts);
+      return;
+    }
+    await withManagedChrome(opts.url, async () => {
+      await runRepair(opts);
+    });
+  });
 
 program
   .command("eval")
@@ -119,22 +132,35 @@ program
 program
   .command("baseline")
   .description("Run the one-shot, self-verifying baseline for comparison")
-  .requiredOption("-p, --path <dir>", "path to the site's codebase")
+  .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
   .requiredOption("-u, --url <url>", "URL of the running site")
-  .option("--provider <name>", providerHelp, "gemini")
+  .option("--provider <name>", providerHelp)
   .action(async (opts) => {
-    await runBaseline(opts);
+    await withManagedChrome(opts.url, async () => {
+      try {
+        await runBaseline(opts);
+      } finally {
+        await closeScoringBrowser();
+      }
+    });
   });
 
 program
   .command("final-eval")
-  .description("Run the complete baseline, WebMCP, and Temporal comparison")
-  .requiredOption("-p, --path <dir>", "path to the target project")
+  .description("Run the advanced baseline, WebMCP, and Temporal comparison")
+  .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
   .option("-u, --url <url>", "running target URL (defaults to WEBMCPIFY_URL or http://localhost:3000)")
-  .option("--provider <name>", providerHelp, "antigravity")
+  .option("--provider <name>", providerHelp)
   .option("--review-port <number>", "port for the human review checkpoint", "4173")
   .action(async (opts) => {
-    await runFinalEval({ path: opts.path, url: opts.url, provider: opts.provider, reviewPort: opts.reviewPort });
+    const url = opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000";
+    await withManagedChrome(url, async () => {
+      try {
+        await runFinalEval({ path: opts.path, url, provider: opts.provider, reviewPort: opts.reviewPort });
+      } finally {
+        await closeScoringBrowser();
+      }
+    });
   });
 
 program.parseAsync().catch((error: unknown) => {

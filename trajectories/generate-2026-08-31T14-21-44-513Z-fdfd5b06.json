@@ -1,6 +1,0 @@
-{
-  "status": "failed",
-  "provider": "codex",
-  "observedOutput": "[codex] Reading additional input from stdin...",
-  "error": "Provider returned no structured output; no proposed-tools.json was created."
-}

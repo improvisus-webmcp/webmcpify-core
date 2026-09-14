@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "sitePath": "/tmp/webmcpify-review-DaAVON",
-  "provider": "fixture",
-  "fixture": true,
-  "role": "generate",
-  "status": "completed",
-  "trajectory": "generate-2026-08-31T22-37-19-748Z-1b799eb7.json"
-}

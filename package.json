@@ -1,18 +1,29 @@
 {
   "name": "@improvisus/webmcpify-core",
   "version": "1.0.3",
-  "description": "A CLI that audits and generates WebMCP tool registrations for a website, verified by an isolated agent driving a real browser, with human approval required before any tool goes live",
+  "description": "Create, review, test, and verify WebMCP capabilities from a local CLI or MCP server.",
   "main": "dist/cli.js",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "bin": {
     "webmcpify": "dist/cli.js",
-    "webmcpify-mcp": "dist/mcp/server.js"
+    "webmcpify-mcp": "dist/mcp/server.js",
+    "webmcpify-worker": "dist/temporal/worker.js"
   },
   "scripts": {
-    "webmcpify": "pnpm build && node dist/cli.js",
+    "webmcpify": "npm run build --silent && node dist/cli.js",
     "mcp": "node dist/mcp/server.js",
-    "build": "tsc",
-    "release": "npm run build && npm version patch && npm publish --access public",
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean --silent && tsc",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test",
+    "release": "npm publish --access public",
     "generate": "node dist/cli.js generate",
     "review": "node dist/cli.js review",
     "test:audit": "node dist/cli.js test",
@@ -27,9 +38,9 @@
     "verify:evaluation": "node scripts/verify-evaluation.mjs",
     "verify:final-eval": "node scripts/verify-final-eval.mjs",
     "temporal:worker": "node dist/temporal/worker.js",
-    "chrome:headless": "node scripts/start-headless-chrome.mjs",
     "dev": "tsx watch src/cli.ts",
-    "test": "node scripts/verify-mcp.mjs"
+    "test:mcp": "node scripts/verify-mcp.mjs",
+    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent"
   },
   "keywords": [
     "webmcp",
@@ -38,7 +49,7 @@
     "agentic",
     "ai-agents",
     "browser-automation",
-    "hackathon"
+    "developer-tools"
   ],
   "author": "Abeeb Ridwan Olumide",
   "license": "MIT",
@@ -57,19 +68,35 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@temporalio/client": "1.21.1",
-    "@temporalio/worker": "1.21.1",
-    "@temporalio/workflow": "1.21.1",
     "commander": "^12.1.0",
     "dotenv": "^17.4.2",
     "execa": "^10.0.1",
-    "express": "^4.22.2",
+    "express": "^5.2.1",
     "playwright-core": "^1.62.1"
   },
   "devDependencies": {
-    "@types/express": "^4.17.25",
+    "@temporalio/client": "1.21.1",
+    "@temporalio/worker": "1.21.1",
+    "@temporalio/workflow": "1.21.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@temporalio/client": "^1.21.1",
+    "@temporalio/worker": "^1.21.1",
+    "@temporalio/workflow": "^1.21.1"
+  },
+  "peerDependenciesMeta": {
+    "@temporalio/client": {
+      "optional": true
+    },
+    "@temporalio/worker": {
+      "optional": true
+    },
+    "@temporalio/workflow": {
+      "optional": true
+    }
   }
 }

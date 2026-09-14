@@ -12,10 +12,11 @@ import { loadApprovedTasks, taskFingerprint, type Task } from "../lib/tasks.js";
 import { gitSourceSnapshot, readPatchMetadata } from "../lib/patches.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../lib/trajectories.js";
 import type { TaskScoreSummary, TaskResult } from "../lib/scoring.js";
-import { normalizeTargetUrl } from "../lib/target-url.js";
+import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
+import { loadTemporalClient } from "../lib/temporal.js";
 
 export interface FinalEvalOptions {
-  path: string;
+  path?: string;
   url?: string;
   provider?: string;
   reviewPort?: string;
@@ -82,21 +83,6 @@ export function compareTaskSets(tasks: Task[], candidate: Task[]): void {
 function failedSummary(tasks: Task[], error: unknown): TaskScoreSummary {
   const detail = error instanceof Error ? error.message : String(error);
   return { passed: 0, total: tasks.length, results: tasks.map((task) => ({ task: task.id, passed: false, detail })) };
-}
-
-async function ensureTargetReachable(url: string): Promise<void> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5_000);
-  try {
-    const response = await fetch(url, { redirect: "manual", signal: controller.signal });
-    await response.body?.cancel();
-  } catch (error) {
-    throw new Error(
-      `[final-eval] target URL is not reachable: ${url}. Start the target dev server before running final-eval. ${error instanceof Error ? error.message : String(error)}`
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 function finalEvalCheckpointPath(sitePath: string): string {
@@ -225,7 +211,7 @@ async function confirmResume(resumable: ResumableFinalEval): Promise<boolean> {
 }
 
 async function runTemporalLevel(sitePath: string, url: string, provider: string, tasks: Task[], runId: string, taskSetId: string, seedScores?: TaskScoreSummary): Promise<LevelResult> {
-  const { Client, Connection } = await import("@temporalio/client");
+  const { Client, Connection } = await loadTemporalClient();
   const connection = await Connection.connect({ address: process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233" });
   try {
     const client = new Client({ connection, namespace: process.env.WEBMCPIFY_TEMPORAL_NAMESPACE ?? "default" });
@@ -260,7 +246,7 @@ async function runTemporalLevel(sitePath: string, url: string, provider: string,
 }
 
 export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalResult> {
-  const sitePath = path.resolve(opts.path);
+  const sitePath = path.resolve(opts.path ?? process.cwd());
   const url = normalizeTargetUrl(opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000");
   const provider = opts.provider ?? "antigravity";
   console.log(`[final-eval] target: ${sitePath}`);
@@ -483,6 +469,6 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
   console.log(`[final-eval] trajectory: ${artifact}`);
   if (temporalLevel.status === "failed") throw new Error(`Temporal level failed: ${temporalLevel.error}`);
   console.log("[final-eval] ✅ COMPLETE — WebMCP evaluation passed");
-  console.log(`[final-eval] next: pnpm webmcpify eval --path ${sitePath}`);
+  console.log(`[final-eval] next: webmcpify eval --path ${sitePath}`);
   return result;
 }
