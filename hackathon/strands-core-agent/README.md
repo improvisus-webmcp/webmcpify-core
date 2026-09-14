@@ -17,7 +17,7 @@ The review is not a chat confirmation. Core serves the exact tools, tests, secur
 Requirements:
 
 - Node.js 22+
-- AWS credentials with access to an Amazon Bedrock model supported by Strands
+- AWS credentials with access to Amazon Nova Lite on Bedrock
 - A supported Core coding provider such as Codex
 - A target web application with dependencies installed and an initial Git commit
 - A running target URL for browser verification
@@ -27,6 +27,13 @@ From the repository root:
 ```bash
 pnpm install
 pnpm agent -- --path /path/to/web-app --url http://localhost:3000 --provider codex
+```
+
+The runner defaults to `us.amazon.nova-lite-v1:0`, avoiding third-party
+model onboarding. Override it when needed:
+
+```bash
+WEBMCPIFY_STRANDS_MODEL_ID=another-supported-model pnpm agent -- --path /path/to/web-app
 ```
 
 The terminal stays interactive across the approval boundary. Open the review URL printed by the agent, make the decision in the local UI, then type `continue`.
@@ -43,4 +50,3 @@ These checks validate argument handling, MCP tool exposure, workspace confinemen
 ## Current limitation
 
 This agent protects work routed through Core. It does not claim to govern unrelated agents, browser sessions, or direct repository access outside the Core MCP boundary.
-

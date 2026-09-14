@@ -4,7 +4,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { stdin as input, stdout as output } from "node:process";
-import { Agent, McpClient } from "@strands-agents/sdk";
+import { Agent, BedrockModel, McpClient } from "@strands-agents/sdk";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { parseArgs } from "./args.js";
 import { buildInitialRequest, CORE_TOOL_NAMES, SYSTEM_PROMPT } from "./workflow.js";
@@ -51,7 +51,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     toolFilters: { allowed: [...CORE_TOOL_NAMES] },
     prefix: "core_",
   });
+  const modelId = process.env.WEBMCPIFY_STRANDS_MODEL_ID?.trim() || "us.amazon.nova-lite-v1:0";
+  const region = process.env.AWS_REGION?.trim() || process.env.AWS_DEFAULT_REGION?.trim() || "us-west-2";
+  const model = new BedrockModel({
+    modelId,
+    region,
+    temperature: 0,
+  });
+  console.log(`Strands model: ${modelId} · region: ${region}`);
   const agent = new Agent({
+    model,
     systemPrompt: SYSTEM_PROMPT,
     tools: [core],
   });
