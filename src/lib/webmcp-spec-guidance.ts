@@ -80,6 +80,18 @@ SECURITY AND PRIVACY AREAS
   authentication, private-mode protections, or permissions policy.
 - Consequential actions: identify actions with meaningful side effects and
   preserve the application's confirmation and human-approval boundary.
+- Provider access control: browser session authentication identifies the user,
+  not the agent. For consequential tools, require a server-verified agent
+  principal and bind authorization to the user, agent, exact tool, origin, and
+  a short expiry. Do not invent an identity provider or trust a client-supplied
+  agent name.
+- Backend enforcement and automated abuse: authorization, quotas, validation,
+  and business rules must run in the underlying API/server action. Client-only
+  checks and WebMCP annotations are not security boundaries.
+- Retries and evidence: consequential or repeatable mutations need a bounded
+  idempotency key, replay-safe backend behavior, and a structured result or
+  receipt that identifies what completed. Propagate cancellation signals where
+  possible, but never assume cancellation rolled back a completed backend call.
 
 WORKFLOW RULE
 Use these rules during discovery, generation, compile repair, source repair,

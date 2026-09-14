@@ -5,7 +5,7 @@ Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/w
 Core inspects what a site already does, asks a coding agent to draft grounded WebMCP tools in an isolated copy, and shows the exact proposal for human approval. Only an approved patch can reach the target repository. The result is tested in a real browser and checked independently of the agent's claim.
 
 ```text
-Discover → Draft → Review → Apply → Test → Verify
+Discover → Draft → Security check → Review → Apply → Test → Verify
 ```
 
 WebMCP and browser support are experimental. Core checks the available runtime instead of assuming support.
@@ -16,13 +16,13 @@ WebMCP and browser support are experimental. Core checks the available runtime i
 npm install --global @improvisus/webmcpify-core
 ```
 
-Requirements:
+Requirements are stage-specific:
 
-- Node.js 20.19 or newer on the Node 20 line, Node.js 22.12 or newer, or Node.js 23+.
-- Git and at least one commit in the target project.
-- Installed target-project dependencies and a running development or staging URL.
-- Chrome 150+ or a compatible Chromium build with WebMCP support.
-- One authenticated coding-agent CLI: Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity.
+- **Every command:** Node.js 20.19+ on Node 20, Node.js 22.12+, or Node.js 23+.
+- **Generate/apply:** Git with at least one target-project commit and installed target dependencies for available build checks.
+- **Agent-assisted commands:** one authenticated Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity CLI.
+- **Browser test/baseline:** a running development or staging URL plus Chrome 150+ or a compatible Chromium build with WebMCP support.
+- **Durable repair/final-eval only:** the optional Temporal packages, a Temporal service, and `webmcpify-worker`.
 
 Core detects an installed provider when `--provider` is omitted. Set `WEBMCPIFY_PROVIDER` when you want a fixed default.
 
@@ -46,10 +46,11 @@ webmcpify run --url http://localhost:3000 --provider codex
 
 1. Discover the target's routes, forms, handlers, APIs, state, authentication signals, and existing WebMCP tools.
 2. Draft tools and browser-verifiable tasks in a disposable workspace.
-3. Open a local review URL and wait for the owner to approve or reject the exact tools, tasks, and patch.
-4. Apply an approved patch and run the target's available typecheck and build scripts.
-5. Reuse an available CDP browser or start an isolated headless Chrome session.
-6. Exercise approved WebMCP tools and independently verify the resulting page state.
+3. Audit each tool's declared user/agent binding, backend authorization, origin scope, quota, replay protection, and input bounds.
+4. Open a local review URL and wait for the owner to approve or reject the exact tools, tasks, security findings, and patch.
+5. Apply an approved patch and run the target's available typecheck and build scripts.
+6. Reuse an available CDP browser or start an isolated headless Chrome session.
+7. Exercise approved WebMCP tools and independently verify the resulting page state.
 
 Use `--path /path/to/project` when running outside the target directory. The URL defaults to `http://localhost:3000`.
 
@@ -70,6 +71,7 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Apply rejects missing, stale, altered, or unapproved patches.
 - Target typecheck/build failures trigger rollback.
 - Browser tests expose only approved WebMCP tools to the test agent.
+- State-changing proposals with blocking Core access-control gaps cannot reach approval.
 - Verification reads the resulting application state instead of trusting the agent's report.
 - Run evidence stays in the target project's ignored `.webmcpify/` directory.
 
@@ -82,6 +84,7 @@ Core reduces risk; it does not guarantee that generated code or WebMCP tools are
 | `webmcpify run` | Normal end-to-end workflow; start here. |
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
 | `webmcpify generate` | Draft tools, tasks, and a pending source patch. |
+| `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |
 | `webmcpify review` | Review and approve or reject the exact draft locally. |
 | `webmcpify apply` | Apply the approved patch and verify the target build. |
 | `webmcpify test --url <url>` | Test approved tools in an isolated browser session. |
@@ -112,14 +115,26 @@ The server exposes:
 
 - `analyze_repository`
 - `generate_webmcp`
+- `audit_webmcp_security`
 - `apply_webmcp`
 - `test_webmcp`
 
 The server rejects paths outside its starting workspace. Generated changes remain pending until the normal human review creates an approval manifest; `apply_webmcp` also requires the matching patch identifier.
 
+## Core access-control checkpoint
+
+Core requires generated tools to describe an internal security contract. This is review evidence, not a WebMCP field. It covers user authentication, verified-agent requirements, backend authorization, exact origin scope, per-tool quotas, and idempotency. Core blocks state-changing proposals that rely on client-only authorization and blocks consequential proposals missing user/agent binding, quotas, or replay protection.
+
+```bash
+webmcpify security --path /path/to/project
+webmcpify security --path /path/to/project --strict
+```
+
+The report is written to `.webmcpify/security-report.json` and shown during review. Static analysis cannot prove that a backend enforces a claim, so the exact patch must still be reviewed. Core does not yet issue or verify a universal provider-attestation token, and production policy storage remains the target backend's responsibility.
+
 ## Advanced durable workflows
 
-The normal `run` command does not use Temporal. Temporal is only for resumable failed-task repair and the advanced three-level `final-eval` comparison. Install its optional packages alongside Core:
+The normal `run` command and one-shot `repair` command do not use Temporal. Use Temporal when repair progress and retries must survive process interruption. The current three-level `final-eval` command includes that durable Temporal level, so it also requires Temporal. Install its optional packages alongside Core:
 
 ```bash
 npm install --global \
@@ -155,7 +170,7 @@ Provider executable overrides are available as `WEBMCPIFY_CODEX_BIN`, `WEBMCPIFY
 
 ## Project artifacts
 
-Core writes local state under `<target>/.webmcpify/`, including discovery, proposed tools, the pending patch, approvals, evaluations, rollback data, and timestamped evidence. Keep this directory out of source control. Core does not require GitHub access and does not upload the target repository.
+Core writes local state under `<target>/.webmcpify/`, including discovery, proposed tools, `security-report.json`, the pending patch, approvals, evaluations, rollback data, and timestamped evidence. Keep this directory out of source control. Core does not require GitHub access and does not upload the target repository.
 
 ## Development
 
@@ -168,7 +183,7 @@ pnpm test
 npm pack --dry-run
 ```
 
-`npm test` runs the focused discovery, proposal, review, patch, repair, evaluation, final-evaluation, and MCP checks. Publishing runs type checking and the complete test suite before npm creates the package.
+`npm test` runs the focused discovery, proposal, security, review, patch, repair, evaluation, final-evaluation, and MCP checks. Publishing runs type checking and the complete test suite before npm creates the package.
 
 ## Architecture and contributing
 

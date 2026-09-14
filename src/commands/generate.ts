@@ -15,6 +15,7 @@ import { runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
+import { auditToolSecurity, writeSecurityReport } from "../lib/security-audit.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -156,16 +157,23 @@ export interface GenerateOptions {
   preserveApprovalState?: boolean;
 }
 
-async function invalidateApprovalState(sitePath: string): Promise<void> {
+async function invalidateDraftState(sitePath: string): Promise<void> {
   const stateDirectory = path.join(sitePath, ".webmcpify");
   const staleDirectory = path.join(stateDirectory, "stale");
   await mkdir(staleDirectory, { recursive: true });
   // tasks.json belongs to the target project's approved evaluation state. Do
   // not move or rewrite it during generation; a new task set replaces it only
   // when the human approval transaction completes.
-  for (const file of [path.join(stateDirectory, "approved-tools.json")]) {
+  const staleAt = Date.now();
+  for (const file of [
+    path.join(stateDirectory, "approved-tools.json"),
+    path.join(stateDirectory, "proposed-tools.json"),
+    path.join(stateDirectory, "security-report.json"),
+    path.join(stateDirectory, "pending-diff.patch"),
+    path.join(stateDirectory, "pending-diff.meta.json"),
+  ]) {
     if (!existsSync(file)) continue;
-    await rename(file, path.join(staleDirectory, `${Date.now()}-${path.basename(file)}`));
+    await rename(file, path.join(staleDirectory, `${staleAt}-${path.basename(file)}`));
   }
 }
 
@@ -178,7 +186,7 @@ export async function runGenerate(opts: GenerateOptions) {
     throw new Error(`Site path does not exist: ${sitePath}`);
   }
 
-  if (!opts.preserveApprovalState) await invalidateApprovalState(sitePath);
+  if (!opts.preserveApprovalState) await invalidateDraftState(sitePath);
 
   const discovery = await runDiscovery(sitePath);
 
@@ -250,6 +258,11 @@ ${opts.context}`
   try {
     const tools = extractAndValidateProposedTools(await readFile(saveTo, "utf8"), discovery);
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
+    const security = auditToolSecurity(tools, discovery, sitePath);
+    const securityFile = await writeSecurityReport(sitePath, security);
+    if (security.status === "block") {
+      throw new Error(`Security review blocked this proposal (${security.summary.block} blocking finding(s)). Inspect ${securityFile}; no pending patch was created.`);
+    }
     const patch = await createPendingPatch(
       sitePath,
       workspaceDiff,
@@ -258,6 +271,7 @@ ${opts.context}`
     console.log(`[generate] draft saved to ${saveTo}`);
     console.log(`[generate] proposed tools: ${proposalFile}`);
     console.log(`[generate] validated ${tools.length} tool proposal(s)`);
+    console.log(`[generate] security: ${security.status} (${security.summary.review} review finding(s)); ${securityFile}`);
     console.log(`[generate] generated source changes: ${patch.changedFiles.join(", ")}`);
     console.log(`[generate] patch: ${patch.patchPath}`);
     console.log("[generate] status: awaiting review");

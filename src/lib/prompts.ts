@@ -110,6 +110,16 @@ fenced json block labelled TOOL_PROPOSALS_JSON:
       "untrustedContentHint": false,
       "consequentialHint": false
     },
+    "security": {
+      "userAuthentication": "required, optional, or none",
+      "agentIdentity": "required, optional, or none",
+      "authorization": "backend, server-action, client-only, or none",
+      "originScope": "same-origin or restricted-cross-origin",
+      "allowedOrigins": [],
+      "rateLimit": { "enforced": false, "scope": "agent-user-tool", "limit": 60, "windowSeconds": 60 },
+      "idempotency": { "enforced": false, "keyParameter": "idempotencyKey" },
+      "notes": "Exact source evidence for enforced controls, or an honest description of the gap"
+    },
     "implementation": {
       "handler": "path/to/file.ts#handler-or-function",
       "action": "the discovered action this invokes",
@@ -128,4 +138,14 @@ and each tool must correspond to a discovered form, button, action, API,
 authentication, state, or existing-WebMCP signal. Do not propose tools for
 capabilities absent from discovery. Keep this JSON separate from the later
 TASKS_JSON and unified diff sections.
+
+The security object is Core review metadata, not a WebMCP API field. Make every
+claim match the code in the exact proposed patch. Never claim backend
+authorization, agent identity, quotas, or idempotency merely because the UI or
+tool description mentions them. A state-changing tool must reuse a real
+backend/server action with authorization. A consequential action must also be
+bound to an authenticated user and verified agent, rate limited, and protected
+against replay. If the target lacks those controls, do not fabricate them:
+either implement the smallest real backend control or skip that high-risk tool
+and explain why.
 `.trim();

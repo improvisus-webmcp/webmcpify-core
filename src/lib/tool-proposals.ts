@@ -10,6 +10,16 @@ export interface ProposedTool {
   description: string;
   parameters: { type: "object"; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean };
   annotations: { readOnlyHint: boolean; untrustedContentHint: boolean; consequentialHint: boolean };
+  security?: {
+    userAuthentication: "required" | "optional" | "none";
+    agentIdentity: "required" | "optional" | "none";
+    authorization: "backend" | "server-action" | "client-only" | "none";
+    originScope: "same-origin" | "restricted-cross-origin";
+    allowedOrigins?: string[];
+    rateLimit: { enforced: boolean; scope: "agent" | "user" | "agent-user-tool"; limit?: number; windowSeconds?: number };
+    idempotency: { enforced: boolean; keyParameter?: string };
+    notes: string;
+  };
   implementation: { handler: string; action: string; state?: string };
   placement: { strategy: "declarative" | "imperative"; file: string; rationale: string };
   sourceFiles: string[];
@@ -152,7 +162,38 @@ function normalizeTool(value: unknown, index: number): ProposedTool {
   if (!placement || (placement.strategy !== "declarative" && placement.strategy !== "imperative") || typeof placement.file !== "string" || typeof placement.rationale !== "string") throw new Error(`Tool "${name}" needs valid placement information.`);
   if (!Array.isArray(candidate.sourceFiles) || candidate.sourceFiles.length === 0 || candidate.sourceFiles.some((file) => typeof file !== "string" || !file.trim())) throw new Error(`Tool "${name}" needs sourceFiles.`);
   if (parameters.required !== undefined && (!Array.isArray(parameters.required) || parameters.required.some((field) => typeof field !== "string"))) throw new Error(`Tool "${name}" has an invalid required parameter list.`);
-  return { id, name, title, description: candidate.description.trim(), parameters: parameters as ProposedTool["parameters"], annotations: { readOnlyHint: annotations.readOnlyHint, untrustedContentHint: annotations.untrustedContentHint, consequentialHint: annotations.consequentialHint }, implementation: { handler: implementation.handler, action: implementation.action, ...(typeof implementation.state === "string" ? { state: implementation.state } : {}) }, placement: { strategy: placement.strategy, file: placement.file, rationale: placement.rationale }, sourceFiles: [...new Set((candidate.sourceFiles as string[]).map((file) => file.trim()))] };
+  const security = normalizeSecurity(candidate.security, name);
+  return { id, name, title, description: candidate.description.trim(), parameters: parameters as ProposedTool["parameters"], annotations: { readOnlyHint: annotations.readOnlyHint, untrustedContentHint: annotations.untrustedContentHint, consequentialHint: annotations.consequentialHint }, ...(security ? { security } : {}), implementation: { handler: implementation.handler, action: implementation.action, ...(typeof implementation.state === "string" ? { state: implementation.state } : {}) }, placement: { strategy: placement.strategy, file: placement.file, rationale: placement.rationale }, sourceFiles: [...new Set((candidate.sourceFiles as string[]).map((file) => file.trim()))] };
+}
+
+function normalizeSecurity(value: unknown, toolName: string): ProposedTool["security"] | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`Tool "${toolName}" has an invalid security contract.`);
+  const security = value as Record<string, unknown>;
+  const rateLimit = security.rateLimit as Record<string, unknown> | undefined;
+  const idempotency = security.idempotency as Record<string, unknown> | undefined;
+  if (!["required", "optional", "none"].includes(String(security.userAuthentication))) throw new Error(`Tool "${toolName}" has an invalid security.userAuthentication value.`);
+  if (!["required", "optional", "none"].includes(String(security.agentIdentity))) throw new Error(`Tool "${toolName}" has an invalid security.agentIdentity value.`);
+  if (!["backend", "server-action", "client-only", "none"].includes(String(security.authorization))) throw new Error(`Tool "${toolName}" has an invalid security.authorization value.`);
+  if (!["same-origin", "restricted-cross-origin"].includes(String(security.originScope))) throw new Error(`Tool "${toolName}" has an invalid security.originScope value.`);
+  if (!rateLimit || typeof rateLimit.enforced !== "boolean" || !["agent", "user", "agent-user-tool"].includes(String(rateLimit.scope))) throw new Error(`Tool "${toolName}" has an invalid security.rateLimit contract.`);
+  if (!idempotency || typeof idempotency.enforced !== "boolean") throw new Error(`Tool "${toolName}" has an invalid security.idempotency contract.`);
+  if (typeof security.notes !== "string" || !security.notes.trim()) throw new Error(`Tool "${toolName}" needs security.notes explaining the enforcement evidence or gap.`);
+  if (security.allowedOrigins !== undefined && (!Array.isArray(security.allowedOrigins) || security.allowedOrigins.some((origin) => typeof origin !== "string"))) throw new Error(`Tool "${toolName}" has an invalid security.allowedOrigins list.`);
+  for (const [field, raw] of [["limit", rateLimit.limit], ["windowSeconds", rateLimit.windowSeconds]] as const) {
+    if (raw !== undefined && (!Number.isInteger(raw) || Number(raw) <= 0)) throw new Error(`Tool "${toolName}" needs a positive integer security.rateLimit.${field}.`);
+  }
+  if (idempotency.keyParameter !== undefined && (typeof idempotency.keyParameter !== "string" || !idempotency.keyParameter.trim())) throw new Error(`Tool "${toolName}" has an invalid security.idempotency.keyParameter.`);
+  return {
+    userAuthentication: security.userAuthentication as NonNullable<ProposedTool["security"]>["userAuthentication"],
+    agentIdentity: security.agentIdentity as NonNullable<ProposedTool["security"]>["agentIdentity"],
+    authorization: security.authorization as NonNullable<ProposedTool["security"]>["authorization"],
+    originScope: security.originScope as NonNullable<ProposedTool["security"]>["originScope"],
+    ...(Array.isArray(security.allowedOrigins) ? { allowedOrigins: [...new Set(security.allowedOrigins.map(String))] } : {}),
+    rateLimit: { enforced: rateLimit.enforced, scope: rateLimit.scope as NonNullable<ProposedTool["security"]>["rateLimit"]["scope"], ...(typeof rateLimit.limit === "number" ? { limit: rateLimit.limit } : {}), ...(typeof rateLimit.windowSeconds === "number" ? { windowSeconds: rateLimit.windowSeconds } : {}) },
+    idempotency: { enforced: idempotency.enforced, ...(typeof idempotency.keyParameter === "string" ? { keyParameter: idempotency.keyParameter.trim() } : {}) },
+    notes: security.notes.trim(),
+  };
 }
 
 function relatedSignals(tool: ProposedTool, discovery: DiscoveryResult): string[] {

@@ -4,6 +4,15 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Added: Core security checkpoint
+
+- Added per-tool access declarations for user authentication, agent identity, backend authorization, origin scope, quotas, and idempotency.
+- Added `webmcpify security` and the `audit_webmcp_security` MCP tool, both writing `.webmcpify/security-report.json`.
+- Generation now stops before creating an approvable patch when a state-changing proposal has blocking access-control gaps.
+- Review surfaces non-blocking privacy and schema findings and refuses tools that still have blocking findings after edits.
+- Added focused verification for secure consequential tools and missing agent, quota, and replay controls.
+- Kept cryptographic provider attestation and production policy storage out of scope until an interoperable trust format and backend adapters are defined.
+
 ### Simplified: first-run and package architecture
 
 - Added `webmcpify run` as the normal discover, draft, review, apply, test, and verification path.

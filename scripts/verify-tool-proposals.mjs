@@ -42,6 +42,15 @@ try {
       untrustedContentHint: false,
       consequentialHint: true,
     },
+    security: {
+      userAuthentication: "required",
+      agentIdentity: "required",
+      authorization: "backend",
+      originScope: "same-origin",
+      rateLimit: { enforced: true, scope: "agent-user-tool", limit: 3, windowSeconds: 86400 },
+      idempotency: { enforced: true, keyParameter: "idempotencyKey" },
+      notes: "Backend enforcement is part of the reviewed proposal.",
+    },
     implementation: {
       handler: `${file}#handler`,
       action: "discovered action",

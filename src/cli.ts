@@ -11,6 +11,7 @@ import { runApply } from "./commands/apply.js";
 import { runDiscover } from "./commands/discover.js";
 import { runFinalEval } from "./commands/final-eval.js";
 import { runWorkflow } from "./commands/run.js";
+import { runSecurity } from "./commands/security.js";
 import { withManagedChrome } from "./lib/browser.js";
 import { packageMetadata } from "./lib/package-info.js";
 import { closeScoringBrowser } from "./lib/scoring.js";
@@ -56,6 +57,13 @@ program
     "path to the site's codebase (defaults to the current directory)"
   )
   .action(runDiscover);
+
+program
+  .command("security")
+  .description("Audit proposed or approved tools for Core access-control gaps")
+  .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
+  .option("--strict", "fail when the report contains blocking findings")
+  .action(async (opts) => { await runSecurity(opts); });
 
 program
   .command("review")

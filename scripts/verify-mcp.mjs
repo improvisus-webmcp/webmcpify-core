@@ -36,7 +36,7 @@ try {
   assert.equal(initialized.result.serverInfo.name, "webmcpify-core");
   assert.equal(initialized.result.serverInfo.version, packageVersion);
   const listed = replies.find((reply) => reply.id === 2);
-  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["analyze_repository", "generate_webmcp", "apply_webmcp", "test_webmcp"]);
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["analyze_repository", "generate_webmcp", "audit_webmcp_security", "apply_webmcp", "test_webmcp"]);
   const analyzed = replies.find((reply) => reply.id === 3);
   assert.equal(analyzed.result.structuredContent.project.name, "mcp-fixture");
   assert.ok(analyzed.result.structuredContent.capabilities.includes("forms"));

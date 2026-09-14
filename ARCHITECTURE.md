@@ -7,7 +7,8 @@ flowchart LR
     CLI[CLI or Core MCP server] --> Discover[Source discovery]
     Discover --> Workspace[Disposable agent workspace]
     Workspace --> Proposal[Tools, tasks, and patch]
-    Proposal --> Review[Local human review]
+    Proposal --> Security[Core security checkpoint]
+    Security --> Review[Local human review]
     Review --> Apply[Exact patch and build check]
     Apply --> Bridge[Chrome DevTools MCP]
     Bridge --> Browser[Isolated Chrome]
@@ -42,6 +43,7 @@ flowchart LR
 | `src/commands/run.ts` | Runs the normal discover → draft → review → apply → test → verify path. |
 | `src/commands/discover.ts` | CLI wrapper for static project discovery. |
 | `src/commands/generate.ts` | Creates a disposable workspace, invokes a provider, validates its source changes, and stores a pending proposal. |
+| `src/commands/security.ts` | Audits proposed or approved tools and writes the project security report. |
 | `src/commands/review.ts` | Serves the local two-step tool, task, and patch approval UI. |
 | `src/commands/apply.ts` | Validates approval/source identity, applies the patch, runs target checks, and rolls back failure. |
 | `src/commands/test.ts` | Runs approved tasks through the live browser and records independent results. |
@@ -63,6 +65,7 @@ flowchart LR
 | `src/lib/prompts.ts` | Holds deterministic discovery, placement, proposal, and task-authoring instructions. |
 | `src/lib/webmcp-spec-guidance.ts` | Holds the WebMCP compatibility, lifecycle, privacy, and security rules supplied to providers. |
 | `src/lib/tool-proposals.ts` | Parses, normalizes, validates, persists, and reloads structured tool proposals. |
+| `src/lib/security-audit.ts` | Checks declared user/agent binding, backend authorization, origins, quotas, replay protection, sensitive inputs, and schema bounds. |
 | `src/lib/task-verification.ts` | Checks task verification expressions for unsafe or invalid patterns. |
 | `src/lib/tasks.ts` | Validates 5–6 tasks, fingerprints them, and atomically binds them to approval. |
 | `src/lib/patches.ts` | Extracts safe Git patches, validates paths and source state, and stores patch metadata. |
@@ -95,6 +98,7 @@ flowchart LR
 | `scripts/verify-mcp.mjs` | Tests MCP identity, tools, workspace confinement, and browser MCP config merging. |
 | `scripts/verify-discovery.mjs` | Tests framework, route, action, API, and WebMCP discovery with a temporary fixture. |
 | `scripts/verify-tool-proposals.mjs` | Tests structured proposal parsing and grounding. |
+| `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
 | `scripts/verify-review.mjs` | Tests approval editing, confirmation, persistence, locking, and rejection. |
 | `scripts/verify-patch-lifecycle.mjs` | Tests patch validation, approval gating, apply, and rollback. |
 | `scripts/verify-repair.mjs` | Tests failure selection, focused repair patches, review boundaries, and regression evidence. |
@@ -123,6 +127,7 @@ Core writes these only inside the selected target project:
 | `.webmcpify/proposed-tools.json` | Validated structured tool proposal. |
 | `.webmcpify/pending-diff.patch` and `.meta.json` | Exact pending patch and its source identity/status. |
 | `.webmcpify/approved-tools.json` | Human-approved tool/task manifest and fingerprint. |
+| `.webmcpify/security-report.json` | Static Core access-control report shown before approval. |
 | `tasks.json` | Approved browser-verifiable task set. |
 | `.webmcpify/chrome-devtools-mcp.json` | Generated/merged browser MCP config when the target config is incomplete. |
 | `.webmcpify/trajectories/` | Provider output, evaluations, and audit evidence. |

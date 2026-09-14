@@ -13,6 +13,8 @@ import { proposedToolsPath } from "../lib/tool-proposals.js";
 import { withManagedChrome } from "../lib/browser.js";
 import { packageMetadata } from "../lib/package-info.js";
 import { closeScoringBrowser } from "../lib/scoring.js";
+import { runSecurity } from "../commands/security.js";
+import { securityReportPath } from "../lib/security-audit.js";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const serverRoot = path.resolve(process.cwd());
@@ -83,6 +85,11 @@ const tools = [
     inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, analysis: { type: "object", description: "Optional prior analyze_repository result." }, provider: { type: "string" }, method: { type: "string", enum: ["auto", "declarative", "imperative"] } }, required: ["repositoryPath"], additionalProperties: false },
   },
   {
+    name: "audit_webmcp_security",
+    description: "Audit proposed or approved WebMCP tools for access-control, quota, origin, privacy, and replay-protection gaps.",
+    inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, strict: { type: "boolean" } }, required: ["repositoryPath"], additionalProperties: false },
+  },
+  {
     name: "apply_webmcp",
     description: "Apply the explicitly approved pending WebMCP patch, including the existing build check.",
     inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, patchIdentifier: { type: "string", description: "The pending patch runId returned by generate_webmcp." } }, required: ["repositoryPath", "patchIdentifier"], additionalProperties: false },
@@ -108,7 +115,11 @@ async function callTool(name: string, rawArgs: Record<string, unknown>): Promise
       const analysis = rawArgs.analysis;
       const captured = await capture(() => runGenerate({ path: repositoryPath, provider: stringArg(rawArgs, "provider", false), method: stringArg(rawArgs, "method", false), context: analysis ? JSON.stringify(analysis) : undefined }));
       const metadata = await readPatchMetadata(repositoryPath);
-      return textResult({ status: metadata.patchStatus, patchIdentifier: metadata.runId, changedFiles: metadata.changedFiles, artifacts: { patch: metadata.patchPath, metadata: patchMetadataPath(repositoryPath), discovery: discoveryPath(repositoryPath), proposedTools: proposedToolsPath(repositoryPath), generationTrajectory: metadata.generationTrajectory }, logs: captured.logs });
+      return textResult({ status: metadata.patchStatus, patchIdentifier: metadata.runId, changedFiles: metadata.changedFiles, artifacts: { patch: metadata.patchPath, metadata: patchMetadataPath(repositoryPath), discovery: discoveryPath(repositoryPath), proposedTools: proposedToolsPath(repositoryPath), securityReport: securityReportPath(repositoryPath), generationTrajectory: metadata.generationTrajectory }, logs: captured.logs });
+    }
+    case "audit_webmcp_security": {
+      const captured = await capture(() => runSecurity({ path: repositoryPath, strict: rawArgs.strict === true }));
+      return textResult({ ...captured.value, artifacts: { securityReport: securityReportPath(repositoryPath) }, logs: captured.logs });
     }
     case "apply_webmcp": {
       const identifier = stringArg(rawArgs, "patchIdentifier")!;
