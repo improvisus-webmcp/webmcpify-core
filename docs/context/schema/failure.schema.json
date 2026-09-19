@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Barry Cache failure",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "observed_at",
+    "updated_at",
+    "status",
+    "summary",
+    "expected",
+    "actual",
+    "reporter",
+    "files",
+    "challenges",
+    "fixes"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^failure-.+"
+    },
+    "kind": {
+      "enum": [
+        "validation_failure"
+      ]
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "fixed",
+        "wontfix"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actual": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reporter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "challenges": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fixes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

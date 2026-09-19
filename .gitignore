@@ -15,3 +15,9 @@ coverage/
 
 # Generated run evidence belongs to each target project's .webmcpify folder.
 trajectories/*.json
+
+<!-- barry-cache:start -->
+.context-state/
+.context-cache/
+.barry-cache/
+<!-- barry-cache:end -->

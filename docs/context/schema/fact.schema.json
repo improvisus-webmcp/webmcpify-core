@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Barry Cache fact",
+  "type": "object",
+  "required": [
+    "id",
+    "subject",
+    "predicate",
+    "object",
+    "src",
+    "status",
+    "kind",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "predicate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "object": {
+      "type": "string",
+      "minLength": 1
+    },
+    "src": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "status": {
+      "enum": [
+        "active",
+        "superseded",
+        "deprecated",
+        "missing",
+        "conflict"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "implemented",
+        "decision",
+        "constraint",
+        "test",
+        "risk",
+        "open-question"
+      ]
+    },
+    "updated_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp for new facts; date-only values are accepted for legacy or imported facts but cannot preserve same-day ordering."
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Barry Cache workspaces",
+  "type": "object",
+  "required": [
+    "version",
+    "workspaces"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "off",
+            "hint",
+            "require-when-ambiguous",
+            "require"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "workspaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "slug",
+          "title",
+          "paths",
+          "routes"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

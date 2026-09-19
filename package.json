@@ -43,7 +43,12 @@
     "temporal:worker": "node dist/temporal/worker.js",
     "dev": "tsx watch src/cli.ts",
     "test:mcp": "node scripts/verify-mcp.mjs",
-    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent"
+    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent",
+    "barry": "barry-cache",
+    "barry:validate": "barry-cache validate",
+    "barry:resume": "barry-cache resume",
+    "barry:finalize": "barry-cache finalize",
+    "barry:failure": "barry-cache failure"
   },
   "keywords": [
     "webmcp",
@@ -83,6 +88,7 @@
     "@temporalio/workflow": "1.21.1",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
+    "barry-cache": "^0.9.3",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   },
