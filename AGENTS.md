@@ -2,7 +2,7 @@
 
 ## Session startup and continuity
 
-- At the start of every Codex session, read this file and run `pnpm run barry resume --task "<task>"` before non-trivial work. Load only the routes Barry returns.
+- At the start of every Codex session, read this file and run `pnpm run barry resume --task "<task>" --budget 800` before non-trivial work. Pass `--paths "path-a,path-b"` when the likely scope is known, and load only the routes Barry returns.
 - Inspect the current Git branch, status, and relevant diff. Treat the working tree and code as the source of truth, preserve user-owned changes, and continue from the current state.
 - Barry Cache is the sole persistent project-memory system. Do not create or use `.codex/PROJECT_MEMORY.md` or Serena memories for project history.
 - After meaningful work, update source-backed Barry facts or an ADR when durable behavior changed, run `pnpm run barry validate`, then record the handoff with `pnpm run barry finalize --status <status> --summary "<summary>" --files "path-a,path-b"`.
@@ -28,7 +28,9 @@
 ## Barry Cache
 
 - Canonical, reviewed context lives in `docs/context/`; operational handoffs live in ignored `.context-state/`; `.context-cache/` is disposable.
-- Use `pnpm run barry route|search|load ...` for focused retrieval. Budgeted output is preferred; expand only missing fact IDs.
+- Use `pnpm run barry route|search|load ...` for focused retrieval. Start narrow tasks at 800 tokens; use 1600–2000 for cross-cutting work, and expand specific missing fact IDs before loading more.
+- Update or retire existing facts instead of duplicating them. Facts must exclude routine edits, transient test/debug output, commit logs, and source-file copies.
+- Keep `finalize` to one outcome sentence plus status and affected files. Run `stats summary` and maintenance after releases or context restructuring, not after every small task.
 - If user validation contradicts saved work, run `pnpm run barry failure record ...` before or while fixing it.
 - Do not enable or contribute to Barry's shared CQ knowledge base without explicit user approval.
 <!-- barry-cache:end -->
