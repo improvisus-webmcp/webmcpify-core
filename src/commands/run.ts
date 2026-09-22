@@ -6,6 +6,7 @@ import { runTest } from "./test.js";
 import { withManagedChrome } from "../lib/browser.js";
 import { closeScoringBrowser } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
+import { resolveSecurityPolicy } from "../lib/security-audit.js";
 
 export interface RunOptions {
   path?: string;
@@ -13,10 +14,12 @@ export interface RunOptions {
   provider?: string;
   method?: string;
   reviewPort?: string;
+  security?: string;
 }
 
 /** Run the normal workflow without requiring Temporal or manual stage commands. */
 export async function runWorkflow(opts: RunOptions): Promise<void> {
+  const security = resolveSecurityPolicy(opts.security, "balance");
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const url = normalizeTargetUrl(
     opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000",
@@ -25,11 +28,13 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
   await ensureTargetReachable(url);
   console.log(`[run] target: ${sitePath}`);
   console.log(`[run] site: ${url}`);
+  console.log(`[run] security: ${security}`);
   console.log("[run] 1/4 discover and draft");
   await runGenerate({
     path: sitePath,
     provider: opts.provider,
     method: opts.method,
+    security,
   });
 
   console.log("[run] 2/4 review");

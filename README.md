@@ -47,6 +47,26 @@ Or select a provider explicitly:
 webmcpify run --url http://localhost:3000 --provider codex
 ```
 
+`run` uses the balanced security policy by default. You can select the policy
+explicitly:
+
+```bash
+webmcpify run --url http://localhost:3000 --provider agy --security balance
+webmcpify run --url http://localhost:3000 --provider agy --security ignore
+webmcpify run --url http://localhost:3000 --provider agy --security strict
+```
+
+- `balance` blocks missing controls for high-impact operations such as checkout,
+  payment, order submission, financial transfers, destructive account changes,
+  and external publication. Reversible UI state such as filters and cart edits
+  does not require invented backend authorization, user/agent binding, quotas,
+  idempotency, or string limits.
+- `ignore` skips automated security findings and gating. The exact generated
+  patch still requires human review and approval before it can be applied.
+- `strict` preserves the original policy: all state-changing tools require
+  backend/server authorization, and consequential tools require the complete
+  user/agent, quota, and replay-protection contract.
+
 `run` performs the normal workflow:
 
 1. Discover the target's routes, forms, handlers, APIs, state, authentication signals, and existing WebMCP tools.
@@ -76,7 +96,7 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Apply rejects missing, stale, altered, or unapproved patches.
 - Target typecheck/build failures trigger rollback.
 - Browser tests expose only approved WebMCP tools to the test agent.
-- State-changing proposals with blocking Core access-control gaps cannot reach approval.
+- Security gating follows the selected `run --security` policy; human approval of the exact patch is always required.
 - Verification reads the resulting application state instead of trusting the agent's report.
 - Run evidence stays in the target project's ignored `.webmcpify/` directory.
 
@@ -86,7 +106,7 @@ Core reduces risk; it does not guarantee that generated code or WebMCP tools are
 
 | Command | Purpose |
 | --- | --- |
-| `webmcpify run` | Normal end-to-end workflow; start here. |
+| `webmcpify run [--security balance\|ignore\|strict]` | Normal end-to-end workflow; balanced by default. |
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
 | `webmcpify generate` | Draft tools, tasks, and a pending source patch. |
 | `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |
@@ -128,7 +148,7 @@ The server rejects paths outside its starting workspace. Generated changes remai
 
 ## Core access-control checkpoint
 
-Core requires generated tools to describe an internal security contract. This is review evidence, not a WebMCP field. It covers user authentication, verified-agent requirements, backend authorization, exact origin scope, per-tool quotas, and idempotency. Core blocks state-changing proposals that rely on client-only authorization and blocks consequential proposals missing user/agent binding, quotas, or replay protection.
+Core asks generated tools to describe an internal security contract. This is review evidence, not a WebMCP field. It covers user authentication, verified-agent requirements, backend authorization, exact origin scope, per-tool quotas, and idempotency. The normal `run` workflow defaults to `balance`; use `strict` for the original all-state-change gate or `ignore` to disable automated security gating. An invalid cross-origin allowlist still blocks under `balance`, while ordinary reversible UI actions such as adding or removing cart items do not.
 
 ```bash
 webmcpify security --path /path/to/project
@@ -186,6 +206,38 @@ pnpm install
 pnpm typecheck
 pnpm test
 npm pack --dry-run
+```
+
+### Test this repository as the global CLI
+
+Remove the npm-installed copy, build this checkout, and create a global link:
+
+```bash
+npm uninstall --global @improvisus/webmcpify-core
+cd /home/olumide/Desktop/Webmcpify/webmcpify-packages/public/webmcpify-core
+pnpm install
+pnpm build
+npm link
+hash -r
+command -v webmcpify
+webmcpify --version
+```
+
+`npm link` points the global command at this repository. After editing `src/`,
+run `pnpm build` again; relinking is not normally required. Test it from the
+Coffee Store project with:
+
+```bash
+cd /home/olumide/Desktop/Webmcpify/webmcpify-testing-projects/webmcpify-coffe-store
+webmcpify run --url http://localhost:5173 --provider agy
+```
+
+To stop using the local checkout and restore the published package:
+
+```bash
+npm unlink --global @improvisus/webmcpify-core
+npm install --global @improvisus/webmcpify-core
+hash -r
 ```
 
 `npm test` runs the focused discovery, proposal, security, review, patch, repair, evaluation, final-evaluation, and MCP checks. Publishing runs type checking and the complete test suite before npm creates the package.

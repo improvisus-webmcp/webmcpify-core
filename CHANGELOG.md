@@ -4,6 +4,24 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: provider task/tool output mixing
+
+- Generation now recovers when a provider accidentally appends an unmistakable
+  verification-task entry to `TOOL_PROPOSALS_JSON`, while malformed real tool
+  definitions remain validation errors.
+- Prompt guidance now explicitly forbids placing the tool-registration
+  verification task in the WebMCP tool array.
+
+### Changed: selectable run security policy
+
+- Added `webmcpify run --security balance|ignore|strict`, defaulting to
+  `balance`.
+- Balanced mode gates genuinely high-impact actions such as checkout and
+  payment without requiring backend identity, quotas, replay controls, or
+  arbitrary string limits for reversible cart and filtering actions.
+- Ignore mode bypasses automated security findings while retaining exact-patch
+  human approval; strict mode preserves the previous security behavior.
+
 ### Added: Core security checkpoint
 
 - Added per-tool access declarations for user authentication, agent identity, backend authorization, origin scope, quotas, and idempotency.

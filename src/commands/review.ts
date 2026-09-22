@@ -21,7 +21,7 @@ import { patchExists, patchMetadataPath, readPatchMetadata, writePatchMetadata }
 import { proposedToolsPath, validateProposedTools, loadDiscovery, type ProposedTool } from "../lib/tool-proposals.js";
 import { taskVerificationIssues } from "../lib/tasks.js";
 import { CHROME_WEBMCP_URL, WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
-import { auditToolSecurity, writeSecurityReport } from "../lib/security-audit.js";
+import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 
 export interface ReviewOptions {
   port?: string;
@@ -101,10 +101,11 @@ export async function runReviewPrompt(
   const draftPath = patchMetadata.generationTrajectory;
   if (!existsSync(draftPath)) throw new Error(`The pending patch references missing generation trajectory ${draftPath}.`);
   const draft = draftText(await readFile(draftPath, "utf8"));
+  const securityPolicy = resolveSecurityPolicy(patchMetadata.securityPolicy, "strict");
   let proposedTools: ProposedTool[];
   try { proposedTools = validateProposedTools(JSON.parse(await readFile(proposalFile, "utf8")), discovery); }
   catch (error) { throw new Error(`Could not load structured tool proposals: ${error instanceof Error ? error.message : String(error)}`); }
-  const initialSecurity = auditToolSecurity(proposedTools, discovery, sitePath);
+  const initialSecurity = auditToolSecurity(proposedTools, discovery, sitePath, securityPolicy);
   await writeSecurityReport(sitePath, initialSecurity);
   // A repair patch changes source only; it must reuse the already-approved
   // task definitions instead of asking the repair agent to redraft or alter
@@ -210,7 +211,7 @@ export async function runReviewPrompt(
 <div class="notice"><div>⚠️</div><div><strong>Action required</strong>Select only the WebMCP tools you want this project to make available to the approved browser-agent workflow. Review each tool's title, description, schema, and risk annotations, then approve the exact source patch separately.</div></div>
 <div class="grid"><section class="card"><h2>What will be approved?</h2><p><span class="count">${proposedTools.length} tools</span> <span class="count">${proposedTasks.length} tests</span> <span class="count">${patchMetadata.changedFiles.length} files</span></p><p class="hint">Approval creates a local manifest and task set. It does not deploy or apply source changes; the separate apply step does that.</p></section><section class="card"><h2>Before approving</h2><p class="hint">Confirm that every tool maps to a real user action, every task has a meaningful verification expression, and the source diff contains only expected changes.</p><p class="hint">You may edit the structured JSON, but keep each selected tool/task ID unchanged.</p></section></div>
 <form method="post" action="/approve"><section class="section"><h2>1. Approved tools <span class="count">${proposedTools.length} proposed</span></h2><p class="hint">Each checkbox is an explicit per-tool permission for this approved evaluation and manifest. Uncheck tools the agent should not use.</p>${checkboxes}<details><summary>Inspect or edit structured tool definitions</summary>${toolDetails}<p class="hint">Keep each approved tool's <code>id</code> matched to its checkbox.</p><textarea name="toolsJson" aria-label="Tools JSON">${toolJson}</textarea></details></section>
-<section class="section"><h2>2. Core security checkpoint <span class="count">${initialSecurity.status}</span></h2><p class="hint">Static declarations are not proof. Match every access-control claim to the exact backend code in the source patch. Blocking findings cannot be approved.</p><ul>${securityRows}</ul></section>
+<section class="section"><h2>2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span></h2><p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match every access-control claim to the exact backend code in the source patch. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul></section>
 <section class="section"><h2>3. Verification tasks <span class="count">${proposedTasks.length} proposed</span></h2><p class="hint">These are the actions the browser agent will perform and the checks used to score them.</p>${taskRows}<details><summary>Edit task definitions</summary><p class="hint">Every task must have an observable <code>verify</code> expression. Keep task IDs unchanged.</p><textarea name="tasksJson" aria-label="Tasks JSON">${taskJson}</textarea></details></section>${sourceSection.replace('<div class="section">', '<section class="section source">').replace('</div>', '</section>')}
 <div class="draft"><details><summary>Show raw generation draft</summary><pre>${htmlEscape(draft)}</pre></details></div>
 <div class="actions"><div class="actions-inner"><small>Review complete? Your click is required to continue.</small><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" name="stage" value="prepare">✓ Approve reviewed draft</button></div></div></div></form></main></body></html>`);
@@ -231,7 +232,7 @@ export async function runReviewPrompt(
       const editedTools = validateProposedTools(JSON.parse(typeof request.body.toolsJson === "string" ? request.body.toolsJson : "{}"), discovery);
       if (editedTools.length === 0 || selectedToolIds.length !== editedTools.length || editedTools.some((tool) => !selectedToolIds.includes(tool.id))) throw new Error("Every approved tool must have a matching selected checkbox; approve at least one tool.");
       if (selectedToolIds.some((id) => !proposedToolIds.has(id)) || editedTools.some((tool) => !proposedToolIds.has(tool.id))) throw new Error("Approval can only select tools from this generated draft.");
-      const security = auditToolSecurity(editedTools, discovery, sitePath);
+      const security = auditToolSecurity(editedTools, discovery, sitePath, securityPolicy);
       if (security.status === "block") throw new Error(`Approval blocked by ${security.summary.block} Core security finding(s). Fix the tool contract and exact source patch, then generate again.`);
       const editedTasks = parseTasksJson(typeof request.body.tasksJson === "string" ? request.body.tasksJson : "[]");
       const selectedTaskIds = selectedIds({ ids: request.body.taskIds });

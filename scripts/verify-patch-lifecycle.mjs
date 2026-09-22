@@ -41,7 +41,8 @@ async function main() {
 
   const valid = await fixture();
   const patch = await makePatch(valid);
-  const metadata = await createPendingPatch(valid, patch, "generation.json");
+  const metadata = await createPendingPatch(valid, patch, "generation.json", { securityPolicy: "balance" });
+  assert.equal(metadata.securityPolicy, "balance");
   await approve(valid, metadata);
   await runApply({ path: valid });
   assert.equal(await readFile(path.join(valid, "source.js"), "utf8"), "export const value = 'after';\n");

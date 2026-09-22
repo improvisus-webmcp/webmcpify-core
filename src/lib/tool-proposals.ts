@@ -142,6 +142,34 @@ function proposalValue(parsed: unknown): unknown {
   return parsed;
 }
 
+function providerProposalValue(parsed: unknown): unknown {
+  const proposal = proposalValue(parsed);
+  if (typeof proposal !== "object" || proposal === null || Array.isArray(proposal)) return proposal;
+  const record = proposal as Record<string, unknown>;
+  if (!Array.isArray(record.tools)) return proposal;
+
+  const toolEntries = record.tools.filter((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return true;
+    const candidate = entry as Record<string, unknown>;
+    const taskOnly = typeof candidate.verify === "string"
+      && candidate.parameters === undefined
+      && candidate.schema === undefined
+      && candidate.annotations === undefined
+      && candidate.implementation === undefined
+      && candidate.placement === undefined
+      && candidate.sourceFiles === undefined;
+    return !taskOnly;
+  });
+
+  // Some providers accidentally append the requested TASKS_JSON verification
+  // entry to the tool array. Recover only when the entry is unmistakably a
+  // task and at least one real tool candidate remains. Stored proposals and
+  // review edits still go through validateProposedTools without this cleanup.
+  return toolEntries.length > 0 && toolEntries.length < record.tools.length
+    ? { ...record, tools: toolEntries }
+    : proposal;
+}
+
 function normalizeTool(value: unknown, index: number): ProposedTool {
   if (typeof value !== "object" || value === null) throw new Error(`Tool ${index + 1} must be an object.`);
   const candidate = value as Record<string, unknown>;
@@ -250,7 +278,7 @@ export function extractAndValidateProposedTools(raw: string, discovery: Discover
   for (const candidate of [...new Set(candidates)]) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
-      return validateProposedTools(proposalValue(parsed), discovery);
+      return validateProposedTools(providerProposalValue(parsed), discovery);
     } catch (error) {
       if (error instanceof SyntaxError) continue;
       lastError = error;

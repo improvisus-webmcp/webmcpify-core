@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createTrajectoryArtifact } from "./trajectories.js";
+import type { SecurityPolicy } from "./security-audit.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -21,6 +22,7 @@ export interface PatchMetadata {
   patchStatus: PatchStatus;
   patchPath: string;
   generationTrajectory: string;
+  securityPolicy?: SecurityPolicy;
   repair?: {
     sourceEvaluation: string;
     url: string;
@@ -240,7 +242,7 @@ export async function createPendingPatch(
   sitePath: string,
   rawProviderOutput: string,
   generationTrajectory: string,
-  context?: Pick<PatchMetadata, "repair">,
+  context?: Pick<PatchMetadata, "repair" | "securityPolicy">,
 ): Promise<PatchMetadata> {
   const timestamp = new Date().toISOString();
   const runId = randomUUID();

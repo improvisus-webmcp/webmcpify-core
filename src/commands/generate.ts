@@ -15,7 +15,7 @@ import { runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
-import { auditToolSecurity, writeSecurityReport } from "../lib/security-audit.js";
+import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -155,6 +155,7 @@ export interface GenerateOptions {
   context?: string;
   trajectoryMetadata?: Record<string, unknown>;
   preserveApprovalState?: boolean;
+  security?: string;
 }
 
 async function invalidateDraftState(sitePath: string): Promise<void> {
@@ -180,6 +181,7 @@ async function invalidateDraftState(sitePath: string): Promise<void> {
 export async function runGenerate(opts: GenerateOptions) {
   const provider = resolveProvider(opts.provider);
   const method = resolveMethod(opts.method);
+  const securityPolicy = resolveSecurityPolicy(opts.security, "strict");
   const sitePath = path.resolve(opts.path ?? process.cwd());
 
   if (!existsSync(sitePath)) {
@@ -192,6 +194,11 @@ export async function runGenerate(opts: GenerateOptions) {
 
   const saveTo = createTrajectoryPath("generate", undefined, sitePath);
   const strategy = methodInstruction(method);
+  const securityInstruction = securityPolicy === "strict"
+    ? `Use Core's strict security posture. Every state-changing tool must use real backend or server-action authorization. Consequential actions must also have real user and agent binding, quotas, and replay protection.`
+    : securityPolicy === "balance"
+      ? `Use Core's balanced security posture. Require real backend authorization, user and agent binding, quotas, and replay protection only for genuinely high-impact actions such as checkout, payment, order submission, financial transfers, destructive account changes, or external publication/communication. Ordinary reversible UI state such as filtering, adding or removing cart items, and login/logout must reuse the site's existing behavior and must not gain invented backend services, identity systems, quotas, idempotency keys, or artificial string limits solely to satisfy the audit. Keep every security declaration honest.`
+      : `Core security gating is ignored for this run. Do not invent or add backend services, identity systems, quotas, idempotency keys, or artificial string limits solely for Core metadata. Keep any security declaration honest and preserve the site's existing behavior; the exact patch still requires human approval.`;
   const failureContext = opts.context
     ? `A previous independent test reported this failure. Use it to focus the
 drafted repair, but still inspect the code rather than assuming the diagnosis:
@@ -200,7 +207,7 @@ ${opts.context}`
   // Do not expose the real checkout path to an unrestricted provider process.
   // The provider receives a local copy in its disposable workspace below.
   const agentDiscovery = { ...discovery, targetProject: "." };
-  const prompt = [GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, failureContext]
+  const prompt = [GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, securityInstruction, failureContext]
     .filter(Boolean)
     .join("\n\n");
 
@@ -230,6 +237,7 @@ ${opts.context}`
         role: "generate",
         sitePath,
         method,
+        securityPolicy,
         context: opts.context,
         discoveryPath: discoveryPath(sitePath),
         ...opts.trajectoryMetadata,
@@ -258,7 +266,7 @@ ${opts.context}`
   try {
     const tools = extractAndValidateProposedTools(await readFile(saveTo, "utf8"), discovery);
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
-    const security = auditToolSecurity(tools, discovery, sitePath);
+    const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);
     if (security.status === "block") {
       throw new Error(`Security review blocked this proposal (${security.summary.block} blocking finding(s)). Inspect ${securityFile}; no pending patch was created.`);
@@ -267,11 +275,12 @@ ${opts.context}`
       sitePath,
       workspaceDiff,
       saveTo,
+      { securityPolicy },
     );
     console.log(`[generate] draft saved to ${saveTo}`);
     console.log(`[generate] proposed tools: ${proposalFile}`);
     console.log(`[generate] validated ${tools.length} tool proposal(s)`);
-    console.log(`[generate] security: ${security.status} (${security.summary.review} review finding(s)); ${securityFile}`);
+    console.log(`[generate] security (${securityPolicy}): ${security.status} (${security.summary.review} review finding(s)); ${securityFile}`);
     console.log(`[generate] generated source changes: ${patch.changedFiles.join(", ")}`);
     console.log(`[generate] patch: ${patch.patchPath}`);
     console.log("[generate] status: awaiting review");

@@ -46,7 +46,33 @@ try {
   assert.ok(blocked.findings.some((item) => item.code === "agent-binding-missing"));
   assert.ok(blocked.findings.some((item) => item.code === "quota-missing"));
   assert.ok(blocked.findings.some((item) => item.code === "replay-protection-missing"));
-  console.log("Core security audit verification passed");
+
+  const [cart] = validateProposedTools({ tools: [{
+    ...base,
+    id: "add_to_cart",
+    name: "add_to_cart",
+    title: "Add to cart",
+    description: "Adds a coffee to the local cart before purchase.",
+    parameters: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"], additionalProperties: false },
+    security: { ...base.security, userAuthentication: "none", agentIdentity: "none", authorization: "client-only", rateLimit: { ...base.security.rateLimit, enforced: false }, idempotency: { enforced: false } },
+    implementation: { ...base.implementation, action: "add item to cart" },
+  }] }, discovery);
+  const strictCart = auditToolSecurity([cart], discovery, fixture, "strict");
+  assert.equal(strictCart.status, "block");
+  assert.ok(strictCart.findings.some((item) => item.code === "string-unbounded"));
+  const balancedCart = auditToolSecurity([cart], discovery, fixture, "balance");
+  assert.equal(balancedCart.policy, "balance");
+  assert.equal(balancedCart.status, "pass");
+  assert.equal(balancedCart.findings.length, 0);
+
+  const balancedCheckout = auditToolSecurity([anonymous], discovery, fixture, "balance");
+  assert.equal(balancedCheckout.status, "block");
+  assert.ok(balancedCheckout.findings.some((item) => item.code === "agent-binding-missing"));
+  const ignoredCheckout = auditToolSecurity([anonymous], discovery, fixture, "ignore");
+  assert.equal(ignoredCheckout.policy, "ignore");
+  assert.equal(ignoredCheckout.status, "pass");
+  assert.equal(ignoredCheckout.findings.length, 0);
+  console.log("Core security audit verification passed: strict, balance, and ignore policies");
 } finally {
   await rm(fixture, { recursive: true, force: true });
 }

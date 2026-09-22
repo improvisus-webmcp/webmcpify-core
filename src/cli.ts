@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import "./lib/load-env.js";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { runGenerate } from "./commands/generate.js";
 import { runReview } from "./commands/review.js";
 import { runTest } from "./commands/test.js";
@@ -15,6 +15,7 @@ import { runSecurity } from "./commands/security.js";
 import { withManagedChrome } from "./lib/browser.js";
 import { packageMetadata } from "./lib/package-info.js";
 import { closeScoringBrowser } from "./lib/scoring.js";
+import { SECURITY_POLICIES } from "./lib/security-audit.js";
 
 const providerHelp =
   "AI provider to use: gemini, antigravity, claude, codex, or opencode";
@@ -34,6 +35,7 @@ program
   .option("-u, --url <url>", "running site URL", "http://localhost:3000")
   .option("--provider <name>", providerHelp)
   .option("--method <type>", "generation strategy: declarative, imperative, or auto", "auto")
+  .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
   .option("--review-port <number>", "port for the human review page", "4173")
   .action(runWorkflow);
 

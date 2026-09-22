@@ -90,6 +90,9 @@ confirming a conditionally registered tool is or is not present through
 document.modelContext.getTools(). Do not include tasks whose effect cannot be
 verified this way.
 
+Verification tasks are tests, not WebMCP tools. Never place a task (including
+the tool-availability check) inside the TOOL_PROPOSALS_JSON tools array.
+
 Output the task proposal as JSON:
 [{ "id": "...", "description": "...", "verify": "..." }]
 `.trim();
@@ -142,10 +145,8 @@ TASKS_JSON and unified diff sections.
 The security object is Core review metadata, not a WebMCP API field. Make every
 claim match the code in the exact proposed patch. Never claim backend
 authorization, agent identity, quotas, or idempotency merely because the UI or
-tool description mentions them. A state-changing tool must reuse a real
-backend/server action with authorization. A consequential action must also be
-bound to an authenticated user and verified agent, rate limited, and protected
-against replay. If the target lacks those controls, do not fabricate them:
-either implement the smallest real backend control or skip that high-risk tool
-and explain why.
+tool description mentions them. Follow the security posture supplied later in
+the run prompt. If that posture requires a control the target lacks, do not
+fabricate it: either implement the smallest real control or skip the high-risk
+tool and explain why.
 `.trim();
