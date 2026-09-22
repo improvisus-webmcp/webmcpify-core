@@ -38,22 +38,22 @@ Browser-agent testing uses Chrome DevTools MCP. Core writes or safely merges a p
 Start the target application, then run Core from that project's directory:
 
 ```bash
-webmcpify run --url http://localhost:3000
+webmcpify run --url http://localhost:5173
 ```
 
 Or select a provider explicitly:
 
 ```bash
-webmcpify run --url http://localhost:3000 --provider codex
+webmcpify run --url http://localhost:5173 --provider codex
 ```
 
 `run` uses the balanced security policy by default. You can select the policy
 explicitly:
 
 ```bash
-webmcpify run --url http://localhost:3000 --provider agy --security balance
-webmcpify run --url http://localhost:3000 --provider agy --security ignore
-webmcpify run --url http://localhost:3000 --provider agy --security strict
+webmcpify run --url http://localhost:5173 --provider agy --security balance
+webmcpify run --url http://localhost:5173 --provider agy --security ignore
+webmcpify run --url http://localhost:5173 --provider agy --security strict
 ```
 
 - `balance` blocks missing controls for high-impact operations such as checkout,
@@ -70,14 +70,14 @@ webmcpify run --url http://localhost:3000 --provider agy --security strict
 `run` performs the normal workflow:
 
 1. Discover the target's routes, forms, handlers, APIs, state, authentication signals, and existing WebMCP tools.
-2. Draft tools and browser-verifiable tasks in a disposable workspace.
+2. Draft tools and browser-verifiable, self-contained tasks in a disposable workspace. Each task must name only generated WebMCP tools and declare any setup, such as login and adding a cart item before checkout.
 3. Audit each tool's declared user/agent binding, backend authorization, origin scope, quota, replay protection, and input bounds.
 4. Open a local review URL and wait for the owner to approve or reject the exact tools, tasks, security findings, and patch.
 5. Apply an approved patch and run the target's available typecheck and build scripts.
 6. Reuse an available CDP browser or start an isolated headless Chrome session.
 7. Exercise approved WebMCP tools and independently verify the resulting page state.
 
-Use `--path /path/to/project` when running outside the target directory. The URL defaults to `http://localhost:3000`.
+Use `--path /path/to/project` when running outside the target directory. Supply the running app URL with `--url`, or set `WEBMCPIFY_URL`; Core does not assume an application port.
 
 ## New, partial, and existing WebMCP
 
@@ -175,10 +175,10 @@ Run the Temporal service, Core worker, and workflow command in separate terminal
 ```bash
 temporal server start-dev
 webmcpify-worker
-webmcpify final-eval --url http://localhost:3000 --provider codex
+webmcpify final-eval --url http://localhost:5173 --provider codex
 ```
 
-The CLI starts a workflow, the Temporal service keeps its state, and `webmcpify-worker` executes Core's test, repair, review, and apply activities. Human approval remains mandatory. Set `WEBMCPIFY_DURABLE=true` only if ordinary `webmcpify repair` calls should use Temporal by default.
+The CLI starts a workflow, the Temporal service keeps its state, and `webmcpify-worker` executes Core's test, repair, review, and apply activities. Durable tests use the same approved task definition, tool allowlist, prerequisite setup, and independent scorer as ordinary tests. Human approval remains mandatory. Set `WEBMCPIFY_DURABLE=true` only if ordinary `webmcpify repair` calls should use Temporal by default.
 
 ## Configuration
 
@@ -186,7 +186,7 @@ No `.env` file or executable path is required when the provider CLI and Chrome a
 
 ```bash
 WEBMCPIFY_PROVIDER=codex
-WEBMCPIFY_URL=http://localhost:3000
+WEBMCPIFY_URL=http://localhost:5173
 WEBMCPIFY_CHROME_BIN=/path/to/chrome
 WEBMCPIFY_CDP_URL=http://127.0.0.1:9222
 ```

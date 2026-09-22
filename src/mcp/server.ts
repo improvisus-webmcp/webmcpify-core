@@ -97,7 +97,7 @@ const tools = [
   {
     name: "test_webmcp",
     description: "Run WebMCPify's existing isolated browser test and evaluation pipeline against an already-running site.",
-    inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, url: { type: "string", description: "Running application URL; defaults to WEBMCPIFY_URL or http://localhost:3000." }, provider: { type: "string" } }, required: ["repositoryPath"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { repositoryPath: { type: "string" }, url: { type: "string", description: "Running application URL; required unless WEBMCPIFY_URL is set." }, provider: { type: "string" } }, required: ["repositoryPath"], additionalProperties: false },
   },
 ];
 
@@ -130,7 +130,8 @@ async function callTool(name: string, rawArgs: Record<string, unknown>): Promise
       return textResult({ status: applied.patchStatus, patchIdentifier: applied.runId, changedFiles: applied.changedFiles, lastApply: applied.lastApply, logs: captured.logs });
     }
     case "test_webmcp": {
-      const url = stringArg(rawArgs, "url", false) ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000";
+      const url = stringArg(rawArgs, "url", false) ?? process.env.WEBMCPIFY_URL;
+      if (!url) throw new Error("A running site URL is required. Pass url or set WEBMCPIFY_URL.");
       const captured = await capture(() =>
         withManagedChrome(url, async () => {
           try {

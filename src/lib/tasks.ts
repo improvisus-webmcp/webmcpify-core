@@ -8,6 +8,10 @@ export interface Task {
   id: string;
   description: string;
   verify: string;
+  /** Approved WebMCP tools needed to complete this task. */
+  requiredTools?: string[];
+  /** Explicit setup the browser agent must complete before the primary action. */
+  setup?: string;
 }
 
 export function taskFingerprint(tasks: Task[]): string {
@@ -93,42 +97,80 @@ export function validateTasks(value: unknown): Task[] {
   }
 
   const ids = new Set<string>();
-  return value.map((candidate, index) => {
-    if (typeof candidate !== "object" || candidate === null) {
-      throw new Error(`Task ${index + 1} must be an object.`);
-    }
+  return value.map((candidate, index) => validateTask(candidate, index, ids));
+}
 
-    const task = candidate as Partial<Task>;
-    if (
-      typeof task.id !== "string" ||
-      !/^[a-z][a-z0-9_-]*$/i.test(task.id.trim())
-    ) {
-      throw new Error(
-        `Task ${index + 1} has an invalid id; use letters, numbers, underscores, or hyphens.`
-      );
+/**
+ * A proposed task must be executable through the exact tool set that review
+ * will approve. Legacy approved task manifests may omit these fields, but new
+ * proposals cannot; otherwise Core could score an action no generated tool can
+ * perform.
+ */
+export function validateTaskToolBindings(tasks: Task[], approvedToolNames: Iterable<string>): Task[] {
+  const approved = new Set([...approvedToolNames].map((name) => name.trim()).filter(Boolean));
+  return tasks.map((task) => {
+    if (!task.requiredTools?.length) {
+      throw new Error(`Task "${task.id}" must declare requiredTools from the generated WebMCP proposal.`);
     }
-    const id = task.id.trim();
-    if (ids.has(id)) {
-      throw new Error(`Task id "${id}" is duplicated.`);
+    const unavailable = task.requiredTools.filter((tool) => !approved.has(tool));
+    if (unavailable.length) {
+      throw new Error(`Task "${task.id}" requires unavailable WebMCP tool(s): ${unavailable.join(", ")}.`);
     }
-    ids.add(id);
-
-    if (typeof task.description !== "string" || !task.description.trim()) {
-      throw new Error(`Task "${id}" must have a description.`);
+    if (task.requiredTools.length > 1 && !task.setup) {
+      throw new Error(`Task "${task.id}" uses multiple WebMCP tools and must declare self-contained setup instructions.`);
     }
-    if (typeof task.verify !== "string" || !task.verify.trim()) {
-      throw new Error(`Task "${id}" must have a verify expression.`);
-    }
-
-    const issues = verificationErrors(taskVerificationIssues({ id, description: task.description.trim(), verify: task.verify.trim() }));
-    if (issues.length) throw new Error(`Task "${id}" has invalid verification: ${issues.map((issue) => issue.message).join(" ")}`);
-
-    return {
-      id,
-      description: task.description.trim(),
-      verify: task.verify.trim(),
-    };
+    return task;
   });
+}
+
+function validateTask(candidate: unknown, index: number, ids = new Set<string>()): Task {
+  if (typeof candidate !== "object" || candidate === null) {
+    throw new Error(`Task ${index + 1} must be an object.`);
+  }
+
+  const task = candidate as Partial<Task>;
+  if (
+    typeof task.id !== "string" ||
+    !/^[a-z][a-z0-9_-]*$/i.test(task.id.trim())
+  ) {
+    throw new Error(
+      `Task ${index + 1} has an invalid id; use letters, numbers, underscores, or hyphens.`
+    );
+  }
+  const id = task.id.trim();
+  if (ids.has(id)) {
+    throw new Error(`Task id "${id}" is duplicated.`);
+  }
+  ids.add(id);
+
+  if (typeof task.description !== "string" || !task.description.trim()) {
+    throw new Error(`Task "${id}" must have a description.`);
+  }
+  if (typeof task.verify !== "string" || !task.verify.trim()) {
+    throw new Error(`Task "${id}" must have a verify expression.`);
+  }
+
+  let requiredTools: string[] | undefined;
+  if (task.requiredTools !== undefined) {
+    if (!Array.isArray(task.requiredTools) || task.requiredTools.length === 0 || task.requiredTools.some((tool) => typeof tool !== "string" || !tool.trim())) {
+      throw new Error(`Task "${id}" must list one or more required WebMCP tool names.`);
+    }
+    requiredTools = [...new Set(task.requiredTools.map((tool) => tool.trim()))];
+  }
+  if (task.setup !== undefined && (typeof task.setup !== "string" || !task.setup.trim())) {
+    throw new Error(`Task "${id}" has an invalid setup instruction.`);
+  }
+
+  const normalized = {
+    id,
+    description: task.description.trim(),
+    verify: task.verify.trim(),
+    ...(requiredTools ? { requiredTools } : {}),
+    ...(task.setup ? { setup: task.setup.trim() } : {}),
+  };
+  const issues = verificationErrors(taskVerificationIssues(normalized));
+  if (issues.length) throw new Error(`Task "${id}" has invalid verification: ${issues.map((issue) => issue.message).join(" ")}`);
+  return normalized;
 }
 
 export async function loadTasks(sitePath: string): Promise<Task[]> {
@@ -181,6 +223,32 @@ export function parseTasksJson(raw: string): Task[] {
 function taskArray(value: unknown): Task[] | undefined {
   try {
     return validateTasks(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function recoverValidTaskArray(value: unknown): Task[] | undefined {
+  if (!Array.isArray(value) || value.length < MIN_TASKS || value.length > MAX_TASKS) return undefined;
+
+  const ids = new Set<string>();
+  const valid: Task[] = [];
+  for (const [index, candidate] of value.entries()) {
+    try {
+      // Only commit an ID after its entire task passes validation, so one
+      // malformed provider entry cannot invalidate a later valid task.
+      const candidateIds = new Set(ids);
+      const task = validateTask(candidate, index, candidateIds);
+      ids.add(task.id);
+      valid.push(task);
+    } catch {
+      // A provider can emit TypeScript-only syntax in one verification
+      // expression. Keep independently valid tasks only when the resulting
+      // set still satisfies the normal 5-6 task approval contract.
+    }
+  }
+  try {
+    return validateTasks(valid);
   } catch {
     return undefined;
   }
@@ -245,7 +313,7 @@ export function extractTasksFromText(text: string): Task[] | undefined {
   for (const candidate of [...new Set(candidates)]) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
-      const tasks = taskArray(parsed);
+      const tasks = taskArray(parsed) ?? recoverValidTaskArray(parsed);
       if (tasks) return tasks;
     } catch {
       // Continue through the possible fenced or embedded JSON candidates.

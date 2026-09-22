@@ -248,7 +248,11 @@ async function runTemporalLevel(sitePath: string, url: string, provider: string,
 
 export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalResult> {
   const sitePath = path.resolve(opts.path ?? process.cwd());
-  const url = normalizeTargetUrl(opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000");
+  const targetUrl = opts.url ?? process.env.WEBMCPIFY_URL;
+  if (!targetUrl) {
+    throw new Error('A running site URL is required. Pass --url <url> or set WEBMCPIFY_URL.');
+  }
+  const url = normalizeTargetUrl(targetUrl);
   const provider = resolveProvider(opts.provider);
   console.log(`[final-eval] target: ${sitePath}`);
   console.log(`[final-eval] URL: ${url}`);

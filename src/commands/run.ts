@@ -21,9 +21,11 @@ export interface RunOptions {
 export async function runWorkflow(opts: RunOptions): Promise<void> {
   const security = resolveSecurityPolicy(opts.security, "balance");
   const sitePath = path.resolve(opts.path ?? process.cwd());
-  const url = normalizeTargetUrl(
-    opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000",
-  );
+  const targetUrl = opts.url ?? process.env.WEBMCPIFY_URL;
+  if (!targetUrl) {
+    throw new Error('A running site URL is required. Pass --url <url> or set WEBMCPIFY_URL.');
+  }
+  const url = normalizeTargetUrl(targetUrl);
 
   await ensureTargetReachable(url);
   console.log(`[run] target: ${sitePath}`);

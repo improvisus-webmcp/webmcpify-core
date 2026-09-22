@@ -7,6 +7,7 @@ import {
   extractAndValidateProposedTools,
   writeProposedTools,
 } from "../dist/lib/tool-proposals.js";
+import { extractTasksFromText, validateTaskToolBindings } from "../dist/lib/tasks.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-tools-"));
 
@@ -68,6 +69,17 @@ try {
     discovery,
   );
   assert.equal(validTools.length, 1);
+  const mixedProviderOutput = `TOOL_PROPOSALS_JSON
+\`\`\`json
+${JSON.stringify({ tools: [tool, { id: "verify-tools-registered", description: "Checks that generated tools are registered.", verify: "document.modelContext.getTools().length > 0" }] })}
+\`\`\`
+
+TASKS_JSON
+\`\`\`json
+${JSON.stringify([{ id: "verify-tools-registered", description: "Checks that generated tools are registered.", verify: "document.modelContext.getTools().length > 0" }])}
+\`\`\``;
+  const recoveredTools = extractAndValidateProposedTools(JSON.stringify({ response: mixedProviderOutput }), discovery);
+  assert.deepEqual(recoveredTools.map((entry) => entry.id), [tool.id]);
   const proposalPath = await writeProposedTools(
     fixture,
     validTools,
@@ -111,7 +123,40 @@ try {
       ),
     /parameters/,
   );
-  console.log("Self-contained structured proposal verification passed");
+  assert.throws(
+    () =>
+      extractAndValidateProposedTools(
+        JSON.stringify({ tools: [{ id: "verify-only", description: "Only a task.", verify: "true" }] }),
+        discovery,
+      ),
+    /title/,
+  );
+  const tasks = [
+    { id: "verify-tools", description: "Generated WebMCP tools are available.", requiredTools: ["add_to_cart"], verify: "document.modelContext?.getTools().length > 0" },
+    { id: "add-coffee", description: "Adding coffee updates the cart count.", requiredTools: ["add_to_cart"], verify: "document.querySelector('[data-cart-count]')?.textContent === '1'" },
+    { id: "remove-coffee", description: "Removing coffee clears the cart.", requiredTools: ["remove_from_cart"], verify: "document.querySelector('[data-cart-count]')?.textContent === '0'" },
+    { id: "filter-dark-roast", description: "The dark roast filter is selected.", requiredTools: ["filter_by_roast"], verify: "(document.querySelector('#roast-filter') as HTMLSelectElement)?.value === 'dark'" },
+    { id: "open-cart", description: "The cart panel is visible.", requiredTools: ["open_cart"], verify: "document.querySelector('[data-cart-panel]')?.getAttribute('aria-hidden') === 'false'" },
+    { id: "checkout-ready", description: "Checkout is available for the cart.", requiredTools: ["toggle_user_auth", "add_to_cart", "checkout_cart"], setup: "Log in and add a coffee before checkout.", verify: "document.querySelector('[data-checkout]')?.hasAttribute('disabled') === false" },
+  ];
+  const recoveredTasks = extractTasksFromText(`### Verification Task Proposals JSON
+
+\`\`\`json
+${JSON.stringify(tasks)}
+\`\`\``);
+  assert.ok(recoveredTasks, "five valid tasks should be recovered from a six-task provider proposal");
+  assert.deepEqual(recoveredTasks.map((task) => task.id), ["verify-tools", "add-coffee", "remove-coffee", "open-cart", "checkout-ready"]);
+  validateTaskToolBindings(recoveredTasks, ["add_to_cart", "remove_from_cart", "open_cart", "toggle_user_auth", "checkout_cart"]);
+  assert.throws(
+    () => validateTaskToolBindings([{ id: "missing-tool", description: "Uses an unsupported filter.", requiredTools: ["filter_by_roast"], verify: "document.body !== null" }], ["add_to_cart"]),
+    /unavailable WebMCP tool/,
+  );
+  assert.throws(
+    () => validateTaskToolBindings([{ id: "checkout", description: "Checkout after login.", requiredTools: ["toggle_user_auth", "checkout_cart"], verify: "document.body !== null" }], ["toggle_user_auth", "checkout_cart"]),
+    /self-contained setup/,
+  );
+
+  console.log("Structured proposal and task recovery verification passed");
 } finally {
   await rm(fixture, { recursive: true, force: true });
 }

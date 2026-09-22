@@ -32,7 +32,7 @@ program
   .command("run")
   .description("Run the normal discover-to-verification workflow")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
-  .option("-u, --url <url>", "running site URL", "http://localhost:3000")
+  .option("-u, --url <url>", "running site URL (required unless WEBMCPIFY_URL is set)")
   .option("--provider <name>", providerHelp)
   .option("--method <type>", "generation strategy: declarative, imperative, or auto", "auto")
   .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
@@ -159,11 +159,14 @@ program
   .command("final-eval")
   .description("Run the advanced baseline, WebMCP, and Temporal comparison")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
-  .option("-u, --url <url>", "running target URL (defaults to WEBMCPIFY_URL or http://localhost:3000)")
+  .option("-u, --url <url>", "running target URL (required unless WEBMCPIFY_URL is set)")
   .option("--provider <name>", providerHelp)
   .option("--review-port <number>", "port for the human review checkpoint", "4173")
   .action(async (opts) => {
-    const url = opts.url ?? process.env.WEBMCPIFY_URL ?? "http://localhost:3000";
+    const url = opts.url ?? process.env.WEBMCPIFY_URL;
+    if (!url) {
+      throw new Error('A running site URL is required. Pass --url <url> or set WEBMCPIFY_URL.');
+    }
     await withManagedChrome(url, async () => {
       try {
         await runFinalEval({ path: opts.path, url, provider: opts.provider, reviewPort: opts.reviewPort });

@@ -16,6 +16,7 @@ import {
   writeApprovedTasksAtomically,
   type ApprovedTaskManifest,
   type Task,
+  validateTaskToolBindings,
 } from "../lib/tasks.js";
 import { patchExists, patchMetadataPath, readPatchMetadata, writePatchMetadata } from "../lib/patches.js";
 import { proposedToolsPath, validateProposedTools, loadDiscovery, type ProposedTool } from "../lib/tool-proposals.js";
@@ -118,6 +119,7 @@ export async function runReviewPrompt(
     ? await loadApprovedTasks(sitePath)
     : extractTasksFromText(draft) ?? [];
   if (proposedTasks.length < 5 || proposedTasks.length > 6) throw new Error(`Generated draft must contain 5-6 valid tasks; received ${proposedTasks.length}. Fix the generation output before review.`);
+  validateTaskToolBindings(proposedTasks, proposedTools.map((tool) => tool.name));
   const projectTasksPath = tasksPath(sitePath);
   const approvalPath = path.join(
     sitePath,
@@ -235,6 +237,7 @@ export async function runReviewPrompt(
       const security = auditToolSecurity(editedTools, discovery, sitePath, securityPolicy);
       if (security.status === "block") throw new Error(`Approval blocked by ${security.summary.block} Core security finding(s). Fix the tool contract and exact source patch, then generate again.`);
       const editedTasks = parseTasksJson(typeof request.body.tasksJson === "string" ? request.body.tasksJson : "[]");
+      validateTaskToolBindings(editedTasks, editedTools.map((tool) => tool.name));
       const selectedTaskIds = selectedIds({ ids: request.body.taskIds });
       const proposedTaskIds = new Set(proposedTasks.map((task) => task.id));
       if (editedTasks.length < 5 || editedTasks.length > 6 || selectedTaskIds.length !== editedTasks.length || editedTasks.some((task) => !selectedTaskIds.includes(task.id) || !proposedTaskIds.has(task.id))) throw new Error("Approved tasks must be 5-6 valid tasks selected from this generated draft; keep task IDs unchanged.");

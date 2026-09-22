@@ -4,6 +4,16 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: task/tool alignment
+
+- Require every newly generated evaluation task to name available WebMCP tools and declare setup for multi-tool tasks, preventing unsupported or state-dependent actions from being scored as false failures.
+
+### Changed: require an explicit target URL
+
+- Removed the implicit `http://localhost:3000` fallback from `run`, `final-eval`,
+  and the MCP browser test tool. Pass the actual app URL or set `WEBMCPIFY_URL`;
+  commands now explain this requirement instead of testing an assumed port.
+
 ### Fixed: provider task/tool output mixing
 
 - Generation now recovers when a provider accidentally appends an unmistakable

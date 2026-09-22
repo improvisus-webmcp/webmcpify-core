@@ -62,7 +62,10 @@ export async function runApprovedTask(opts: {
   const prompt = `Run exactly this approved WebMCP task against the already-running site at
 ${url}. Do not edit the site's files. Use only the live browser and approved
 WebMCP tools. Perform the task and leave its resulting state in the browser for
-independent verification.
+independent verification. The task's requiredTools list is an allowlist for this
+attempt. Complete its setup instruction first, even if it requires multiple
+tool calls; the browser state was reset before this task. An unavailable or
+rejected action is a failure, never an expected pass.
 
 ${approvalContext}
 
@@ -164,8 +167,11 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
     const prompt = `Run exactly this one approved WebMCP task against the already-running site at
 ${url}. Do not edit the site's files. Use only the live browser and approved
 WebMCP tools. Perform the task; do not merely inspect source or describe steps.
-Leave the resulting state in the browser so the independent evaluator can
-verify it.
+The task's requiredTools list is an allowlist for this attempt. Complete its
+setup instruction first, even if it requires multiple tool calls; the browser
+state was reset before this task. An unavailable or rejected action is a
+failure, never an expected pass. Leave the resulting state in the browser so
+the independent evaluator can verify it.
 
 ${approvalContext}
 

@@ -93,8 +93,34 @@ verified this way.
 Verification tasks are tests, not WebMCP tools. Never place a task (including
 the tool-availability check) inside the TOOL_PROPOSALS_JSON tools array.
 
-Output the task proposal as JSON:
-[{ "id": "...", "description": "...", "verify": "..." }]
+Every task must be executable with the exact WebMCP tools in your
+TOOL_PROPOSALS_JSON. Do not create a task for an ordinary UI control unless you
+also propose its matching WebMCP tool. For example, a dark-roast task requires
+a proposed \`filter_by_roast\`-style tool; if no such tool exists, omit that
+task entirely. Never call an unsupported action an expected pass.
+
+Each task must be self-contained because Core resets browser state before every
+task. A checkout task must explicitly set up login and cart contents through
+approved tools before checkout. Record the required tool names in execution
+order and describe that setup. Do not assume a prior task left the user logged
+in or the cart populated.
+
+Output the task proposal in a fenced json block labelled TASKS_JSON:
+TASKS_JSON
+\`\`\`json
+[{
+  "id": "...",
+  "description": "The complete user outcome, including any prerequisite actions.",
+  "requiredTools": ["first_setup_tool", "primary_tool"],
+  "setup": "Use first_setup_tool to establish the required state before the primary action.",
+  "verify": "..."
+}]
+\`\`\`
+
+The verify field is plain browser JavaScript, not TypeScript: do not use type
+assertions such as \`as HTMLSelectElement\`, type annotations, interfaces, or
+other TypeScript-only syntax. Validate each expression as JavaScript before
+you output it.
 `.trim();
 
 export const TOOL_PROPOSAL_PROMPT = `

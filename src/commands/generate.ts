@@ -15,6 +15,7 @@ import { runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
+import { extractTasksFromText, validateTaskToolBindings } from "../lib/tasks.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import {
   createAgentWorkspace,
@@ -264,7 +265,13 @@ ${opts.context}`
   }
 
   try {
-    const tools = extractAndValidateProposedTools(await readFile(saveTo, "utf8"), discovery);
+    const rawDraft = await readFile(saveTo, "utf8");
+    const tools = extractAndValidateProposedTools(rawDraft, discovery);
+    const proposedTasks = extractTasksFromText(rawDraft);
+    if (!proposedTasks) {
+      throw new Error("The generation output did not contain 5-6 valid verification tasks. Every task must declare requiredTools from the generated proposal.");
+    }
+    validateTaskToolBindings(proposedTasks, tools.map((tool) => tool.name));
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
     const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);
