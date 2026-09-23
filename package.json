@@ -1,6 +1,6 @@
 {
   "name": "@improvisus/webmcpify-core",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Create, review, test, and verify WebMCP capabilities from a local CLI or MCP server.",
   "main": "dist/cli.js",
   "type": "module",
