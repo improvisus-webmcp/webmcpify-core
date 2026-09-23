@@ -4,8 +4,9 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
-### Fixed: task/tool alignment
+### Fixed: provider editing mode and task/tool alignment
 
+- Antigravity generation now explicitly uses its `accept-edits` mode, preventing a user-level plan mode from completing after inspection without creating a reviewable source patch.
 - Require every newly generated evaluation task to name available WebMCP tools and declare setup for multi-tool tasks, preventing unsupported or state-dependent actions from being scored as false failures.
 
 ### Changed: require an explicit target URL

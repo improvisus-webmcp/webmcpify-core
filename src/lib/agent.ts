@@ -31,7 +31,7 @@ type ProviderInvocation = {
   output: "json" | "json-lines" | "text";
 };
 
-function getInvocation(opts: AgentRunOptions): ProviderInvocation {
+export function getInvocation(opts: AgentRunOptions): ProviderInvocation {
   switch (opts.provider) {
     case "gemini":
       return {
@@ -69,6 +69,10 @@ function getInvocation(opts: AgentRunOptions): ProviderInvocation {
         "--output-format",
         "json",
         "--dangerously-skip-permissions",
+        // Do not inherit a user-level plan mode: generation must edit the
+        // disposable workspace or Core has no source patch to review.
+        "--mode",
+        "accept-edits",
         // AGY can retain a project context independently of the process
         // cwd. Force a fresh project rooted at the disposable workspace
         // and enforce OS-level terminal containment so it cannot discover
