@@ -155,6 +155,10 @@ ${JSON.stringify(tasks)}
     () => validateTaskToolBindings([{ id: "checkout", description: "Checkout after login.", requiredTools: ["toggle_user_auth", "checkout_cart"], verify: "document.body !== null" }], ["toggle_user_auth", "checkout_cart"]),
     /self-contained setup/,
   );
+  assert.deepEqual(
+    validateTaskToolBindings([{ id: "availability", description: "WebMCP tools are available.", requiredTools: [], verify: "document.modelContext?.getTools().length > 0" }], []),
+    [{ id: "availability", description: "WebMCP tools are available.", requiredTools: [], verify: "document.modelContext?.getTools().length > 0" }],
+  );
 
   console.log("Structured proposal and task recovery verification passed");
 } finally {

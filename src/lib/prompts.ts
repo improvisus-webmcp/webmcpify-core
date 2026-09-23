@@ -102,8 +102,10 @@ task entirely. Never call an unsupported action an expected pass.
 Each task must be self-contained because Core resets browser state before every
 task. A checkout task must explicitly set up login and cart contents through
 approved tools before checkout. Record the required tool names in execution
-order and describe that setup. Do not assume a prior task left the user logged
-in or the cart populated.
+order and describe that setup. Omit \`setup\` for a single-tool task with no
+prerequisite. The one tool-availability check may use an empty
+\`requiredTools\` list because it only reads \`document.modelContext\`. Do not
+assume a prior task left the user logged in or the cart populated.
 
 Output the task proposal in a fenced json block labelled TASKS_JSON:
 TASKS_JSON

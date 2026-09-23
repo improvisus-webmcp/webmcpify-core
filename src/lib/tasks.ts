@@ -110,6 +110,7 @@ export function validateTaskToolBindings(tasks: Task[], approvedToolNames: Itera
   const approved = new Set([...approvedToolNames].map((name) => name.trim()).filter(Boolean));
   return tasks.map((task) => {
     if (!task.requiredTools?.length) {
+      if (/document\.modelContext/.test(task.verify)) return task;
       throw new Error(`Task "${task.id}" must declare requiredTools from the generated WebMCP proposal.`);
     }
     const unavailable = task.requiredTools.filter((tool) => !approved.has(tool));
@@ -152,12 +153,12 @@ function validateTask(candidate: unknown, index: number, ids = new Set<string>()
 
   let requiredTools: string[] | undefined;
   if (task.requiredTools !== undefined) {
-    if (!Array.isArray(task.requiredTools) || task.requiredTools.length === 0 || task.requiredTools.some((tool) => typeof tool !== "string" || !tool.trim())) {
-      throw new Error(`Task "${id}" must list one or more required WebMCP tool names.`);
+    if (!Array.isArray(task.requiredTools) || task.requiredTools.some((tool) => typeof tool !== "string" || !tool.trim())) {
+      throw new Error(`Task "${id}" has invalid required WebMCP tool names.`);
     }
     requiredTools = [...new Set(task.requiredTools.map((tool) => tool.trim()))];
   }
-  if (task.setup !== undefined && (typeof task.setup !== "string" || !task.setup.trim())) {
+  if (task.setup !== undefined && typeof task.setup !== "string") {
     throw new Error(`Task "${id}" has an invalid setup instruction.`);
   }
 
@@ -166,7 +167,7 @@ function validateTask(candidate: unknown, index: number, ids = new Set<string>()
     description: task.description.trim(),
     verify: task.verify.trim(),
     ...(requiredTools ? { requiredTools } : {}),
-    ...(task.setup ? { setup: task.setup.trim() } : {}),
+    ...(task.setup?.trim() ? { setup: task.setup.trim() } : {}),
   };
   const issues = verificationErrors(taskVerificationIssues(normalized));
   if (issues.length) throw new Error(`Task "${id}" has invalid verification: ${issues.map((issue) => issue.message).join(" ")}`);

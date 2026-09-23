@@ -29,15 +29,18 @@ Focused generation: read ./.webmcpify/discovery.json first and draft WebMCP
 tool registrations only for the discovered actions —
 declarative (HTML form attributes) for simple single-input actions, imperative
 (document.modelContext) for actions needing custom logic or state. Report the
-relevant discovery findings briefly, then output the proposed diff and a concise
-placement/wiring summary for each tool. Use explicit file paths in the diff.
-Do not deploy or run browser verification — WebMCPify will compile-check this
-disposable workspace before the draft reaches human review.
+relevant discovery findings briefly, then make the source edits in the
+workspace. Do not output a unified diff, a patch, or instructions to apply a
+diff: Core captures the actual workspace diff itself. Do not deploy or run
+browser verification — WebMCPify will compile-check this disposable workspace
+before the draft reaches human review.
 
 You are working in a disposable workspace, not the target checkout. Make the
 proposed source edits in this workspace so WebMCPify can capture the exact
-working-tree diff. Never edit .webmcpify artifacts and never claim a diff for
-files you did not actually inspect.
+working-tree diff. A text-only proposal is not a completed task. Before ending,
+verify that one or more source files are actually modified in this workspace.
+Never edit .webmcpify artifacts and never claim a diff for files you did not
+actually inspect.
 
 Before importing any function, value, or type from an existing module, inspect
 that module and verify the symbol is actually exported. Never invent a public
@@ -149,6 +152,39 @@ review.`,
   });
 }
 
+async function retryWorkspaceEdit(
+  opts: GenerateOptions,
+  sitePath: string,
+  workspace: string,
+  provider: ReturnType<typeof resolveProvider>,
+  sourceTrajectory: string,
+): Promise<void> {
+  const retryTrajectory = createTrajectoryPath("generate-edit", undefined, sitePath);
+  console.warn("[generate] provider returned a text-only proposal; requesting one edit-only retry in the disposable workspace...");
+  await runAgent({
+    provider,
+    prompt: `Your previous response described source changes but did not modify
+the disposable workspace. This retry is complete only when source files in the
+current workspace have been edited.
+
+Do not inspect task logs, manage background tasks, output a patch, explain a
+diff, or tell someone else to apply changes. Use your edit tool now to make the
+smallest valid WebMCP source changes required by ./.webmcpify/discovery.json.
+Do not edit .webmcpify artifacts. Do not change unrelated code. Do not finish
+until the workspace has a real source diff. Reply only after the edits exist;
+WebMCPify will capture and validate them.`,
+    cwd: workspace,
+    allowedTools: "Read,Edit",
+    saveTo: retryTrajectory,
+    trajectoryMetadata: {
+      role: "generate-edit",
+      sitePath,
+      sourceTrajectory,
+      method: opts.method,
+    },
+  });
+}
+
 export interface GenerateOptions {
   path?: string;
   provider?: string;
@@ -246,10 +282,14 @@ ${opts.context}`
     });
     workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
     if (!workspaceDiff.trim()) {
+      await retryWorkspaceEdit(opts, sitePath, agentWorkspace, provider, saveTo);
+      workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+    }
+    if (!workspaceDiff.trim()) {
       throw new Error(
         discovery.existingWebMCP.length > 0
-          ? "Existing WebMCP registrations were found, but the generation agent proposed no justified source changes. The target was left unchanged; Core will not invent a patch solely to continue the workflow."
-          : "The generation agent did not modify any files in its disposable workspace. Provider-reported diffs are informational only; no source patch can be created safely."
+          ? "Existing WebMCP registrations were found, but the generation provider did not create a source edit after its focused retry. The target was left unchanged."
+          : "The generation provider did not modify files in its disposable workspace after an edit-only retry. Provider-reported diffs are informational only; no source patch can be created safely."
       );
     }
     try {
