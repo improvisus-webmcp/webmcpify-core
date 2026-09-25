@@ -4,6 +4,10 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Added: optional product context
+
+- Interactive `run` and `generate` now offer an optional post-discovery product-context input. `--product-context <text>` supplies it non-interactively and `--no-product-context-prompt` skips it; discovery remains authoritative and the note is verified against source before use.
+
 ### Fixed: provider editing mode and task/tool alignment
 
 - Normalize provider output before tool/task parsing: JSON envelopes, JSONL streams, nested assistant content, and generic future response shapes now share one extraction path.

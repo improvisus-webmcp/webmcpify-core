@@ -47,6 +47,16 @@ Or select a provider explicitly:
 webmcpify run --url http://localhost:5173 --provider codex
 ```
 
+After discovery, an interactive run offers one optional product-context input. Describe workflows, existing features, or intended outcomes to help generation find relevant integrations; press Enter to skip. Discovery remains the source of truth, and Core verifies the note against the code before using it.
+
+```bash
+# Useful in a terminal; omit the option or press Enter to skip it.
+webmcpify run --url http://localhost:5173 --product-context "Customers order coffee for pickup and manage subscriptions"
+
+# Useful for scripts that must never prompt.
+webmcpify run --url http://localhost:5173 --no-product-context-prompt
+```
+
 `run` uses the balanced security policy by default. You can select the policy
 explicitly:
 
@@ -106,7 +116,7 @@ Core reduces risk; it does not guarantee that generated code or WebMCP tools are
 
 | Command | Purpose |
 | --- | --- |
-| `webmcpify run [--security balance\|ignore\|strict]` | Normal end-to-end workflow; balanced by default. |
+| `webmcpify run [--security balance\|ignore\|strict] [--product-context <text>]` | Normal end-to-end workflow; balanced by default. Interactive terminals may add optional product context after discovery. |
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
 | `webmcpify generate` | Draft tools, tasks, and a pending source patch. |
 | `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |

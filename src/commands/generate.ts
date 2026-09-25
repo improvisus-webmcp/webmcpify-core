@@ -17,6 +17,7 @@ import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
 import { extractTasksFromText, validateTaskToolBindings } from "../lib/tasks.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
+import { collectProductContext } from "../lib/product-context.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -190,6 +191,8 @@ export interface GenerateOptions {
   provider?: string;
   method?: string;
   context?: string;
+  productContext?: string;
+  productContextPrompt?: boolean;
   trajectoryMetadata?: Record<string, unknown>;
   preserveApprovalState?: boolean;
   security?: string;
@@ -228,6 +231,10 @@ export async function runGenerate(opts: GenerateOptions) {
   if (!opts.preserveApprovalState) await invalidateDraftState(sitePath);
 
   const discovery = await runDiscovery(sitePath);
+  const productContext = await collectProductContext(
+    opts.productContext,
+    opts.productContextPrompt,
+  );
 
   const saveTo = createTrajectoryPath("generate", undefined, sitePath);
   const strategy = methodInstruction(method);
@@ -241,10 +248,18 @@ export async function runGenerate(opts: GenerateOptions) {
 drafted repair, but still inspect the code rather than assuming the diagnosis:
 ${opts.context}`
     : "";
+  const productContextInstruction = productContext
+    ? `The engineer supplied this optional product context. It is supporting
+information only: discovery.json and inspected source remain authoritative.
+Use it to identify relevant feature integrations or outcomes, then verify each
+claim against the code. Do not modify discovery or invent actions just because
+they are mentioned here:
+${productContext}`
+    : "";
   // Do not expose the real checkout path to an unrestricted provider process.
   // The provider receives a local copy in its disposable workspace below.
   const agentDiscovery = { ...discovery, targetProject: "." };
-  const prompt = [GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, securityInstruction, failureContext]
+  const prompt = [GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, securityInstruction, productContextInstruction, failureContext]
     .filter(Boolean)
     .join("\n\n");
 
@@ -276,6 +291,7 @@ ${opts.context}`
         method,
         securityPolicy,
         context: opts.context,
+        productContext,
         discoveryPath: discoveryPath(sitePath),
         ...opts.trajectoryMetadata,
       },

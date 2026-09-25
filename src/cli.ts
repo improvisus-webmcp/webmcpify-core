@@ -35,6 +35,8 @@ program
   .option("-u, --url <url>", "running site URL (required unless WEBMCPIFY_URL is set)")
   .option("--provider <name>", providerHelp)
   .option("--method <type>", "generation strategy: declarative, imperative, or auto", "auto")
+  .option("--product-context <text>", "optional product functionality context for generation")
+  .option("--no-product-context-prompt", "do not show the optional product-context prompt")
   .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
   .option("--review-port <number>", "port for the human review page", "4173")
   .action(runWorkflow);
@@ -49,6 +51,8 @@ program
     "generation strategy: declarative, imperative, or auto",
     "auto"
   )
+  .option("--product-context <text>", "optional product functionality context for generation")
+  .option("--no-product-context-prompt", "do not show the optional product-context prompt")
   .action(runGenerate);
 
 program

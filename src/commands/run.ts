@@ -15,6 +15,8 @@ export interface RunOptions {
   method?: string;
   reviewPort?: string;
   security?: string;
+  productContext?: string;
+  productContextPrompt?: boolean;
 }
 
 /** Run the normal workflow without requiring Temporal or manual stage commands. */
@@ -37,6 +39,8 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
     provider: opts.provider,
     method: opts.method,
     security,
+    productContext: opts.productContext,
+    productContextPrompt: opts.productContextPrompt,
   });
 
   console.log("[run] 2/4 review");
