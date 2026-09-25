@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { validateVerifyExpression, verificationErrors, type VerificationContext, type VerificationIssue } from "./task-verification.js";
+import { normalizeProviderOutput } from "./provider-output.js";
 
 export interface Task {
   id: string;
@@ -256,30 +257,10 @@ function recoverValidTaskArray(value: unknown): Task[] | undefined {
 }
 
 /** Extract a 5-6 task proposal from an agent's draft without executing it. */
-export function extractTasksFromText(text: string): Task[] | undefined {
+export function extractTasksFromText(raw: string): Task[] | undefined {
   const candidates: string[] = [];
-  const sources = [text];
-  try {
-    JSON.parse(text);
-  } catch {
-    // Codex --json emits JSONL. Extract assistant message text from each
-    // event before looking for TASKS_JSON, just as tool proposal parsing does.
-    const messages: string[] = [];
-    const collect = (value: unknown, key?: string): void => {
-      if (typeof value === "string") {
-        if (!key || ["response", "result", "text", "output", "message", "content"].includes(key)) messages.push(value);
-      } else if (Array.isArray(value)) value.forEach((entry) => collect(entry));
-      else if (typeof value === "object" && value !== null) Object.entries(value).forEach(([childKey, childValue]) => collect(childValue, childKey));
-    };
-    for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-      try {
-        collect(JSON.parse(line));
-      } catch {
-        // Keep scanning the remaining provider events.
-      }
-    }
-    if (messages.length) sources.unshift(messages.join("\n"));
-  }
+  const text = normalizeProviderOutput(raw);
+  const sources = text === raw ? [text] : [text, raw];
   for (const source of sources) {
     for (const match of source.matchAll(/```(?:[^\n]*\n)?([\s\S]*?)```/gi)) {
       if (match[1]) {

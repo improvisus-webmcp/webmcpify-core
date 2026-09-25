@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveryResult } from "./discovery.js";
 import { createTrajectoryArtifact } from "./trajectories.js";
+import { normalizeProviderOutput } from "./provider-output.js";
 
 export interface ProposedTool {
   id: string;
@@ -36,36 +37,6 @@ export interface ProposedToolsDocument {
 
 export function proposedToolsPath(sitePath: string): string {
   return path.join(sitePath, ".webmcpify", "proposed-tools.json");
-}
-
-function textFromOutput(raw: string): string {
-  const values: string[] = [];
-  const collect = (value: unknown, key?: string): void => {
-    if (typeof value === "string") {
-      if (!key || ["response", "result", "text", "output", "message", "content"].includes(key)) values.push(value);
-    } else if (Array.isArray(value)) value.forEach((entry) => collect(entry));
-    else if (typeof value === "object" && value !== null) Object.entries(value).forEach(([childKey, childValue]) => collect(childValue, childKey));
-  };
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "string") return parsed;
-    collect(parsed);
-    if (values.length) return values.join("\n");
-  } catch {
-    // Codex --json emits one JSON object per line. Parse each event so the
-    // final item.completed agent message can be searched for structured
-    // proposal/task blocks instead of treating the whole stream as plain
-    // text.
-    for (const line of raw.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-      try {
-        collect(JSON.parse(line));
-      } catch {
-        // Preserve the plain-output fallback below for non-JSON providers.
-      }
-    }
-    if (values.length) return values.join("\n");
-  }
-  return raw;
 }
 
 function jsonCandidates(text: string): string[] {
@@ -266,7 +237,7 @@ export function validateProposedTools(value: unknown, discovery: DiscoveryResult
 }
 
 export function extractAndValidateProposedTools(raw: string, discovery: DiscoveryResult): ProposedTool[] {
-  const text = textFromOutput(raw);
+  const text = normalizeProviderOutput(raw);
   // Providers also emit TASKS_JSON after the tool proposal. Prefer the
   // explicitly labelled proposal block so that the task array is never
   // mistaken for a list of tools.

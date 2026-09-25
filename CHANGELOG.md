@@ -6,6 +6,7 @@ All notable changes to WebMCPify are documented here.
 
 ### Fixed: provider editing mode and task/tool alignment
 
+- Normalize provider output before tool/task parsing: JSON envelopes, JSONL streams, nested assistant content, and generic future response shapes now share one extraction path.
 - Antigravity generation now explicitly uses its `accept-edits` mode and receives one edit-only retry when it returns a textual diff without modifying the disposable workspace.
 - Tool-availability-only checks may be task metadata with no action tool; every action task remains bound to generated WebMCP tools and any multi-tool setup.
 - Require every newly generated evaluation task to name available WebMCP tools and declare setup for multi-tool tasks, preventing unsupported or state-dependent actions from being scored as false failures.
