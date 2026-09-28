@@ -94,27 +94,45 @@ Verification tasks are tests, not WebMCP tools. Never place a task (including
 the tool-availability check) inside the TOOL_PROPOSALS_JSON tools array.
 
 Every task must be executable with the exact WebMCP tools in your
-TOOL_PROPOSALS_JSON. Do not create a task for an ordinary UI control unless you
-also propose its matching WebMCP tool. For example, a dark-roast task requires
-a proposed \`filter_by_roast\`-style tool; if no such tool exists, omit that
-task entirely. Never call an unsupported action an expected pass.
+TOOL_PROPOSALS_JSON. Every proposed tool name must appear in requiredTools for
+at least one task: generated tools without test coverage invalidate the entire
+proposal. Combine compatible tools into a self-contained task when necessary
+to cover every tool within the 5-6 task limit. Do not create a task for an
+ordinary UI control unless you also propose its matching WebMCP tool. Never
+call an unsupported action an expected pass.
 
-Each task must be self-contained because Core resets browser state before every
-task. A checkout task must explicitly set up login and cart contents through
-approved tools before checkout. Record the required tool names in execution
-order and describe that setup. Omit \`setup\` for a single-tool task with no
-prerequisite. The one tool-availability check may use an empty
-\`requiredTools\` list because it only reads \`document.modelContext\`. Do not
-assume a prior task left the user logged in or the cart populated.
+Each task must declare expectedOutcome as either "success" or "rejection".
+Success tasks are self-contained because Core resets browser state before every
+task. A successful checkout task must explicitly set up login and cart contents
+through approved tools before checkout. Record required tool names in execution
+order and describe that setup.
+
+Use a rejection task for a real, discovered business-rule guard: for example,
+checkout without authentication or cart contents, or remove_item with an empty
+cart. A rejection task must call exactly one proposed tool, omit setup so the
+precondition stays unmet, set expectedError to stable text from that tool's
+behavior.expectedFailures contract, and verify independently that no forbidden
+state change occurred. Do not use rejection tasks for crashes, missing tools,
+invalid schemas, browser failures, or invented behavior. The one
+tool-availability check may use an empty requiredTools list because it only
+reads document.modelContext. Do not assume a prior task left state behind.
 
 Output the task proposal in a fenced json block labelled TASKS_JSON:
 TASKS_JSON
 \`\`\`json
 [{
   "id": "...",
-  "description": "The complete user outcome, including any prerequisite actions.",
+  "description": "The complete expected outcome.",
+  "expectedOutcome": "success",
   "requiredTools": ["first_setup_tool", "primary_tool"],
   "setup": "Use first_setup_tool to establish the required state before the primary action.",
+  "verify": "..."
+}, {
+  "id": "...-rejected",
+  "description": "Attempt a guarded action while its real precondition is unmet.",
+  "expectedOutcome": "rejection",
+  "expectedError": "Stable error text declared in behavior.expectedFailures",
+  "requiredTools": ["guarded_tool"],
   "verify": "..."
 }]
 \`\`\`
@@ -156,6 +174,14 @@ fenced json block labelled TOOL_PROPOSALS_JSON:
       "action": "the discovered action this invokes",
       "state": "the discovered state source, when applicable"
     },
+    "behavior": {
+      "success": "The exact observable result of a successful call",
+      "preconditions": ["Real state required before the call can succeed"],
+      "expectedFailures": [{
+        "condition": "A discovered precondition is unmet",
+        "error": "Stable rejection text returned by the implementation"
+      }]
+    },
     "placement": {
       "strategy": "imperative or declarative",
       "file": "path/to/registration-or-component.tsx",
@@ -167,8 +193,12 @@ fenced json block labelled TOOL_PROPOSALS_JSON:
 Every sourceFiles and placement.file path must occur in discovery.sourceFiles,
 and each tool must correspond to a discovered form, button, action, API,
 authentication, state, or existing-WebMCP signal. Do not propose tools for
-capabilities absent from discovery. Keep this JSON separate from the later
-TASKS_JSON and unified diff sections.
+capabilities absent from discovery. Trace each behavior precondition and
+expected failure to actual source logic; use an empty expectedFailures array
+when the action has no discovered business-rule rejection. Never invent an
+error message. These contracts drive positive and negative browser tests, so
+they must agree with the generated handler exactly. Keep this JSON separate
+from the later TASKS_JSON and unified diff sections.
 
 The security object is Core review metadata, not a WebMCP API field. Make every
 claim match the code in the exact proposed patch. Never claim backend

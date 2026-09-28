@@ -22,6 +22,11 @@ export interface ProposedTool {
     notes: string;
   };
   implementation: { handler: string; action: string; state?: string };
+  behavior: {
+    success: string;
+    preconditions: string[];
+    expectedFailures: Array<{ condition: string; error: string }>;
+  };
   placement: { strategy: "declarative" | "imperative"; file: string; rationale: string };
   sourceFiles: string[];
 }
@@ -141,13 +146,19 @@ function providerProposalValue(parsed: unknown): unknown {
     : proposal;
 }
 
-function normalizeTool(value: unknown, index: number): ProposedTool {
+function normalizeTool(value: unknown, index: number, requireBehavior = false): ProposedTool {
   if (typeof value !== "object" || value === null) throw new Error(`Tool ${index + 1} must be an object.`);
   const candidate = value as Record<string, unknown>;
   const name = typeof candidate.name === "string" ? candidate.name.trim() : typeof candidate.id === "string" ? candidate.id.trim() : "";
   const id = typeof candidate.id === "string" ? candidate.id.trim() : name;
   const title = typeof candidate.title === "string" ? candidate.title.trim() : "";
   const implementation = candidate.implementation as Record<string, unknown> | undefined;
+  const suppliedBehavior = candidate.behavior as Record<string, unknown> | undefined;
+  const behavior = suppliedBehavior ?? {
+    success: typeof candidate.description === "string" ? candidate.description : "",
+    preconditions: [],
+    expectedFailures: [],
+  };
   const placement = candidate.placement as Record<string, unknown> | undefined;
   const parameters = (candidate.parameters ?? candidate.schema) as Record<string, unknown> | undefined;
   if (!/^[a-z][a-z0-9_-]*$/i.test(name) || !/^[a-z][a-z0-9_-]*$/i.test(id)) throw new Error(`Tool ${index + 1} has an invalid id/name.`);
@@ -158,11 +169,67 @@ function normalizeTool(value: unknown, index: number): ProposedTool {
   const annotations = candidate.annotations as Record<string, unknown> | undefined;
   if (!annotations || typeof annotations.readOnlyHint !== "boolean" || typeof annotations.untrustedContentHint !== "boolean" || typeof annotations.consequentialHint !== "boolean") throw new Error(`Tool "${name}" needs complete WebMCP annotations.`);
   if (!implementation || typeof implementation.handler !== "string" || typeof implementation.action !== "string") throw new Error(`Tool "${name}" needs implementation.handler and implementation.action.`);
+  if (requireBehavior && !suppliedBehavior) {
+    throw new Error(`Tool "${name}" needs a source-grounded behavior contract.`);
+  }
+  if (
+    typeof behavior.success !== "string"
+    || !behavior.success.trim()
+    || !Array.isArray(behavior.preconditions)
+    || behavior.preconditions.some((condition) => typeof condition !== "string" || !condition.trim())
+    || !Array.isArray(behavior.expectedFailures)
+  ) {
+    throw new Error(`Tool "${name}" needs behavior.success, behavior.preconditions, and behavior.expectedFailures.`);
+  }
+  const expectedFailures = behavior.expectedFailures.map((failure, failureIndex) => {
+    if (
+      typeof failure !== "object"
+      || failure === null
+      || typeof (failure as Record<string, unknown>).condition !== "string"
+      || !(failure as Record<string, string>).condition.trim()
+      || typeof (failure as Record<string, unknown>).error !== "string"
+      || !(failure as Record<string, string>).error.trim()
+    ) {
+      throw new Error(`Tool "${name}" has an invalid behavior.expectedFailures entry at index ${failureIndex}.`);
+    }
+    return {
+      condition: (failure as Record<string, string>).condition.trim(),
+      error: (failure as Record<string, string>).error.trim(),
+    };
+  });
   if (!placement || (placement.strategy !== "declarative" && placement.strategy !== "imperative") || typeof placement.file !== "string" || typeof placement.rationale !== "string") throw new Error(`Tool "${name}" needs valid placement information.`);
   if (!Array.isArray(candidate.sourceFiles) || candidate.sourceFiles.length === 0 || candidate.sourceFiles.some((file) => typeof file !== "string" || !file.trim())) throw new Error(`Tool "${name}" needs sourceFiles.`);
   if (parameters.required !== undefined && (!Array.isArray(parameters.required) || parameters.required.some((field) => typeof field !== "string"))) throw new Error(`Tool "${name}" has an invalid required parameter list.`);
   const security = normalizeSecurity(candidate.security, name);
-  return { id, name, title, description: candidate.description.trim(), parameters: parameters as ProposedTool["parameters"], annotations: { readOnlyHint: annotations.readOnlyHint, untrustedContentHint: annotations.untrustedContentHint, consequentialHint: annotations.consequentialHint }, ...(security ? { security } : {}), implementation: { handler: implementation.handler, action: implementation.action, ...(typeof implementation.state === "string" ? { state: implementation.state } : {}) }, placement: { strategy: placement.strategy, file: placement.file, rationale: placement.rationale }, sourceFiles: [...new Set((candidate.sourceFiles as string[]).map((file) => file.trim()))] };
+  return {
+    id,
+    name,
+    title,
+    description: candidate.description.trim(),
+    parameters: parameters as ProposedTool["parameters"],
+    annotations: {
+      readOnlyHint: annotations.readOnlyHint,
+      untrustedContentHint: annotations.untrustedContentHint,
+      consequentialHint: annotations.consequentialHint,
+    },
+    ...(security ? { security } : {}),
+    implementation: {
+      handler: implementation.handler,
+      action: implementation.action,
+      ...(typeof implementation.state === "string" ? { state: implementation.state } : {}),
+    },
+    behavior: {
+      success: behavior.success.trim(),
+      preconditions: [...new Set((behavior.preconditions as string[]).map((condition) => condition.trim()))],
+      expectedFailures,
+    },
+    placement: {
+      strategy: placement.strategy,
+      file: placement.file,
+      rationale: placement.rationale,
+    },
+    sourceFiles: [...new Set((candidate.sourceFiles as string[]).map((file) => file.trim()))],
+  };
 }
 
 function normalizeSecurity(value: unknown, toolName: string): ProposedTool["security"] | undefined {
@@ -219,10 +286,16 @@ function validateSupport(tool: ProposedTool, discovery: DiscoveryResult): void {
   if (tool.placement.strategy === "declarative" && discovery.forms.length === 0) throw new Error(`Tool "${tool.name}" uses declarative placement but discovery found no forms.`);
 }
 
-export function validateProposedTools(value: unknown, discovery: DiscoveryResult): ProposedTool[] {
+export function validateProposedTools(
+  value: unknown,
+  discovery: DiscoveryResult,
+  options: { requireBehavior?: boolean } = {},
+): ProposedTool[] {
   const rawTools = Array.isArray(value) ? value : typeof value === "object" && value !== null ? (value as Record<string, unknown>).tools : undefined;
   if (!Array.isArray(rawTools) || rawTools.length === 0) throw new Error("The provider output must contain a non-empty tools array.");
-  const tools = rawTools.map(normalizeTool);
+  const tools = rawTools.map((tool, index) =>
+    normalizeTool(tool, index, options.requireBehavior === true)
+  );
   const ids = new Set<string>();
   const names = new Set<string>();
   for (const tool of tools) {
@@ -249,7 +322,9 @@ export function extractAndValidateProposedTools(raw: string, discovery: Discover
   for (const candidate of [...new Set(candidates)]) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
-      return validateProposedTools(providerProposalValue(parsed), discovery);
+      return validateProposedTools(providerProposalValue(parsed), discovery, {
+        requireBehavior: true,
+      });
     } catch (error) {
       if (error instanceof SyntaxError) continue;
       lastError = error;

@@ -5,9 +5,11 @@ import path from "node:path";
 import { discoverProject } from "../dist/lib/discovery.js";
 import {
   extractAndValidateProposedTools,
+  validateProposedTools,
   writeProposedTools,
 } from "../dist/lib/tool-proposals.js";
 import { extractTasksFromText, validateTaskToolBindings } from "../dist/lib/tasks.js";
+import { expectedRejectionObserved, requiredToolsObserved } from "../dist/lib/scoring.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-tools-"));
 
@@ -56,6 +58,11 @@ try {
       handler: `${file}#handler`,
       action: "discovered action",
     },
+    behavior: {
+      success: "The discovered action completes.",
+      preconditions: [],
+      expectedFailures: [],
+    },
     placement: {
       strategy: "imperative",
       file,
@@ -69,6 +76,29 @@ try {
     discovery,
   );
   assert.equal(validTools.length, 1);
+  const [legacyTool] = extractAndValidateProposedTools(
+    JSON.stringify({ tools: [tool] }),
+    discovery,
+  );
+  assert.equal(legacyTool.behavior.success, tool.behavior.success);
+  assert.deepEqual(
+    validateProposedTools(
+      { tools: [{ ...tool, behavior: undefined }] },
+      discovery,
+    )[0].behavior,
+    {
+      success: tool.description,
+      preconditions: [],
+      expectedFailures: [],
+    },
+  );
+  assert.throws(
+    () => extractAndValidateProposedTools(
+      JSON.stringify({ tools: [{ ...tool, behavior: undefined }] }),
+      discovery,
+    ),
+    /behavior contract/,
+  );
   const mixedProviderOutput = `TOOL_PROPOSALS_JSON
 \`\`\`json
 ${JSON.stringify({ tools: [tool, { id: "verify-tools-registered", description: "Checks that generated tools are registered.", verify: "document.modelContext.getTools().length > 0" }] })}
@@ -160,7 +190,66 @@ ${JSON.stringify(tasks)}
     [{ id: "availability", description: "WebMCP tools are available.", requiredTools: [], verify: "document.modelContext?.getTools().length > 0" }],
   );
 
-  console.log("Structured proposal and task recovery verification passed");
+  assert.throws(
+    () => validateTaskToolBindings(
+      [{ id: "covered", description: "Covers one tool.", requiredTools: ["covered_tool"], verify: "document.body !== null" }],
+      ["covered_tool", "untested_tool"],
+    ),
+    /missing task coverage for: untested_tool/,
+  );
+
+  const guardedTool = {
+    name: "checkout_now",
+    behavior: {
+      expectedFailures: [
+        { condition: "The user is logged out.", error: "Sign in before checkout" },
+      ],
+    },
+  };
+  const rejectionTask = {
+    id: "checkout-rejected",
+    description: "Checkout is rejected while logged out and no order is created.",
+    expectedOutcome: "rejection",
+    expectedError: "Sign in before checkout",
+    requiredTools: ["checkout_now"],
+    verify: "document.querySelector('[data-order-confirmation]') === null",
+  };
+  assert.deepEqual(validateTaskToolBindings([rejectionTask], [guardedTool]), [rejectionTask]);
+  assert.throws(
+    () => validateTaskToolBindings([{ ...rejectionTask, expectedError: "Invented error" }], [guardedTool]),
+    /not declared by tool/,
+  );
+  assert.equal(
+    expectedRejectionObserved(rejectionTask, {
+      prompt: "Call checkout_now and expect Sign in before checkout",
+      response: "checkout_now returned: Sign in before checkout",
+    }),
+    true,
+  );
+  assert.equal(
+    expectedRejectionObserved(rejectionTask, {
+      prompt: "Call checkout_now and expect Sign in before checkout",
+      response: "I did not call the tool.",
+    }),
+    false,
+    "prompt text alone must not prove an expected rejection",
+  );
+  assert.equal(
+    requiredToolsObserved(
+      { id: "cart", description: "Add then remove", requiredTools: ["add_to_cart", "remove_item"], verify: "true" },
+      { response: "Called add_to_cart and remove_item." },
+    ),
+    true,
+  );
+  assert.equal(
+    requiredToolsObserved(
+      { id: "cart", description: "Add then remove", requiredTools: ["add_to_cart", "remove_item"], verify: "true" },
+      { response: "Called add_to_cart only." },
+    ),
+    false,
+  );
+
+  console.log("Structured proposal, complete tool coverage, and expected-rejection verification passed");
 } finally {
   await rm(fixture, { recursive: true, force: true });
 }

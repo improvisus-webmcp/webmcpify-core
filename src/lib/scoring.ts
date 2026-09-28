@@ -1,5 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
-import type { Task } from "./tasks.js";
+import { taskExpectedOutcome, type Task } from "./tasks.js";
 
 export interface TaskResult {
   task: string;
@@ -55,15 +55,70 @@ async function getIsolatedPage(url: string, resetStorage = true): Promise<{ cont
   }
 }
 
-export async function scoreTask(url: string, task: Task, options: { resetStorage?: boolean } = {}): Promise<TaskResult> {
+function agentEvidenceText(value: unknown, key?: string): string {
+  if (typeof value === "string") {
+    return key && ["prompt", "input", "instructions", "command", "args"].includes(key)
+      ? ""
+      : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => agentEvidenceText(entry, key)).filter(Boolean).join("\n");
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value)
+      .map(([childKey, childValue]) => agentEvidenceText(childValue, childKey))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+export function requiredToolsObserved(task: Task, agentOutput: unknown): boolean {
+  if (!task.requiredTools?.length) return true;
+  const evidence = agentEvidenceText(agentOutput).toLowerCase();
+  return task.requiredTools.every((tool) => evidence.includes(tool.toLowerCase()));
+}
+
+export function expectedRejectionObserved(task: Task, agentOutput: unknown): boolean {
+  if (taskExpectedOutcome(task) !== "rejection" || !task.expectedError || agentOutput === undefined) {
+    return false;
+  }
+  const evidence = agentEvidenceText(agentOutput).replace(/\s+/g, " ").toLowerCase();
+  const expected = task.expectedError.replace(/\s+/g, " ").trim().toLowerCase();
+  return expected.length > 0
+    && evidence.includes(expected)
+    && requiredToolsObserved(task, agentOutput);
+}
+
+export async function scoreTask(
+  url: string,
+  task: Task,
+  options: {
+    resetStorage?: boolean;
+    agentOutput?: unknown;
+    requireToolEvidence?: boolean;
+  } = {},
+): Promise<TaskResult> {
   let page: Page | undefined;
   try {
     ({ page } = await getIsolatedPage(url, options.resetStorage ?? true));
-    const passed = await page.evaluate(task.verify);
+    const stateVerified = Boolean(await page.evaluate(task.verify));
+    const toolsObserved = requiredToolsObserved(task, options.agentOutput);
+    if (taskExpectedOutcome(task) === "rejection") {
+      const rejectionObserved = expectedRejectionObserved(task, options.agentOutput);
+      return {
+        task: task.id,
+        passed: stateVerified && rejectionObserved,
+        detail: `expected rejection → ${rejectionObserved ? "observed" : "not observed"}; postcondition → ${stateVerified}`,
+      };
+    }
+    const evidencePassed = !options.requireToolEvidence || toolsObserved;
     return {
       task: task.id,
-      passed: Boolean(passed),
-      detail: `verify → ${String(passed)}`,
+      passed: stateVerified && evidencePassed,
+      detail: options.requireToolEvidence
+        ? `tools → ${toolsObserved ? "observed" : "not observed"}; verify → ${String(stateVerified)}`
+        : `verify → ${String(stateVerified)}`,
     };
   } catch (error) {
     return {
@@ -106,11 +161,12 @@ export async function assertWebMcpRuntime(url: string): Promise<void> {
 
 export async function scoreTasks(
   url: string,
-  tasks: Task[]
+  tasks: Task[],
+  options: { agentOutput?: unknown } = {},
 ): Promise<TaskScoreSummary> {
   const results: TaskResult[] = [];
   for (const task of tasks) {
-    results.push(await scoreTask(url, task));
+    results.push(await scoreTask(url, task, { agentOutput: options.agentOutput }));
   }
 
   return {

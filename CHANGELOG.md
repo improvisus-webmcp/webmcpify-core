@@ -4,6 +4,12 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: private failures and complete tool verification
+
+- Provider stderr and raw subprocess errors are no longer streamed or rethrown to the terminal, preventing prompts and embedded source code from appearing when an agent command fails; raw diagnostics remain in the local trajectory.
+- Structured proposals now require source-grounded success, precondition, and expected-failure behavior contracts, and approval rejects any proposed tool without task coverage.
+- Verification tasks distinguish successful actions from expected business-rule rejections. A rejection passes only when the tool name and declared error are observed in provider evidence and an independent browser postcondition confirms no forbidden state change.
+
 ### Added: optional product context
 
 - Interactive `run` and `generate` now offer an optional post-discovery product-context input. `--product-context <text>` supplies it non-interactively and `--no-product-context-prompt` skips it; discovery remains authoritative and the note is verified against source before use.

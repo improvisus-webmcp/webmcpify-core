@@ -119,7 +119,7 @@ export async function runReviewPrompt(
     ? await loadApprovedTasks(sitePath)
     : extractTasksFromText(draft) ?? [];
   if (proposedTasks.length < 5 || proposedTasks.length > 6) throw new Error(`Generated draft must contain 5-6 valid tasks; received ${proposedTasks.length}. Fix the generation output before review.`);
-  validateTaskToolBindings(proposedTasks, proposedTools.map((tool) => tool.name));
+  validateTaskToolBindings(proposedTasks, proposedTools);
   const projectTasksPath = tasksPath(sitePath);
   const approvalPath = path.join(
     sitePath,
@@ -190,7 +190,7 @@ export async function runReviewPrompt(
                 task.id
               )}" checked> <strong>${htmlEscape(task.id)}</strong>: ${htmlEscape(
                 task.description
-              )}<br><code>${htmlEscape(task.verify)}</code>${taskVerificationIssues(task, { discovery, toolNames: proposedTools.map((tool) => tool.name) }).map((issue) => `<br><em>${htmlEscape(issue.severity.toUpperCase())}: ${htmlEscape(issue.message)}</em>`).join("")}</label>`
+              )}<br><small>Expected outcome: ${htmlEscape(task.expectedOutcome ?? "success")}${task.expectedError ? ` · expected error: ${htmlEscape(task.expectedError)}` : ""}</small><br><code>${htmlEscape(task.verify)}</code>${taskVerificationIssues(task, { discovery, toolNames: proposedTools.map((tool) => tool.name) }).map((issue) => `<br><em>${htmlEscape(issue.severity.toUpperCase())}: ${htmlEscape(issue.message)}</em>`).join("")}</label>`
           )
           .join("\n")
       : `<p>No valid 5-6 task proposal was found. Edit the JSON below before approving.</p>`;
@@ -237,7 +237,7 @@ export async function runReviewPrompt(
       const security = auditToolSecurity(editedTools, discovery, sitePath, securityPolicy);
       if (security.status === "block") throw new Error(`Approval blocked by ${security.summary.block} Core security finding(s). Fix the tool contract and exact source patch, then generate again.`);
       const editedTasks = parseTasksJson(typeof request.body.tasksJson === "string" ? request.body.tasksJson : "[]");
-      validateTaskToolBindings(editedTasks, editedTools.map((tool) => tool.name));
+      validateTaskToolBindings(editedTasks, editedTools);
       const selectedTaskIds = selectedIds({ ids: request.body.taskIds });
       const proposedTaskIds = new Set(proposedTasks.map((task) => task.id));
       if (editedTasks.length < 5 || editedTasks.length > 6 || selectedTaskIds.length !== editedTasks.length || editedTasks.some((task) => !selectedTaskIds.includes(task.id) || !proposedTaskIds.has(task.id))) throw new Error("Approved tasks must be 5-6 valid tasks selected from this generated draft; keep task IDs unchanged.");

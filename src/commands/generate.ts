@@ -327,7 +327,7 @@ ${productContext}`
     if (!proposedTasks) {
       throw new Error("The generation output did not contain 5-6 valid verification tasks. Every task must declare requiredTools from the generated proposal.");
     }
-    validateTaskToolBindings(proposedTasks, tools.map((tool) => tool.name));
+    validateTaskToolBindings(proposedTasks, tools);
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
     const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);

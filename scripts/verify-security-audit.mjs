@@ -31,6 +31,7 @@ try {
       notes: "The proposed backend order handler verifies the user and agent before persisting once.",
     },
     implementation: { handler: `${file}#checkout`, action: "place order" },
+    behavior: { success: "The order is placed.", preconditions: [], expectedFailures: [] },
     placement: { strategy: "imperative", file, rationale: "Uses the discovered checkout action." },
     sourceFiles: [file],
   };

@@ -46,8 +46,9 @@ registration behavior.\n\n${WEBMCP_SPEC_GUIDANCE}\n\n${taskContext}`;
 
   const agentWorkspace = await createAgentWorkspace(sitePath);
   let agentError: string | undefined;
+  let agentOutput: unknown;
   try {
-    await runAgent({
+    agentOutput = await runAgent({
       provider,
       prompt: baselinePrompt,
       cwd: agentWorkspace,
@@ -75,7 +76,7 @@ registration behavior.\n\n${WEBMCP_SPEC_GUIDANCE}\n\n${taskContext}`;
   if (!agentError) console.log(`[baseline] session complete, saved to ${trajectoryPath}`);
   console.log("[baseline] running independent eval check against live site...");
 
-  const scores = await scoreTasks(url, tasks);
+  const scores = await scoreTasks(url, tasks, { agentOutput });
   const evaluationPath = await createTrajectoryArtifact(
     "baseline-eval",
     { version: 1, mode: "baseline", runId, targetProject: sitePath, taskSetId, tasks, scores, agentError },

@@ -80,7 +80,7 @@ webmcpify run --url http://localhost:5173 --provider agy --security strict
 `run` performs the normal workflow:
 
 1. Discover the target's routes, forms, handlers, APIs, state, authentication signals, and existing WebMCP tools.
-2. Draft tools and browser-verifiable, self-contained tasks in a disposable workspace. Each task must name only generated WebMCP tools and declare any setup, such as login and adding a cart item before checkout.
+2. Draft tools and browser-verifiable tasks in a disposable workspace. Every proposed tool must be covered by at least one task. Normal tasks declare their prerequisite setup; negative tasks may instead declare a source-grounded expected rejection (for example, checkout while logged out) and pass only when the tool call, expected error, and unchanged browser state are all observed.
 3. Audit each tool's declared user/agent binding, backend authorization, origin scope, quota, replay protection, and input bounds.
 4. Open a local review URL and wait for the owner to approve or reject the exact tools, tasks, security findings, and patch.
 5. Apply an approved patch and run the target's available typecheck and build scripts.

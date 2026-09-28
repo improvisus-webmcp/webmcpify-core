@@ -9,10 +9,26 @@ export interface Task {
   id: string;
   description: string;
   verify: string;
+  /** Whether the primary tool call must succeed or be rejected by a known guard. */
+  expectedOutcome?: "success" | "rejection";
+  /** Stable error text that must be present in provider output for a rejection test. */
+  expectedError?: string;
   /** Approved WebMCP tools needed to complete this task. */
   requiredTools?: string[];
   /** Explicit setup the browser agent must complete before the primary action. */
   setup?: string;
+}
+
+export interface ToolTestContract {
+  name: string;
+  expectedFailures?: Array<{ condition: string; error: string }>;
+  behavior?: {
+    expectedFailures: Array<{ condition: string; error: string }>;
+  };
+}
+
+export function taskExpectedOutcome(task: Task): "success" | "rejection" {
+  return task.expectedOutcome ?? "success";
 }
 
 export function taskFingerprint(tasks: Task[]): string {
@@ -107,9 +123,17 @@ export function validateTasks(value: unknown): Task[] {
  * proposals cannot; otherwise Core could score an action no generated tool can
  * perform.
  */
-export function validateTaskToolBindings(tasks: Task[], approvedToolNames: Iterable<string>): Task[] {
-  const approved = new Set([...approvedToolNames].map((name) => name.trim()).filter(Boolean));
-  return tasks.map((task) => {
+export function validateTaskToolBindings(
+  tasks: Task[],
+  approvedTools: Iterable<string | ToolTestContract>,
+): Task[] {
+  const contracts = [...approvedTools].map((tool) =>
+    typeof tool === "string" ? { name: tool } : tool
+  );
+  const approved = new Set(contracts.map((tool) => tool.name.trim()).filter(Boolean));
+  const referenced = new Set<string>();
+
+  const validated = tasks.map((task) => {
     if (!task.requiredTools?.length) {
       if (/document\.modelContext/.test(task.verify)) return task;
       throw new Error(`Task "${task.id}" must declare requiredTools from the generated WebMCP proposal.`);
@@ -118,11 +142,40 @@ export function validateTaskToolBindings(tasks: Task[], approvedToolNames: Itera
     if (unavailable.length) {
       throw new Error(`Task "${task.id}" requires unavailable WebMCP tool(s): ${unavailable.join(", ")}.`);
     }
+    task.requiredTools.forEach((tool) => referenced.add(tool));
     if (task.requiredTools.length > 1 && !task.setup) {
       throw new Error(`Task "${task.id}" uses multiple WebMCP tools and must declare self-contained setup instructions.`);
     }
+    if (taskExpectedOutcome(task) === "rejection") {
+      if (task.requiredTools.length !== 1) {
+        throw new Error(`Rejection task "${task.id}" must test exactly one WebMCP tool.`);
+      }
+      if (task.setup) {
+        throw new Error(`Rejection task "${task.id}" must preserve the unmet precondition instead of declaring setup.`);
+      }
+      const contract = contracts.find((tool) => tool.name === task.requiredTools?.[0]);
+      const expectedFailures = contract?.expectedFailures ?? contract?.behavior?.expectedFailures ?? [];
+      if (expectedFailures.length === 0) {
+        throw new Error(`Rejection task "${task.id}" is not backed by a declared expected failure for tool "${contract?.name}".`);
+      }
+      if (
+        expectedFailures.length > 0
+        && !expectedFailures.some((failure) =>
+          failure.error.toLowerCase().includes(task.expectedError!.toLowerCase())
+          || task.expectedError!.toLowerCase().includes(failure.error.toLowerCase())
+        )
+      ) {
+        throw new Error(`Rejection task "${task.id}" expectedError is not declared by tool "${contract?.name}".`);
+      }
+    }
     return task;
   });
+
+  const untested = [...approved].filter((tool) => !referenced.has(tool));
+  if (untested.length) {
+    throw new Error(`Every proposed WebMCP tool must be tested; missing task coverage for: ${untested.join(", ")}.`);
+  }
+  return validated;
 }
 
 function validateTask(candidate: unknown, index: number, ids = new Set<string>()): Task {
@@ -162,13 +215,28 @@ function validateTask(candidate: unknown, index: number, ids = new Set<string>()
   if (task.setup !== undefined && typeof task.setup !== "string") {
     throw new Error(`Task "${id}" has an invalid setup instruction.`);
   }
+  if (task.expectedOutcome !== undefined && task.expectedOutcome !== "success" && task.expectedOutcome !== "rejection") {
+    throw new Error(`Task "${id}" has an invalid expectedOutcome; use "success" or "rejection".`);
+  }
+  if (task.expectedError !== undefined && (typeof task.expectedError !== "string" || !task.expectedError.trim())) {
+    throw new Error(`Task "${id}" has an invalid expectedError.`);
+  }
+  const expectedOutcome = task.expectedOutcome ?? "success";
+  if (expectedOutcome === "rejection" && !task.expectedError?.trim()) {
+    throw new Error(`Rejection task "${id}" must declare the expected error text.`);
+  }
+  if (expectedOutcome === "success" && task.expectedError !== undefined) {
+    throw new Error(`Success task "${id}" cannot declare expectedError.`);
+  }
 
-  const normalized = {
+  const normalized: Task = {
     id,
     description: task.description.trim(),
     verify: task.verify.trim(),
     ...(requiredTools ? { requiredTools } : {}),
     ...(task.setup?.trim() ? { setup: task.setup.trim() } : {}),
+    ...(expectedOutcome === "rejection" ? { expectedOutcome } : {}),
+    ...(task.expectedError?.trim() ? { expectedError: task.expectedError.trim() } : {}),
   };
   const issues = verificationErrors(taskVerificationIssues(normalized));
   if (issues.length) throw new Error(`Task "${id}" has invalid verification: ${issues.map((issue) => issue.message).join(" ")}`);

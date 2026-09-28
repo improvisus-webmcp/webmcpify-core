@@ -203,6 +203,17 @@ function errorProperty(error: unknown, property: string): unknown {
   return property in error ? error[property as keyof typeof error] : undefined;
 }
 
+function sanitizedAgentFailure(opts: AgentRunOptions, error: unknown): Error {
+  const role = typeof opts.trajectoryMetadata?.role === "string"
+    ? opts.trajectoryMetadata.role
+    : inferredRole(opts.saveTo);
+  const timedOut = errorProperty(error, "timedOut") === true
+    || errorProperty(error, "code") === "ETIMEDOUT";
+  return new Error(
+    `The ${opts.provider} ${role} agent ${timedOut ? "timed out" : "failed"}. Raw provider diagnostics were saved to ${opts.saveTo}; prompt and code output were withheld from the terminal.`,
+  );
+}
+
 function inferredRole(saveTo: string): string {
   return path.basename(saveTo).split("-")[0]?.replace(/\.json$/, "") || "agent";
 }
@@ -321,16 +332,17 @@ async function preserveFailedOutput(
   if (existsSync(opts.saveTo)) return;
 
   const stdout = errorProperty(error, "stdout");
-  const output =
-    typeof stdout === "string"
-      ? stdout
-      : JSON.stringify(
-          {
-            error: error instanceof Error ? error.message : String(error),
-          },
-          null,
-          2
-        ) + "\n";
+  const stderr = errorProperty(error, "stderr");
+  const output = JSON.stringify(
+    {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      ...(typeof stdout === "string" && stdout ? { stdout } : {}),
+      ...(typeof stderr === "string" && stderr ? { stderr } : {}),
+    },
+    null,
+    2,
+  ) + "\n";
 
   try {
     await mkdir(path.dirname(opts.saveTo), { recursive: true });
@@ -434,14 +446,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
       }
     });
 
-    subprocess.stderr?.on("data", (chunk: Buffer | string) => {
-      const message = chunk.toString().trim();
-      // Codex prints this informational notice even when stdin is explicitly
-      // ignored. It is not an error and only makes the normal CLI look stuck.
-      if (message && message !== "Reading additional input from stdin...") {
-        console.error(`[${opts.provider}] ${message}`);
-      }
-    });
+    // Provider stderr is intentionally buffered but never streamed. Some CLIs
+    // echo their argv on failure, and the prompt may contain source code.
+    // Raw diagnostics are preserved privately in the failed trajectory.
 
     try {
       ({ stdout } = await subprocess);
@@ -474,11 +481,13 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     }
 
     await preserveFailedOutput(opts, error);
+    const publicError = sanitizedAgentFailure(opts, error);
     await recordAgentMetadata(opts, "failed", startedAt, startedMs, {
       error: error instanceof Error ? error.message : String(error),
       stderr: errorProperty(error, "stderr"),
+      publicError: publicError.message,
     });
-    throw error;
+    throw publicError;
   } finally {
     stopProgress();
   }
