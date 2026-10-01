@@ -18,11 +18,12 @@ import {
   type Task,
   validateTaskToolBindings,
 } from "../lib/tasks.js";
-import { patchExists, patchMetadataPath, readPatchMetadata, writePatchMetadata } from "../lib/patches.js";
+import { patchExists, patchMetadataPath, readPatchMetadata, readPendingPatch, sourcePatchHash, writePatchMetadata } from "../lib/patches.js";
 import { proposedToolsPath, validateProposedTools, loadDiscovery, type ProposedTool } from "../lib/tool-proposals.js";
 import { taskVerificationIssues } from "../lib/tasks.js";
 import { CHROME_WEBMCP_URL, WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
+import { currentOperationSignal } from "../lib/operation-context.js";
 
 export interface ReviewOptions {
   port?: string;
@@ -35,7 +36,7 @@ export interface ReviewResult {
   tasks: Task[];
   approvalPath: string;
   decisionPath?: string;
-  sourceDiff: { status: "approved" | "rejected"; runId?: string; timestamp: string };
+  sourceDiff: { status: "approved" | "rejected"; runId?: string; timestamp: string; patchHash?: string };
   approvedTools: ProposedTool[];
 }
 
@@ -126,16 +127,17 @@ export async function runReviewPrompt(
     ".webmcpify",
     "approved-tools.json"
   );
-  const patch = await readFile(patchMetadata.patchPath, "utf8");
+  const patch = await readPendingPatch(sitePath, patchMetadata);
+  const patchHash = sourcePatchHash(patch);
   const approvalId = patchMetadata.runId;
   const proposedToolIds = new Set(proposedTools.map((tool) => tool.id));
   if (existsSync(approvalPath)) {
     try {
-      const existing = JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { approvedAt?: string; sourceDiff?: { runId?: string } };
-      if (existing.approved === true && existing.approvalId === approvalId && existing.taskSetId && existing.tasks) {
+      const existing = JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { approvedAt?: string; sourceDiff?: { runId?: string; patchHash?: string } };
+      if (existing.approved === true && existing.approvalId === approvalId && existing.sourceDiff?.patchHash === patchHash && existing.taskSetId && existing.tasks) {
         const tasks = await loadApprovedTasks(sitePath);
         const tools = validateProposedTools(existing.tools, discovery);
-        const sourceDiff = { status: "approved" as const, runId: approvalId, timestamp: String(existing.approvedAt ?? new Date().toISOString()) };
+        const sourceDiff = { status: "approved" as const, runId: approvalId, patchHash, timestamp: String(existing.approvedAt ?? new Date().toISOString()) };
         return { approved: true, tools: tools.map((tool) => tool.name), approvedTools: tools, tasks, approvalPath, sourceDiff };
       }
     } catch { /* stale or incomplete approval is never reused */ }
@@ -151,8 +153,8 @@ export async function runReviewPrompt(
   const approvalIsPersisted = async (): Promise<boolean> => {
     if (!existsSync(approvalPath)) return false;
     try {
-      const existing = JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { tools?: unknown[] };
-      if (existing.approved !== true || existing.approvalId !== approvalId || !existing.tasks || !existing.tools) return false;
+      const existing = JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { tools?: unknown[]; sourceDiff?: { patchHash?: string } };
+      if (existing.approved !== true || existing.approvalId !== approvalId || existing.sourceDiff?.patchHash !== patchHash || !existing.tasks || !existing.tools) return false;
       await loadApprovedTasks(sitePath);
       validateProposedTools(existing.tools, discovery);
       return true;
@@ -213,14 +215,23 @@ export async function runReviewPrompt(
 <div class="notice"><div>⚠️</div><div><strong>Action required</strong>Select only the WebMCP tools you want this project to make available to the approved browser-agent workflow. Review each tool's title, description, schema, and risk annotations, then approve the exact source patch separately.</div></div>
 <div class="grid"><section class="card"><h2>What will be approved?</h2><p><span class="count">${proposedTools.length} tools</span> <span class="count">${proposedTasks.length} tests</span> <span class="count">${patchMetadata.changedFiles.length} files</span></p><p class="hint">Approval creates a local manifest and task set. It does not deploy or apply source changes; the separate apply step does that.</p></section><section class="card"><h2>Before approving</h2><p class="hint">Confirm that every tool maps to a real user action, every task has a meaningful verification expression, and the source diff contains only expected changes.</p><p class="hint">You may edit the structured JSON, but keep each selected tool/task ID unchanged.</p></section></div>
 <form method="post" action="/approve"><section class="section"><h2>1. Approved tools <span class="count">${proposedTools.length} proposed</span></h2><p class="hint">Each checkbox is an explicit per-tool permission for this approved evaluation and manifest. Uncheck tools the agent should not use.</p>${checkboxes}<details><summary>Inspect or edit structured tool definitions</summary>${toolDetails}<p class="hint">Keep each approved tool's <code>id</code> matched to its checkbox.</p><textarea name="toolsJson" aria-label="Tools JSON">${toolJson}</textarea></details></section>
-<section class="section"><h2>2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span></h2><p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match every access-control claim to the exact backend code in the source patch. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul></section>
+<section class="section"><h2>2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span></h2><p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match execution scope and applicable controls to the actual handler; browser-only UI state needs no invented backend. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul></section>
 <section class="section"><h2>3. Verification tasks <span class="count">${proposedTasks.length} proposed</span></h2><p class="hint">These are the actions the browser agent will perform and the checks used to score them.</p>${taskRows}<details><summary>Edit task definitions</summary><p class="hint">Every task must have an observable <code>verify</code> expression. Keep task IDs unchanged.</p><textarea name="tasksJson" aria-label="Tasks JSON">${taskJson}</textarea></details></section>${sourceSection.replace('<div class="section">', '<section class="section source">').replace('</div>', '</section>')}
 <div class="draft"><details><summary>Show raw generation draft</summary><pre>${htmlEscape(draft)}</pre></details></div>
 <div class="actions"><div class="actions-inner"><small>Review complete? Your click is required to continue.</small><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" name="stage" value="prepare">✓ Approve reviewed draft</button></div></div></div></form></main></body></html>`);
   });
 
   let server: ReturnType<typeof app.listen> | undefined;
+  const signal = currentOperationSignal();
+  signal?.throwIfAborted();
+  let abortReview: (() => void) | undefined;
   const decision = new Promise<ReviewResult>((resolve, reject) => {
+    abortReview = () => {
+      server?.closeAllConnections();
+      server?.close();
+      reject(new Error("Review was cancelled; no new approval was created."));
+    };
+    signal?.addEventListener("abort", abortReview, { once: true });
     const finish = (result: ReviewResult) => {
       if (server) {
         server.close(() => resolve(result));
@@ -252,15 +263,17 @@ export async function runReviewPrompt(
 
     app.post("/approve", async (request, response) => {
       try {
-        const existing = existsSync(approvalPath) ? JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { sourceDiff?: { runId?: string } } : undefined;
-        if (existing?.approved === true && existing.approvalId === approvalId) { renderLocked(response); return; }
+        const existing = existsSync(approvalPath) ? JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { sourceDiff?: { runId?: string; patchHash?: string } } : undefined;
+        if (existing?.approved === true && existing.approvalId === approvalId && existing.sourceDiff?.patchHash === patchHash) { renderLocked(response); return; }
         const input = approvalInput(request);
         if (request.body.stage !== "confirm") { confirmationPage(response, input); return; }
-        const approvalManifest = { version: 1 as const, approved: true as const, approvalId, draftPath, taskSetId: taskFingerprint(input.tasks), tasks: input.tasks, tools: input.tools, toolNames: input.tools.map((tool) => tool.name), tasksPath: projectTasksPath, proposedToolsPath: proposalFile, sourceDiff: { status: "approved" as const, runId: approvalId, timestamp: new Date().toISOString() } };
+        if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
+        const approvalManifest = { version: 1 as const, approved: true as const, approvalId, draftPath, taskSetId: taskFingerprint(input.tasks), tasks: input.tasks, tools: input.tools, toolNames: input.tools.map((tool) => tool.name), tasksPath: projectTasksPath, proposedToolsPath: proposalFile, sourceDiff: { status: "approved" as const, runId: approvalId, patchHash, timestamp: new Date().toISOString() } };
         await writeApprovedTasksAtomically(sitePath, approvalManifest);
         const sourceDiff = {
           status: "approved" as const,
           runId: patchMetadata.runId,
+          patchHash,
           timestamp: new Date().toISOString(),
         };
         await writePatchMetadata(sitePath, {
@@ -350,8 +363,10 @@ export async function runReviewPrompt(
     });
 
     const startServer = (candidate: number): void => {
+      if (signal?.aborted) { abortReview?.(); return; }
       const listener = app.listen(candidate, "127.0.0.1", () => {
         server = listener;
+        if (signal?.aborted) { abortReview?.(); return; }
         port = candidate;
         console.log("[review] ============================================================");
         console.log("[review] ACTION REQUIRED: open the approval page and click the green approval button");
@@ -360,6 +375,7 @@ export async function runReviewPrompt(
         console.log("[review] Review the tools, tests, and source diff, then click “Approve reviewed draft”.");
         console.log("[review] ============================================================");
       });
+      server = listener;
       listener.once("error", (error: NodeJS.ErrnoException) => {
         if (error.code === "EADDRINUSE") {
           listener.close(() => startServer(nextPort(candidate)));
@@ -371,7 +387,8 @@ export async function runReviewPrompt(
     startServer(port);
   });
 
-  return decision;
+  try { return await decision; }
+  finally { if (abortReview) signal?.removeEventListener("abort", abortReview); }
 }
 
 export async function runReview(opts: ReviewOptions): Promise<void> {

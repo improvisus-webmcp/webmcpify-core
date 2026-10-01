@@ -12,14 +12,22 @@ const execFileAsync = promisify(execFile);
  */
 export async function createAgentWorkspace(sitePath: string): Promise<string> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "webmcpify-agent-"));
-  await cp(sitePath, workspace, {
-    recursive: true,
-    filter: (source) =>
-      !source.includes(`${path.sep}.git${path.sep}`) &&
-      !source.includes(`${path.sep}.webmcpify${path.sep}`) &&
-      !source.includes(`${path.sep}node_modules${path.sep}`),
-  });
-  return workspace;
+  try {
+    await cp(sitePath, workspace, {
+      recursive: true,
+      filter: (source) => !path.relative(sitePath, source).split(path.sep)
+        .some((component) => [".git", ".webmcpify", "node_modules"].includes(component)),
+    });
+    return workspace;
+  } catch (error) {
+    await removeAgentWorkspace(workspace);
+    throw error;
+  }
+}
+
+/** Browser evaluation needs no copy of the target's source or private files. */
+export async function createBrowserAgentWorkspace(): Promise<string> {
+  return mkdtemp(path.join(os.tmpdir(), "webmcpify-browser-agent-"));
 }
 
 /** Create a baseline so edits made by the agent can become a real git diff. */
@@ -27,6 +35,9 @@ export async function initializeAgentWorkspace(workspace: string): Promise<void>
   await execFileAsync("git", ["init", "-q"], { cwd: workspace });
   await execFileAsync("git", ["config", "user.email", "webmcpify@localhost"], { cwd: workspace });
   await execFileAsync("git", ["config", "user.name", "WebMCPify"], { cwd: workspace });
+  await execFileAsync("git", ["config", "core.autocrlf", "false"], { cwd: workspace });
+  await execFileAsync("git", ["config", "commit.gpgsign", "false"], { cwd: workspace });
+  await execFileAsync("git", ["config", "core.hooksPath", path.join(workspace, ".git", "disabled-hooks")], { cwd: workspace });
   // Discovery is provided as a local workspace-only artifact. Keep it out of
   // the source diff even if the provider reads or updates it.
   await mkdir(path.join(workspace, ".git", "info"), { recursive: true });
@@ -55,10 +66,11 @@ export async function readAgentWorkspaceDiff(workspace: string): Promise<string>
       ".",
       ":(exclude).webmcpify/**",
       ":(exclude).agents/**",
+      ":(exclude).gemini/settings.json",
       ":(exclude)node_modules/**",
       ":(exclude)tasks.json",
     ],
-    { cwd: workspace },
+    { cwd: workspace, maxBuffer: 50 * 1024 * 1024 },
   );
   return result.stdout;
 }

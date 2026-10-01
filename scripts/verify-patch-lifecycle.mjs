@@ -32,7 +32,7 @@ async function makePatch(dir) {
 
 async function approve(dir, metadata) {
   await writeFile(path.join(dir, ".webmcpify", "approved-tools.json"), JSON.stringify({
-    sourceDiff: { status: "approved", runId: metadata.runId },
+    sourceDiff: { status: "approved", runId: metadata.runId, patchHash: metadata.patchHash },
   }));
 }
 

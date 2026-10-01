@@ -1,4 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { randomUUID } from "node:crypto";
 import { taskExpectedOutcome, type Task } from "./tasks.js";
 
 export interface TaskResult {
@@ -16,7 +17,7 @@ export interface TaskScoreSummary {
 let browserCache: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
-  if (!browserCache) {
+  if (!browserCache?.isConnected()) {
     const cdpUrl = process.env.WEBMCPIFY_CDP_URL ?? "http://127.0.0.1:9222";
     try {
       browserCache = await chromium.connectOverCDP(cdpUrl);
@@ -31,26 +32,17 @@ async function getBrowser(): Promise<Browser> {
   return browserCache;
 }
 
-async function getIsolatedPage(url: string, resetStorage = true): Promise<{ context: BrowserContext; page: Page }> {
+async function getIsolatedPage(url: string): Promise<{ context: BrowserContext; page: Page }> {
   const browser = await getBrowser();
-  const context = browser.contexts()[0];
-  if (!context) throw new Error("The connected Chrome instance has no browser context.");
-
-  await context.clearCookies();
-  const page = await context.newPage();
+  // Never reset the user's existing CDP context or authentication cookies.
+  const context = await browser.newContext();
   try {
+    const page = await context.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    if (resetStorage) {
-      await page.evaluate(() => {
-        window.localStorage.clear();
-        window.sessionStorage.clear();
-      });
-      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
-    }
     await page.locator("body").waitFor({ timeout: 15_000 });
     return { context, page };
   } catch (error) {
-    await page.close().catch(() => undefined);
+    await context.close().catch(() => undefined);
     throw error;
   }
 }
@@ -97,11 +89,18 @@ export async function scoreTask(
     resetStorage?: boolean;
     agentOutput?: unknown;
     requireToolEvidence?: boolean;
+    page?: Page;
   } = {},
 ): Promise<TaskResult> {
   let page: Page | undefined;
+  let ownedContext: BrowserContext | undefined;
   try {
-    ({ page } = await getIsolatedPage(url, options.resetStorage ?? true));
+    if (options.page) page = options.page;
+    else if (options.resetStorage === false) {
+      throw new Error("Live-state verification requires the exact task page; refusing to score a fresh page.");
+    } else {
+      ({ page, context: ownedContext } = await getIsolatedPage(url));
+    }
     const stateVerified = Boolean(await page.evaluate(task.verify));
     const toolsObserved = requiredToolsObserved(task, options.agentOutput);
     if (taskExpectedOutcome(task) === "rejection") {
@@ -127,21 +126,39 @@ export async function scoreTask(
       detail: `verify threw: ${error instanceof Error ? error.message : String(error)}`,
     };
   } finally {
-    await page?.close().catch(() => undefined);
+    await ownedContext?.close().catch(() => undefined);
   }
 }
 
 /** Reset the isolated browser state before a task agent runs. */
-export async function resetScoringState(url: string): Promise<void> {
-  const { page } = await getIsolatedPage(url, true);
-  await page.close();
+export async function resetScoringState(url: string): Promise<{
+  page: Page;
+  instruction: string;
+  close: () => Promise<void>;
+}> {
+  const { context, page } = await getIsolatedPage(url);
+  const marker = `webmcpify-task-${randomUUID()}`;
+  try {
+    await page.evaluate((value) => { window.name = value; }, marker);
+    await page.bringToFront();
+  } catch (error) {
+    await context.close().catch(() => undefined);
+    throw error;
+  }
+  return {
+    page,
+    instruction: `Use the existing task tab at ${url}. Select it with list_pages/select_page and confirm window.name is ${JSON.stringify(marker)} using evaluate_script. Do not create another tab, reload it to reset state, or use other browser contexts. Perform setup and actions in this same tab and leave it open for verification, including after navigation.`,
+    close: () => context.close(),
+  };
 }
 
 /** Ensure the connected browser exposes the runtime required by WebMCP. */
-export async function assertWebMcpRuntime(url: string): Promise<void> {
+export async function assertWebMcpRuntime(url: string, taskPage?: Page): Promise<void> {
   let page: Page | undefined;
+  let ownedContext: BrowserContext | undefined;
   try {
-    ({ page } = await getIsolatedPage(url, false));
+    if (taskPage) page = taskPage;
+    else ({ page, context: ownedContext } = await getIsolatedPage(url));
     try {
       await page.waitForFunction(
         () => Boolean((document as Document & { modelContext?: unknown }).modelContext),
@@ -155,7 +172,7 @@ export async function assertWebMcpRuntime(url: string): Promise<void> {
       );
     }
   } finally {
-    await page?.close().catch(() => undefined);
+    await ownedContext?.close().catch(() => undefined);
   }
 }
 

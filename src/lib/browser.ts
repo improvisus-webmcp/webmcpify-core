@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +10,9 @@ const DEFAULT_CDP_URL = "http://127.0.0.1:9222";
 function cdpUrl(): URL {
   const value = process.env.WEBMCPIFY_CDP_URL ?? DEFAULT_CDP_URL;
   try {
-    return new URL(value);
+    const endpoint = new URL(value);
+    if (!["http:", "https:"].includes(endpoint.protocol)) throw new Error("CDP requires an HTTP(S) endpoint.");
+    return endpoint;
   } catch {
     throw new Error(`Invalid WEBMCPIFY_CDP_URL: ${value}`);
   }
@@ -42,8 +45,15 @@ function chromeExecutable(): string | undefined {
     if (executable) return executable;
   }
 
-  if (process.platform === "darwin") {
-    return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const installations = process.platform === "darwin"
+    ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary", "/Applications/Chromium.app/Contents/MacOS/Chromium"]
+    : process.platform === "win32"
+      ? [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
+        .filter((value): value is string => Boolean(value))
+        .flatMap((directory) => [path.join(directory, "Google", "Chrome", "Application", "chrome.exe"), path.join(directory, "Chromium", "Application", "chrome.exe")])
+      : [];
+  for (const installation of installations) {
+    if (existsSync(installation)) return installation;
   }
   return undefined;
 }
@@ -67,7 +77,7 @@ async function waitForCdp(
 }
 
 async function stopChrome(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
+  if (child.exitCode !== null || !child.pid) return;
 
   const exited = new Promise<void>((resolve) => {
     child.once("exit", () => resolve());
@@ -79,7 +89,7 @@ async function stopChrome(child: ChildProcess): Promise<void> {
   ]);
   if (!stopped && child.exitCode === null) {
     child.kill("SIGKILL");
-    await exited;
+    await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 2_000))]);
   }
 }
 
@@ -94,7 +104,7 @@ export async function withManagedChrome<T>(
     return operation();
   }
 
-  if (!["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname)) {
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) {
     throw new Error(
       `Could not connect to the configured remote Chrome endpoint ${endpoint.origin}.`,
     );
@@ -108,12 +118,12 @@ export async function withManagedChrome<T>(
   }
 
   const profile = await mkdtemp(path.join(os.tmpdir(), "webmcpify-chrome-"));
-  const port = endpoint.port || "9222";
+  const port = endpoint.port || (endpoint.protocol === "https:" ? "443" : "80");
   const child = spawn(
     executable,
     [
       "--headless=new",
-      "--remote-debugging-address=127.0.0.1",
+      `--remote-debugging-address=${endpoint.hostname.replace(/^\[|\]$/g, "")}`,
       `--remote-debugging-port=${port}`,
       "--enable-features=DevToolsWebMCPSupport,WebMCP",
       `--user-data-dir=${profile}`,
@@ -137,6 +147,6 @@ export async function withManagedChrome<T>(
   } finally {
     process.removeListener("exit", stopOnExit);
     await stopChrome(child);
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }

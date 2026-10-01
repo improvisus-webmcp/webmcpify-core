@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { getInvocation, runAgent } from "../dist/lib/agent.js";
 import { GENERATE_ONLY_PROMPT } from "../dist/commands/generate.js";
+import { fixtureProvider } from "./fixture-provider.mjs";
 
 const invocation = getInvocation({
   provider: "antigravity",
@@ -18,7 +19,6 @@ assert.equal(invocation.args[modeIndex + 1], "accept-edits");
 assert.match(GENERATE_ONLY_PROMPT, /Do not output a unified diff/);
 assert.match(GENERATE_ONLY_PROMPT, /text-only proposal is not a completed task/);
 const failureFixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-agent-redaction-"));
-const fakeProvider = path.join(failureFixture, "fake-provider.mjs");
 const failedTrajectory = path.join(failureFixture, "failed.json");
 const secretPrompt = "PRIVATE_PROMPT_WITH_SOURCE_CODE const secret = 42;";
 const secretStderr = "PRIVATE_PROVIDER_STDERR_WITH_CODE";
@@ -27,14 +27,13 @@ const terminalErrors = [];
 const originalConsoleError = console.error;
 
 try {
-  await writeFile(
-    fakeProvider,
+  const fakeProvider = await fixtureProvider(
+    failureFixture, "fake-provider",
     `#!/usr/bin/env node
 process.stderr.write(${JSON.stringify(secretStderr)} + " " + process.argv.join(" "));
 process.exit(7);
 `,
   );
-  await chmod(fakeProvider, 0o755);
   process.env.WEBMCPIFY_OPENCODE_BIN = fakeProvider;
   console.error = (...values) => terminalErrors.push(values.map(String).join(" "));
 

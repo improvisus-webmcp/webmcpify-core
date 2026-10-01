@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createTrajectoryArtifact } from "../lib/trajectories.js";
@@ -9,17 +9,21 @@ import {
   patchExists,
   patchMetadataPath,
   readPatchMetadata,
+  readPendingPatch,
+  sourcePatchHash,
   writePatchMetadata,
   type PatchMetadata,
 } from "../lib/patches.js";
 import { scoreTasks } from "../lib/scoring.js";
 import { loadTasks } from "../lib/tasks.js";
 import { WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
+import { currentOperationSignal } from "../lib/operation-context.js";
+import { resolvePackageManager } from "../lib/package-manager.js";
 
 interface ApplyOptions { path?: string }
 
 interface ApprovalManifest {
-  sourceDiff?: { status?: string; runId?: string };
+  sourceDiff?: { status?: string; runId?: string; patchHash?: string };
 }
 
 function safeRelative(sitePath: string, file: string): string {
@@ -27,19 +31,15 @@ function safeRelative(sitePath: string, file: string): string {
   if (resolved !== path.resolve(sitePath) && !resolved.startsWith(`${path.resolve(sitePath)}${path.sep}`)) {
     throw new Error(`Patch path escapes the target project: ${file}`);
   }
+  for (let current = path.resolve(sitePath), parts = path.relative(sitePath, resolved).split(path.sep); parts.length;) {
+    current = path.join(current, parts.shift()!);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) throw new Error(`Patch target paths must not follow symbolic links: ${file}`);
+  }
   return resolved;
 }
 
 async function runGit(sitePath: string, args: string[]): Promise<void> {
-  await execa("git", args, { cwd: sitePath, stdio: "inherit" });
-}
-
-async function packageManager(sitePath: string): Promise<string> {
-  if (process.env.WEBMCPIFY_PACKAGE_MANAGER) return process.env.WEBMCPIFY_PACKAGE_MANAGER;
-  if (existsSync(path.join(sitePath, "pnpm-lock.yaml"))) return "pnpm";
-  if (existsSync(path.join(sitePath, "yarn.lock"))) return "yarn";
-  if (existsSync(path.join(sitePath, "package-lock.json"))) return "npm";
-  return "pnpm";
+  await execa("git", args, { cwd: sitePath, cancelSignal: currentOperationSignal() });
 }
 
 async function availableScripts(sitePath: string): Promise<Record<string, string>> {
@@ -53,12 +53,12 @@ async function availableScripts(sitePath: string): Promise<Record<string, string
 
 async function runBuild(sitePath: string): Promise<string[]> {
   const scripts = await availableScripts(sitePath);
-  const manager = await packageManager(sitePath);
+  const manager = await resolvePackageManager(sitePath);
   const ran: string[] = [];
   for (const script of ["typecheck", "build"]) {
     if (!scripts[script]) continue;
     ran.push(script);
-    await execa(manager, ["run", script], { cwd: sitePath, stdio: "inherit" });
+    await execa(manager, ["run", script], { cwd: sitePath, cancelSignal: currentOperationSignal() });
   }
   return ran;
 }
@@ -174,6 +174,10 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
   if (metadata.patchStatus === "applied") {
     throw new Error("This pending patch has already been applied.");
   }
+  const patchContent = await readPendingPatch(sitePath, metadata);
+  if (approval.sourceDiff.patchHash !== sourcePatchHash(patchContent)) {
+    throw new Error("The pending source patch does not match the exact approved patch. Run review again.");
+  }
 
   const current = await gitSourceSnapshot(sitePath);
   if (!current.sourceVersion || !metadata.sourceVersion) {
@@ -184,6 +188,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
   }
 
   const patch = metadata.patchPath;
+  if (!/^[a-zA-Z0-9_-]+$/.test(metadata.runId)) throw new Error("Invalid patch run ID.");
   const rollbackPath = path.join(sitePath, ".webmcpify", "rollback", metadata.runId);
   await snapshotFiles(sitePath, metadata.changedFiles, rollbackPath);
   let buildScripts: string[] = [];
@@ -218,7 +223,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     };
     await writePatchMetadata(sitePath, failed);
     await recordApply(sitePath, failed, { status: "failed", error: message, rollbackError, buildScripts });
-    if (rollbackError) throw new Error(`Apply/build failed: ${message}; rollback failed: ${rollbackError}`);
-    throw new Error(`Apply/build failed; project restored: ${message}`);
+    if (rollbackError) throw new Error(`Apply/build failed and rollback failed. Inspect private artifacts at ${patchMetadataPath(sitePath)} and the retained rollback directory ${rollbackPath}.`);
+    throw new Error(`Apply/build failed; project restored. Private diagnostics: ${patchMetadataPath(sitePath)}.`);
   }
 }

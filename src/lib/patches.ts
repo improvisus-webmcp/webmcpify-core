@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createTrajectoryArtifact } from "./trajectories.js";
@@ -21,6 +21,7 @@ export interface PatchMetadata {
   changedFiles: string[];
   patchStatus: PatchStatus;
   patchPath: string;
+  patchHash?: string;
   generationTrajectory: string;
   securityPolicy?: SecurityPolicy;
   repair?: {
@@ -43,6 +44,24 @@ export function patchMetadataPath(sitePath: string): string {
 
 export function patchArtifactPath(sitePath: string): string {
   return patchPath(sitePath);
+}
+
+export function sourcePatchHash(patch: string): string {
+  return createHash("sha256").update(patch).digest("hex");
+}
+
+/** Resolve only Core's canonical, non-symlink pending patch. */
+export async function readPendingPatch(sitePath: string, metadata: PatchMetadata): Promise<string> {
+  const canonical = path.resolve(patchPath(sitePath));
+  if (path.resolve(metadata.patchPath) !== canonical) throw new Error("Pending patch path does not match the target project.");
+  for (const filename of [path.dirname(canonical), canonical]) {
+    if ((await lstat(filename)).isSymbolicLink()) throw new Error("Pending patch paths must not be symbolic links.");
+  }
+  const patch = await readFile(canonical, "utf8");
+  if (metadata.patchHash && metadata.patchHash !== sourcePatchHash(patch)) throw new Error("Pending patch changed after generation; regenerate and review it.");
+  const files = extractUnifiedDiff(patch).changedFiles.sort();
+  if (JSON.stringify(files) !== JSON.stringify([...metadata.changedFiles].sort())) throw new Error("Pending patch changed-file metadata does not match its source changes.");
+  return patch;
 }
 
 function textFromProviderOutput(raw: string): string {
@@ -114,6 +133,17 @@ function fixHunkHeaders(patch: string): string {
 }
 
 function normalizeUnifiedDiff(patch: string): string {
+  const original = patch.trimStart();
+  if (original.startsWith("diff --git ")) {
+    // Preserve valid Git output byte-for-byte. Trimming or repairing it can
+    // destroy trailing-space context and binary-patch terminators.
+    const checked = spawnSync("git", ["apply", "--numstat", "-z"], {
+      input: original,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    });
+    if (checked.status === 0) return original;
+  }
   let normalized = patch.trim();
   const chunks = normalized.split(/\n(?=diff --git )/);
   const resultChunks: string[] = [];
@@ -150,17 +180,70 @@ function candidatePatches(text: string): string[] {
   return [...new Set(candidates.filter(Boolean))];
 }
 
+/** Git quotes non-ASCII bytes and control characters using C/octal escapes. */
+function decodeGitPath(value: string): string {
+  if (!value.startsWith('"')) return value;
+  if (!value.endsWith('"')) throw new Error("Unterminated Git path.");
+  const bytes: number[] = [];
+  const body = value.slice(1, -1);
+  for (let index = 0; index < body.length;) {
+    if (body[index] !== "\\") {
+      const character = String.fromCodePoint(body.codePointAt(index)!);
+      bytes.push(...Buffer.from(character));
+      index += character.length;
+      continue;
+    }
+    index++;
+    const octal = body.slice(index).match(/^[0-7]{1,3}/)?.[0];
+    if (octal) {
+      bytes.push(parseInt(octal, 8));
+      index += octal.length;
+    } else {
+      const escapes: Record<string, string> = { a: "\x07", b: "\b", t: "\t", n: "\n", v: "\v", f: "\f", r: "\r", '"': '"', "\\": "\\" };
+      const escaped = escapes[body[index++]];
+      if (escaped === undefined) throw new Error("Invalid Git path escape.");
+      bytes.push(...Buffer.from(escaped));
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
 function changedFiles(patch: string): string[] {
   const files = new Set<string>();
-  for (const match of patch.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)) {
-    files.add(match[1]);
-    files.add(match[2]);
-  }
-  for (const match of patch.matchAll(/^--- (?:a\/)?(\S+)\s*$/gm)) {
-    if (match[1] !== "/dev/null") files.add(match[1]);
-  }
-  for (const match of patch.matchAll(/^\+\+\+ (?:b\/)?(\S+)\s*$/gm)) {
-    if (match[1] !== "/dev/null") files.add(match[1]);
+  const add = (value: string, prefixed = true): void => {
+    const decoded = decodeGitPath(value);
+    if (decoded !== "/dev/null") files.add(prefixed ? decoded.replace(/^[ab]\//, "") : decoded);
+  };
+  // Read headers only, never hunk content that happens to start with ---/+++.
+  for (const chunk of patch.split(/\n(?=diff --git )/)) {
+    const headers = chunk.split(/\n@@ /)[0];
+    const header = headers.split("\n")[0].replace(/^diff --git /, "");
+    // A path can itself contain " b/". Prefer quoted tokens, identical
+    // old/new names, or explicit rename/copy metadata over greedy splitting.
+    const quoted = header.match(/^("(?:[^"\\]|\\.)*") (.+)$/)
+      ?? header.match(/^(a\/.*) ("(?:[^"\\]|\\.)*")$/);
+    const pairs: string[][] = [];
+    if (quoted) pairs.push([quoted[1], quoted[2]]);
+    else for (let offset = header.indexOf(" b/"); offset >= 0; offset = header.indexOf(" b/", offset + 1)) {
+      pairs.push([header.slice(0, offset), header.slice(offset + 1)]);
+    }
+    const from = headers.match(/^(?:rename|copy) from (.+)$/m)?.[1];
+    const to = headers.match(/^(?:rename|copy) to (.+)$/m)?.[1];
+    const pair = pairs.find(([oldName, newName]) => decodeGitPath(oldName).slice(2) === decodeGitPath(newName).slice(2))
+      ?? (from && to ? pairs.find(([oldName, newName]) => decodeGitPath(oldName) === `a/${decodeGitPath(from)}` && decodeGitPath(newName) === `b/${decodeGitPath(to)}`) : undefined)
+      ?? (pairs.length === 1 ? pairs[0] : undefined);
+    const diff = pair ? [header, ...pair] : undefined;
+    if (!diff) throw new Error("Invalid Git diff paths.");
+    if (!decodeGitPath(diff[1]).startsWith("a/") || !decodeGitPath(diff[2]).startsWith("b/")) throw new Error("Git diff headers require matching a/ and b/ path prefixes.");
+    add(diff[1]);
+    add(diff[2]);
+    for (const line of headers.split("\n")) {
+      if (line.startsWith("--- ") || line.startsWith("+++ ")) add(line.slice(4).split("\t")[0]);
+      else if (line.startsWith("rename from ")) add(line.slice(12), false);
+      else if (line.startsWith("rename to ")) add(line.slice(10), false);
+      else if (line.startsWith("copy from ")) add(line.slice(10), false);
+      else if (line.startsWith("copy to ")) add(line.slice(8), false);
+    }
   }
   return [...files];
 }
@@ -168,7 +251,9 @@ function changedFiles(patch: string): string[] {
 function validatePatchPaths(files: string[]): void {
   if (files.length === 0) throw new Error("The diff does not contain any changed files.");
   for (const file of files) {
-    if (path.isAbsolute(file) || file.startsWith("../") || file.includes("/../") || file.startsWith(".webmcpify/")) {
+    const components = file.replace(/\\/g, "/").split("/");
+    if (path.posix.isAbsolute(file) || path.win32.isAbsolute(file) || file.includes("\0")
+      || components.some((part) => ["..", ".git", ".webmcpify"].includes(part))) {
       throw new Error(`The diff contains an unsafe target path: ${file}`);
     }
   }
@@ -177,10 +262,10 @@ function validatePatchPaths(files: string[]): void {
 export function extractUnifiedDiff(rawProviderOutput: string): { patch: string; changedFiles: string[] } {
   const text = textFromProviderOutput(rawProviderOutput);
   for (const candidate of candidatePatches(text)) {
-    const files = changedFiles(candidate);
     try {
+      const files = changedFiles(candidate);
       validatePatchPaths(files);
-      return { patch: `${candidate.trim()}\n`, changedFiles: files };
+      return { patch: candidate.endsWith("\n") ? candidate : `${candidate}\n`, changedFiles: files };
     } catch {
       // Try the next possible fenced or embedded diff.
     }
@@ -190,7 +275,7 @@ export function extractUnifiedDiff(rawProviderOutput: string): { patch: string; 
 
 async function gitOutput(sitePath: string, args: string[]): Promise<string | undefined> {
   try {
-    const result = await execFileAsync("git", args, { cwd: sitePath, maxBuffer: 10 * 1024 * 1024 });
+    const result = await execFileAsync("git", args, { cwd: sitePath, maxBuffer: 50 * 1024 * 1024 });
     return result.stdout;
   } catch {
     return undefined;
@@ -221,11 +306,21 @@ export async function gitSourceSnapshot(sitePath: string): Promise<{ sourceVersi
   // Review writes tasks.json after generation, so including it here would make
   // apply reject the exact approval transaction that it is meant to honor.
   const sourcePathspec = [".", ":(exclude).webmcpify/**", ":(exclude)tasks.json"];
-  const diff = await gitOutput(sitePath, ["diff", "--binary", "HEAD", "--", ...sourcePathspec]) ?? "";
-  const status = await gitOutput(sitePath, ["status", "--porcelain", "--untracked-files=all", "--", ...sourcePathspec]) ?? "";
+  const diff = await gitOutput(sitePath, ["diff", "--binary", "HEAD", "--", ...sourcePathspec]);
+  const status = await gitOutput(sitePath, ["status", "--porcelain", "--untracked-files=all", "--", ...sourcePathspec]);
+  if (diff === undefined || status === undefined) throw new Error("Could not capture target source identity; refusing incomplete patch validation.");
+  const hash = createHash("sha256").update(`${status}\0${diff}`);
+  const untracked = await gitOutput(sitePath, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...sourcePathspec]);
+  if (untracked === undefined) throw new Error("Could not capture untracked source identity; refusing incomplete patch validation.");
+  for (const file of untracked.split("\0").filter(Boolean).sort()) {
+    const filename = path.join(sitePath, file);
+    const info = await lstat(filename);
+    hash.update(`\0${file}\0`);
+    hash.update(info.isSymbolicLink() ? await readlink(filename) : await readFile(filename));
+  }
   return {
     sourceVersion,
-    workingTreeHash: createHash("sha256").update(`${status}\0${diff}`).digest("hex"),
+    workingTreeHash: hash.digest("hex"),
   };
 }
 
@@ -259,7 +354,7 @@ export async function createPendingPatch(
 
   try {
     const extracted = extractUnifiedDiff(rawProviderOutput);
-    if (!(await gitSourceSnapshot(sitePath)).sourceVersion) {
+    if (!base.sourceVersion) {
       throw new Error("The target project must be a Git repository to validate a source diff.");
     }
     await validateAgainstGit(sitePath, extracted.patch);
@@ -267,6 +362,7 @@ export async function createPendingPatch(
       ...base,
       changedFiles: extracted.changedFiles,
       patchStatus: "awaiting-review",
+      patchHash: sourcePatchHash(extracted.patch),
     };
     await mkdir(path.dirname(patchPath(sitePath)), { recursive: true });
     await writeFile(patchPath(sitePath), extracted.patch, "utf8");

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -11,6 +10,7 @@ import { createPendingPatch, readPatchMetadata } from "../dist/lib/patches.js";
 import { runApply } from "../dist/commands/apply.js";
 import { repairPrompt, selectFailedTasks } from "../dist/commands/repair.js";
 import { closeScoringBrowser } from "../dist/lib/scoring.js";
+import { withManagedChrome } from "../dist/lib/browser.js";
 import { taskFingerprint } from "../dist/lib/tasks.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../dist/lib/trajectories.js";
 
@@ -48,20 +48,16 @@ assert.equal(patch.patchStatus, "awaiting-review");
 assert.match(await readFile(patch.patchPath, "utf8"), /data-repaired="true"/);
 await assert.rejects(() => runApply({ path: sitePath }), /explicitly approve/);
 
-await writeFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), `${JSON.stringify({ sourceDiff: { status: "approved", runId: patch.runId } }, null, 2)}\n`);
+await writeFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), `${JSON.stringify({ sourceDiff: { status: "approved", runId: patch.runId, patchHash: patch.patchHash } }, null, 2)}\n`);
 const server = createServer((_request, response) => { response.setHeader("content-type", "text/html"); response.end(readFileSync(source)); });
 await new Promise((resolve) => server.listen(4399, "127.0.0.1", resolve));
-const chrome = spawn("google-chrome", ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${await mkdtemp(path.join(os.tmpdir(), "webmcpify-chrome-"))}`, "about:blank"], { stdio: "ignore" });
+const originalCdp = process.env.WEBMCPIFY_CDP_URL;
+const originalManager = process.env.WEBMCPIFY_PACKAGE_MANAGER;
+process.env.WEBMCPIFY_CDP_URL = `http://127.0.0.1:${cdpPort}`;
+process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
 try {
-  let chromeReady = false;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    try { await fetch(`http://127.0.0.1:${cdpPort}/json/version`); chromeReady = true; break; } catch { await new Promise((resolve) => setTimeout(resolve, 200)); }
-  }
-  assert.equal(chromeReady, true, "fixture Chrome did not expose CDP");
-  const originalCdp = process.env.WEBMCPIFY_CDP_URL;
-  const originalManager = process.env.WEBMCPIFY_PACKAGE_MANAGER;
-  process.env.WEBMCPIFY_CDP_URL = `http://127.0.0.1:${cdpPort}`;
-  process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
+  await withManagedChrome("http://127.0.0.1:4399", async () => {
+  try {
   await runApply({ path: sitePath });
   const repairEvalPath = await latestTrajectoryPath("repair-eval", sitePath);
   assert.ok(repairEvalPath);
@@ -69,11 +65,12 @@ try {
   assert.equal(repairEval.status, "improved");
   assert.equal(repairEval.before.passed, 0);
   assert.equal(repairEval.after.passed, 1);
-  if (originalCdp === undefined) delete process.env.WEBMCPIFY_CDP_URL; else process.env.WEBMCPIFY_CDP_URL = originalCdp;
-  if (originalManager === undefined) delete process.env.WEBMCPIFY_PACKAGE_MANAGER; else process.env.WEBMCPIFY_PACKAGE_MANAGER = originalManager;
+  } finally { await closeScoringBrowser(); }
+  });
 } finally {
   await closeScoringBrowser();
-  chrome.kill("SIGTERM");
+  if (originalCdp === undefined) delete process.env.WEBMCPIFY_CDP_URL; else process.env.WEBMCPIFY_CDP_URL = originalCdp;
+  if (originalManager === undefined) delete process.env.WEBMCPIFY_PACKAGE_MANAGER; else process.env.WEBMCPIFY_PACKAGE_MANAGER = originalManager;
   await new Promise((resolve) => server.close(resolve));
 }
 

@@ -14,6 +14,7 @@ import {
   type TrajectoryMetadata,
 } from "./trajectories.js";
 import { resolveRecordArtifacts } from "./config.js";
+import { currentOperationSignal } from "./operation-context.js";
 
 export interface AgentRunOptions {
   provider: AIProvider;
@@ -102,21 +103,26 @@ export function getInvocation(opts: AgentRunOptions): ProviderInvocation {
     case "opencode":
       return {
         command: resolveExecutable("opencode", "WEBMCPIFY_OPENCODE_BIN"),
-        args: ["run", "--dangerously-skip-permissions", opts.prompt],
-        output: "text",
+        args: ["run", "--auto", "--format", "json", opts.prompt],
+        output: "json-lines",
       };
   }
 }
 
 function parseOutput(stdout: string, output: ProviderInvocation["output"]): unknown {
   if (output === "text") return stdout;
-  if (output === "json") return JSON.parse(stdout);
+  if (output === "json") {
+    try { return JSON.parse(stdout); } catch { return stdout; }
+  }
 
-  return stdout
+  const events = stdout
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+  return events.length ? events : stdout;
 }
 
 async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
@@ -142,13 +148,13 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
   const args: string[] = [];
   for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
     if (!server.command) continue;
-    const key = `mcp_servers.${name}`;
+    const key = `mcp_servers.${JSON.stringify(name)}`;
     args.push("-c", `${key}.command=${JSON.stringify(server.command)}`);
     if (server.args) {
       args.push("-c", `${key}.args=${JSON.stringify(server.args)}`);
     }
-    if (server.env) {
-      args.push("-c", `${key}.env=${JSON.stringify(server.env)}`);
+    for (const [name, value] of Object.entries(server.env ?? {})) {
+      args.push("-c", `${key}.env.${JSON.stringify(name)}=${JSON.stringify(value)}`);
     }
   }
   return args;
@@ -162,8 +168,8 @@ async function prepareAntigravityMcpConfig(opts: AgentRunOptions): Promise<void>
   await writeFile(workspaceConfig, await readFile(opts.mcpConfig, "utf8"), "utf8");
 }
 
-async function prepareOpenCodeMcpConfig(opts: AgentRunOptions): Promise<void> {
-  if (!opts.mcpConfig || !existsSync(opts.mcpConfig)) return;
+async function prepareOpenCodeMcpConfig(opts: AgentRunOptions): Promise<Record<string, string>> {
+  if (!opts.mcpConfig || !existsSync(opts.mcpConfig)) return {};
 
   let config: {
     mcpServers?: Record<string, {
@@ -191,11 +197,21 @@ async function prepareOpenCodeMcpConfig(opts: AgentRunOptions): Promise<void> {
         ...(server.env ? { environment: server.env } : {}),
       }])
   );
-  await writeFile(
-    path.join(opts.cwd, "opencode.json"),
-    `${JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: { servers } }, null, 2)}\n`,
-    "utf8"
-  );
+  const inherited = process.env.OPENCODE_CONFIG_CONTENT
+    ? JSON.parse(process.env.OPENCODE_CONFIG_CONTENT) as { mcp?: Record<string, unknown> }
+    : {};
+  return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...inherited, mcp: { ...inherited.mcp, ...servers } }) };
+}
+
+async function prepareGeminiMcpConfig(opts: AgentRunOptions): Promise<void> {
+  if (!opts.mcpConfig) return;
+  const config = JSON.parse(await readFile(opts.mcpConfig, "utf8")) as { mcpServers?: Record<string, unknown> };
+  const filename = path.join(opts.cwd, ".gemini", "settings.json");
+  const existing = existsSync(filename)
+    ? JSON.parse(await readFile(filename, "utf8")) as { mcpServers?: Record<string, unknown> }
+    : {};
+  await mkdir(path.dirname(filename), { recursive: true });
+  await writeFile(filename, `${JSON.stringify({ ...existing, mcpServers: { ...existing.mcpServers, ...config.mcpServers } }, null, 2)}\n`, "utf8");
 }
 
 function errorProperty(error: unknown, property: string): unknown {
@@ -243,12 +259,12 @@ function parseTimeoutMs(value: string, fallbackMs: number): number {
   return Math.max(1_000, Math.round(amount * multiplier));
 }
 
-function codexTimeoutMs(opts: AgentRunOptions): number {
+function providerTimeoutMs(opts: AgentRunOptions): number {
   const role = typeof opts.trajectoryMetadata?.role === "string"
     ? opts.trajectoryMetadata.role
     : inferredRole(opts.saveTo);
   const fallback = role === "baseline" || role === "test" ? 5 * 60_000 : 15 * 60_000;
-  return parseTimeoutMs(process.env.WEBMCPIFY_CODEX_TIMEOUT ?? "", fallback);
+  return parseTimeoutMs(process.env[`WEBMCPIFY_${opts.provider.toUpperCase()}_TIMEOUT`] ?? "", fallback);
 }
 
 function startAgentProgress(opts: AgentRunOptions, startedMs: number): () => void {
@@ -369,6 +385,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
         allowedTools: opts.allowedTools,
         mcpConfig: opts.mcpConfig,
         saveTo: opts.saveTo,
+        timeout: providerTimeoutMs(opts),
       });
       await recordAgentMetadata(opts, "completed", startedAt, startedMs);
       return result;
@@ -377,9 +394,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     if (opts.provider === "antigravity") {
       await prepareAntigravityMcpConfig(opts);
     }
-    if (opts.provider === "opencode") {
-      await prepareOpenCodeMcpConfig(opts);
-    }
+    const providerEnv = opts.provider === "opencode" ? await prepareOpenCodeMcpConfig(opts) : {};
+    if (opts.provider === "gemini") await prepareGeminiMcpConfig(opts);
 
     const invocation = getInvocation(opts);
     if (opts.provider === "codex") {
@@ -392,15 +408,21 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     // the parent exits; otherwise an old direct-target run can keep editing.
     const subprocess = execa(invocation.command, invocation.args, {
       cwd: opts.cwd,
-      detached: true,
+      detached: process.platform !== "win32",
+      env: providerEnv,
       // Prompts are passed as command arguments. Leaving stdin open makes
       // Codex assume that more prompt text is coming and wait indefinitely
       // with "Reading additional input from stdin...".
       stdin: "ignore",
-      timeout: opts.provider === "codex" ? codexTimeoutMs(opts) : undefined,
+      timeout: providerTimeoutMs(opts),
+      cancelSignal: currentOperationSignal(),
     });
     const terminateProvider = (signal: NodeJS.Signals): void => {
       if (subprocess.pid) {
+        if (process.platform === "win32") {
+          void execa("taskkill", ["/pid", String(subprocess.pid), "/t", "/f"], { windowsHide: true }).catch(() => undefined);
+          return;
+        }
         try {
           process.kill(-subprocess.pid, signal);
         } catch {
@@ -416,6 +438,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     const onTerminate = (): void => terminateProvider("SIGTERM");
     process.once("SIGINT", onInterrupt);
     process.once("SIGTERM", onTerminate);
+    const signal = currentOperationSignal();
+    signal?.addEventListener("abort", onTerminate, { once: true });
 
     let pendingJsonLine = "";
     subprocess.stdout?.on("data", (chunk: Buffer | string) => {
@@ -453,8 +477,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     try {
       ({ stdout } = await subprocess);
     } finally {
+      // A timed-out parent may leave MCP servers and child shells alive.
+      terminateProvider("SIGKILL");
       process.removeListener("SIGINT", onInterrupt);
       process.removeListener("SIGTERM", onTerminate);
+      signal?.removeEventListener("abort", onTerminate);
     }
 
     await mkdir(path.dirname(opts.saveTo), { recursive: true });

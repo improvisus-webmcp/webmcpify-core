@@ -8,7 +8,6 @@ const CHROME_DEVTOOLS_SERVER = {
     "-y",
     "chrome-devtools-mcp@1.7.0",
     "--category-experimental-webmcp",
-    "--autoConnect",
     "--no-usage-statistics",
   ],
   directTools: [
@@ -44,10 +43,16 @@ export async function writeChromeDevtoolsMcpConfig(
         }`,
       );
     }
-    if (existing.mcpServers?.["chrome-devtools"]) return existingConfig;
   }
 
   const configDirectory = path.join(sitePath, ".webmcpify");
+  const server = existing.mcpServers?.["chrome-devtools"] as Record<string, unknown> | undefined;
+  const args = Array.isArray(server?.args) ? server.args.filter((value): value is string => typeof value === "string") : CHROME_DEVTOOLS_SERVER.args;
+  const connectionArgs = ["--browserUrl", "--browser-url", "--wsEndpoint", "--ws-endpoint"];
+  const retainedArgs = args.filter((arg, index) => !connectionArgs.includes(args[index - 1])
+    && !connectionArgs.includes(arg)
+    && !connectionArgs.some((flag) => arg.startsWith(`${flag}=`))
+    && !/^--auto-?connect(?:=|$)/i.test(arg));
   const generatedConfig = path.join(
     configDirectory,
     "chrome-devtools-mcp.json"
@@ -60,7 +65,11 @@ export async function writeChromeDevtoolsMcpConfig(
         ...existing,
         mcpServers: {
           ...(existing.mcpServers ?? {}),
-          "chrome-devtools": CHROME_DEVTOOLS_SERVER,
+          "chrome-devtools": {
+            ...CHROME_DEVTOOLS_SERVER,
+            ...server,
+            args: [...retainedArgs, "--browserUrl", process.env.WEBMCPIFY_CDP_URL ?? "http://127.0.0.1:9222"],
+          },
         },
       },
       null,

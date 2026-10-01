@@ -22,7 +22,11 @@ try {
   assert.equal(merged.mcpServers["chrome-devtools"].command, "npx");
 
   await writeFile(userConfigPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: "custom-chrome" } } }));
-  assert.equal(await writeChromeDevtoolsMcpConfig(fixture), userConfigPath);
+  const userBefore = await readFile(userConfigPath, "utf8");
+  const bridged = JSON.parse(await readFile(await writeChromeDevtoolsMcpConfig(fixture), "utf8"));
+  assert.equal(bridged.mcpServers["chrome-devtools"].command, "custom-chrome");
+  assert.ok(bridged.mcpServers["chrome-devtools"].args.includes("--browserUrl"));
+  assert.equal(await readFile(userConfigPath, "utf8"), userBefore, "Owner configuration remains unchanged");
 
   const requests = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "verify", version: "1" } } },

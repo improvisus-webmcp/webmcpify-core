@@ -6,6 +6,7 @@ import path from "node:path";
 import { createTrajectoryArtifact } from "../dist/lib/trajectories.js";
 import { runReviewPrompt } from "../dist/commands/review.js";
 import { taskVerificationIssues } from "../dist/lib/tasks.js";
+import { withOperationSignal } from "../dist/lib/operation-context.js";
 import { writeProposedTools } from "../dist/lib/tool-proposals.js";
 
 const sitePath = await mkdtemp(path.join(os.tmpdir(), "webmcpify-review-"));
@@ -48,6 +49,7 @@ const manifest = JSON.parse(await readFile(path.join(sitePath, ".webmcpify", "ap
 assert.equal(manifest.tools[0].description, editedTool.description);
 assert.deepEqual(manifest.toolNames, [tool.name]);
 assert.equal(manifest.sourceDiff.status, "approved");
+assert.match(manifest.sourceDiff.patchHash, /^[a-f0-9]{64}$/);
 assert.equal(JSON.parse(await readFile(path.join(sitePath, "tasks.json"), "utf8")).length, 5);
 const reopened = await runReviewPrompt(sitePath, "4389", { fixture: true });
 assert.equal(reopened.approved, true);
@@ -61,5 +63,12 @@ assert.equal(rejectResponse.status, 200);
 const rejected = await rejection;
 assert.equal(rejected.approved, false);
 assert.ok(existsSync(path.join(sitePath, ".webmcpify", "approved-tools.json")));
+const abortController = new AbortController();
+const cancelled = withOperationSignal(abortController.signal, () => runReviewPrompt(sitePath, "4388", { fixture: true }));
+const cancelledAssertion = assert.rejects(cancelled, /Review was cancelled/);
+await new Promise((resolve) => setTimeout(resolve, 100));
+abortController.abort();
+await cancelledAssertion;
+await assert.rejects(fetch("http://127.0.0.1:4388"), undefined, "Cancelled review must release its localhost server");
 await rm(sitePath, { recursive: true, force: true });
 console.log("review verification passed: structured display/edit persistence, task approval, and rejection");
