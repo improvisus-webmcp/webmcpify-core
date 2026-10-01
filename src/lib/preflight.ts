@@ -1,19 +1,20 @@
 import { execa } from "execa";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readdir, readFile, symlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readdir, readFile, stat, symlink } from "node:fs/promises";
 import path from "node:path";
+import { currentOperationSignal } from "./operation-context.js";
+import { resolvePackageManager } from "./package-manager.js";
+import { createTrajectoryArtifact } from "./trajectories.js";
+
+export class GenerationPreflightError extends Error {
+  constructor(readonly diagnostics: string, artifact: string) {
+    super(`Generated source failed pre-approval validation. No source patch was applied and no approval was created. Private build diagnostics: ${artifact}`);
+  }
+}
 
 type PackageJson = {
   scripts?: Record<string, string>;
 };
-
-function packageManager(sitePath: string): string {
-  if (process.env.WEBMCPIFY_PACKAGE_MANAGER) return process.env.WEBMCPIFY_PACKAGE_MANAGER;
-  if (existsSync(path.join(sitePath, "pnpm-lock.yaml"))) return "pnpm";
-  if (existsSync(path.join(sitePath, "yarn.lock"))) return "yarn";
-  if (existsSync(path.join(sitePath, "package-lock.json"))) return "npm";
-  return "pnpm";
-}
 
 async function readScripts(sitePath: string): Promise<Record<string, string>> {
   try {
@@ -50,7 +51,9 @@ async function linkDependencies(sitePath: string, workspace: string): Promise<bo
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    await symlink(targetEntry, workspaceEntry);
+    const isDirectory = (await stat(targetEntry)).isDirectory();
+    if (process.platform === "win32" && !isDirectory) await copyFile(targetEntry, workspaceEntry);
+    else await symlink(targetEntry, workspaceEntry, process.platform === "win32" ? "junction" : isDirectory ? "dir" : "file");
   }
   return true;
 }
@@ -71,18 +74,21 @@ export async function runGenerationPreflight(
   workspace: string,
 ): Promise<void> {
   const scripts = await readScripts(sitePath);
-  const hasTypeScript = existsSync(path.join(sitePath, "node_modules", ".bin", "tsc"));
+  const manager = await resolvePackageManager(sitePath);
+  const tscBinary = process.platform === "win32" ? "tsc.cmd" : "tsc";
+  const hasTypeScript = existsSync(path.join(sitePath, "tsconfig.json"))
+    && existsSync(path.join(sitePath, "node_modules", ".bin", tscBinary));
   const checks: Array<{ label: string; command: string; args: string[] }> = [];
   if (scripts.typecheck) {
-    checks.push({ label: "typecheck", command: packageManager(sitePath), args: ["run", "typecheck"] });
+    checks.push({ label: "typecheck", command: manager, args: ["run", "typecheck"] });
   } else if (hasTypeScript) {
-    checks.push({ label: "TypeScript build", command: path.join(workspace, "node_modules", ".bin", "tsc"), args: ["-b", "--pretty", "false"] });
+    checks.push({ label: "TypeScript build", command: path.join(workspace, "node_modules", ".bin", tscBinary), args: ["-b", "--pretty", "false"] });
   }
   // A typecheck does not prove that the framework bundler can resolve imports
   // or produce the deployable client/server output. Run an explicit build too
   // when the target provides one.
   if (scripts.build && !scripts.typecheck?.includes("build")) {
-    checks.push({ label: "build", command: packageManager(sitePath), args: ["run", "build"] });
+    checks.push({ label: "build", command: manager, args: ["run", "build"] });
   }
   if (checks.length === 0) {
     console.log("[generate] preflight skipped; no typecheck, TypeScript, or build check found");
@@ -104,16 +110,14 @@ export async function runGenerationPreflight(
       await execa(check.command, check.args, {
         cwd: workspace,
         maxBuffer: 20 * 1024 * 1024,
+        cancelSignal: currentOperationSignal(),
       });
       console.log(`[generate] preflight ${check.label} passed`);
     }
     console.log(`[generate] preflight passed (${Math.round((Date.now() - startedMs) / 1000)}s elapsed)`);
   } catch (error) {
-    // The complete command output is retained by the thrown error/trajectory;
-    // only the actionable tail needs to reach any focused repair prompt.
     const details = outputFromError(error).slice(-4_000);
-    throw new Error(
-      `Generated source failed pre-approval validation. No source patch was applied and no review approval was created.\n${details}`
-    );
+    const artifact = await createTrajectoryArtifact("preflight-failure", { error: outputFromError(error) }, { sitePath, status: "failed" });
+    throw new GenerationPreflightError(details, artifact);
   }
 }

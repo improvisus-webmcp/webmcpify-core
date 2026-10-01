@@ -61,7 +61,7 @@ file organization and runtime conventions.
   new file was created, why that location fits, and where the tool is wired in
   or registered at runtime.
 - The WebMCP runtime object may be declared as \`unknown\` by a site's ambient
-  TypeScript or Cloudflare worker types. An \`in\` check alone does not narrow
+  TypeScript or Cloudflare worker types in a TypeScript project. An \`in\` check alone does not narrow
   that value. Use a local, explicit WebMCP context interface and assign a
   narrowed immutable value before calling \`registerTool\`. Unregister by
   aborting the registration signal; do not invent or call \`unregisterTool\`.
@@ -160,6 +160,7 @@ fenced json block labelled TOOL_PROPOSALS_JSON:
       "consequentialHint": false
     },
     "security": {
+      "executionScope": "ui-state or backend; match the real handler effect",
       "userAuthentication": "required, optional, or none",
       "agentIdentity": "required, optional, or none",
       "authorization": "backend, server-action, client-only, or none",
@@ -207,4 +208,9 @@ tool description mentions them. Follow the security posture supplied later in
 the run prompt. If that posture requires a control the target lacks, do not
 fabricate it: either implement the smallest real control or skip the high-risk
 tool and explain why.
+Set executionScope to ui-state only for browser-local reversible actions;
+backend for persisted server mutations. Mark consequentialHint false for
+ordinary UI changes. A click or local cart update must not gain a backend just
+to pass strict review. High-impact effects remain consequential regardless of
+the label or scope. Public documentation must contain no secret values.
 `.trim();

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { agentPublicDirectory } from "./agent-readiness.js";
 
 export interface DiscoverySignal {
   file: string;
@@ -33,10 +34,11 @@ export interface DiscoveryResult {
   capabilities: string[];
   sourceFiles: string[];
   filesScanned: number;
+  agentReadiness?: { publicDirectory?: string; files: string[]; robotsPolicy?: string[] };
 }
 
 const EXCLUDED = new Set(["node_modules", ".git", "dist", "build", ".next", ".nuxt", "coverage", ".webmcpify"]);
-const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro", ".html", ".mjs", ".cjs", ".go", ".py", ".rb", ".java", ".rs"]);
+const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro", ".html", ".mjs", ".cjs", ".css", ".scss", ".go", ".py", ".rb", ".java", ".rs"]);
 
 async function walk(root: string, current = root): Promise<string[]> {
   const entries = await readdir(current, { withFileTypes: true });
@@ -135,15 +137,17 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
   for (const file of files) {
     const relative = path.relative(sitePath, file).split(path.sep).join("/");
     const content = await readFile(file, "utf8");
+    // Styles belong in the source inventory, not in the executable capability signals.
+    if (/\.(?:css|scss)$/i.test(relative)) continue;
     const route = routeFromFile(relative);
     if (route) routes.add(route);
     forms.push(...lineSignals(relative, content, [["form", /<form\b|<input\b|<select\b|<textarea\b/i]]));
     buttons.push(...lineSignals(relative, content, [["button", /<button\b|type\s*=\s*["']submit|type\s*=\s*["']button/i]]));
-    actions.push(...lineSignals(relative, content, [["event-handler", /on(?:Click|Submit|Change|Input|Press)\s*=|addEventListener\s*\(/i], ["navigation", /navigate\(|router\.(?:push|replace)|<a\b|<Link\b/i]]));
+    actions.push(...lineSignals(relative, content, [["event-handler", /on(?:Click|Submit|Change|Input|Press)\s*=|addEventListener\s*\(|\((?:click|ngSubmit|submit|change|input)\)\s*=/i], ["navigation", /navigate\(|router\.(?:push|replace)|<a\b|<Link\b|routerLink\s*=/i]]));
     apis.push(...lineSignals(relative, content, [["request", /\bfetch\s*\(|axios\.|\bgraphql\b|\/api\//i], ["handler", /app\.(?:get|post|put|patch|delete)\s*\(|export\s+(?:async\s+)?function\s+(?:GET|POST|PUT|PATCH|DELETE)\b/i]]));
     authentication.push(...lineSignals(relative, content, [["authentication", /(?:signIn|signOut|login|logout|useAuth|session|currentUser|clerk|next-auth|supabase\.auth|firebase\.auth)/i]]));
-    state.push(...lineSignals(relative, content, [["state", /useState\s*\(|useReducer\s*\(|createContext\s*\(|create\s*\(|zustand|redux|mobx|pinia|localStorage|sessionStorage/i]]));
-    existingWebMCP.push(...lineSignals(relative, content, [["webmcp", /document\.modelContext|navigator\.modelContext|registerTool\s*\(|useWebMCP|useWebMcp|use-webmcp-tool|webmcp-tools|toolName\s*:/i]]));
+    state.push(...lineSignals(relative, content, [["state", /useState\s*\(|useReducer\s*\(|createContext\s*\(|create\s*\(|zustand|redux|mobx|pinia|localStorage|sessionStorage|\bsignal\s*\(|FormGroup|FormControl|formControlName/i]]));
+    existingWebMCP.push(...lineSignals(relative, content, [["webmcp", /document\.modelContext|navigator\.modelContext|registerTool\s*\(|useWebMCP|useWebMcp|use-webmcp-tool|webmcp-tools|toolName\s*:|\btoolname\s*=|attr\.toolname/i]]));
   }
 
   const sitemapRaw = await readOptional(sitePath, "public/sitemap.xml") ?? await readOptional(sitePath, "sitemap.xml");
@@ -168,7 +172,7 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
   if (existsSync(path.join(sitePath, "Cargo.toml"))) languages.add("Rust");
   if (existsSync(path.join(sitePath, "pom.xml"))) languages.add("Java");
 
-  return {
+  const result: DiscoveryResult = {
     version: 1,
     discoveredAt: new Date().toISOString(),
     targetProject: sitePath,
@@ -179,6 +183,11 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
     robots: robots.length ? [...new Set(robots)] : undefined,
     forms: forms.slice(0, 200), buttons: buttons.slice(0, 200), actions: actions.slice(0, 300), apis: apis.slice(0, 300), authentication: authentication.slice(0, 200), state: state.slice(0, 200), existingWebMCP: existingWebMCP.slice(0, 200), capabilities: [...capabilitySet].sort(), sourceFiles: files.map((file) => path.relative(sitePath, file).split(path.sep).join("/")).sort(), filesScanned: files.length,
   };
+  const publicDirectory = await agentPublicDirectory(sitePath, result);
+  const readinessPaths = ["AGENTS.md", ".agent.md", "angular.json", "docs/webmcp-readiness.md", ...[".", "public", "static", publicDirectory].filter((dir): dir is string => dir !== undefined).flatMap((dir) => ["llms.txt", "webmcp.md", "robots.txt", "sitemap.xml"].map((file) => path.posix.join(dir, file)))];
+  const robotsFile = publicDirectory !== undefined ? await readOptional(sitePath, path.join(publicDirectory, "robots.txt")) : robotsRaw;
+  result.agentReadiness = { publicDirectory, files: [...new Set(readinessPaths)].filter((file) => existsSync(path.join(sitePath, file))), robotsPolicy: robotsFile?.split(/\r?\n/).filter((line) => /^\s*(?:User-agent|Allow|Disallow|Sitemap):/i.test(line)) };
+  return result;
 }
 
 export async function writeDiscovery(sitePath: string, discovery: DiscoveryResult): Promise<string> {

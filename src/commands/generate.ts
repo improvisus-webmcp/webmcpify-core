@@ -11,13 +11,15 @@ import {
 } from "../lib/prompts.js";
 import { createTrajectoryPath } from "../lib/trajectories.js";
 import { createPendingPatch } from "../lib/patches.js";
-import { runGenerationPreflight } from "../lib/preflight.js";
+import { GenerationPreflightError, runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
 import { extractTasksFromText, validateTaskToolBindings } from "../lib/tasks.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
+import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
+import type { ProposedTool } from "../lib/tool-proposals.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -57,13 +59,15 @@ Every imperative integration must be wired into code that runs once on app load
 or the relevant route, and must safely access document.modelContext. Use one
 stable AbortController per registration lifecycle; abort it on cleanup rather
 than calling unregisterTool. Every
-declarative integration must add tool-name to the real rendered form. Do not
+declarative integration must add toolname and tooldescription to the real rendered form. Do not
 leave a standalone unregistered module. These runtime requirements are checked
 before approval.
 
 ${TOOL_PLACEMENT_GUIDANCE}
 
 ${WEBMCP_SPEC_GUIDANCE}
+
+${AGENT_READINESS_GUIDANCE}
 
 ${TOOL_PROPOSAL_PROMPT}
 
@@ -117,19 +121,19 @@ async function repairGeneratedWorkspace(
   provider: ReturnType<typeof resolveProvider>,
   preflightError: unknown,
 ): Promise<void> {
-  // Keep the repair prompt focused on the actionable tail of compiler output.
+  // Keep the repair prompt focused on the actionable validation error.
   // The full output remains available in the trajectory/error artifact.
-  const details = errorText(preflightError).slice(-4_000);
+  const details = (preflightError instanceof GenerationPreflightError ? preflightError.diagnostics : errorText(preflightError)).slice(-4_000);
   const repairTrajectory = createTrajectoryPath("generate-fix", undefined, sitePath);
   console.warn("[generate] preflight failed; requesting one focused fix in the disposable workspace...");
   await runAgent({
     provider,
     prompt: `The generated source in this disposable workspace failed WebMCPify's
-pre-approval compile check. Fix only the reported compiler errors in the
+pre-approval validation. Fix only the reported compilation, wiring, or form-feedback errors in the
 workspace. Do not redo discovery, change the approved tool names, schemas, or
 task definitions, and do not refactor unrelated code.
 
-Compiler output:
+Validation output:
 ${details}
 
 Pay special attention to optional WebMCP context values captured by nested
@@ -139,7 +143,9 @@ the optional variable after its guard. Also verify every imported symbol is
 exported by its source module; do not change unrelated target application code
 just to provide an export for generated code. Make the smallest source edit
 needed, then stop; WebMCPify will run the compile check again before human
-review.`,
+review.
+
+${AGENT_READINESS_GUIDANCE}`,
     cwd: workspace,
     allowedTools: "Read,Edit",
     saveTo: repairTrajectory,
@@ -239,7 +245,7 @@ export async function runGenerate(opts: GenerateOptions) {
   const saveTo = createTrajectoryPath("generate", undefined, sitePath);
   const strategy = methodInstruction(method);
   const securityInstruction = securityPolicy === "strict"
-    ? `Use Core's strict security posture. Every state-changing tool must use real backend or server-action authorization. Consequential actions must also have real user and agent binding, quotas, and replay protection.`
+    ? `Use Core's strict security posture based on actual effects. Browser-only clicks, navigation, form filling, filters, local cart edits, and reversible user-interface state do not need backend authorization, authenticated user/agent binding, backend quotas, or replay protection. Declare executionScope "ui-state" only when source proves the action stays in local UI state. Backend mutations require real server authorization; consequential or high-impact actions require real user and agent binding, quotas, and replay protection. Never invent backend services to satisfy metadata. Keep consequentialHint false for harmless UI changes and true for purchases, destructive effects, or external communication. Strict also reviews input bounds, privacy, origin scope, and missing contracts.`
     : securityPolicy === "balance"
       ? `Use Core's balanced security posture. Require real backend authorization, user and agent binding, quotas, and replay protection only for genuinely high-impact actions such as checkout, payment, order submission, financial transfers, destructive account changes, or external publication/communication. Ordinary reversible UI state such as filtering, adding or removing cart items, and login/logout must reuse the site's existing behavior and must not gain invented backend services, identity systems, quotas, idempotency keys, or artificial string limits solely to satisfy the audit. Keep every security declaration honest.`
       : `Core security gating is ignored for this run. Do not invent or add backend services, identity systems, quotas, idempotency keys, or artificial string limits solely for Core metadata. Keep any security declaration honest and preserve the site's existing behavior; the exact patch still requires human approval.`;
@@ -276,6 +282,8 @@ ${productContext}`
     "utf8",
   );
   let workspaceDiff = "";
+  let tools: ProposedTool[];
+  let readinessFiles: string[] = [];
   try {
     await runAgent({
       provider,
@@ -308,26 +316,33 @@ ${productContext}`
           : "The generation provider did not modify files in its disposable workspace after an edit-only retry. Provider-reported diffs are informational only; no source patch can be created safely."
       );
     }
+    const rawDraft = await readFile(saveTo, "utf8");
+    tools = extractAndValidateProposedTools(rawDraft, discovery);
+    const tasks = extractTasksFromText(rawDraft);
+    if (!tasks) throw new Error("The generation output did not contain 5-6 valid verification tasks. Every task must declare requiredTools from the generated proposal.");
+    validateTaskToolBindings(tasks, tools);
+    const readiness = await writeAgentReadiness(agentWorkspace, discovery, tools);
+    readinessFiles = readiness.files;
+    if (!readiness.publicDirectory) console.log("[generate] public asset serving could not be established; deployment guidance is included in the reviewed patch");
+    workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
     try {
       await runGenerationPreflight(sitePath, agentWorkspace);
+      await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
+      await assertGeneratedFormFeedback(agentWorkspace, tools);
     } catch (error) {
       await repairGeneratedWorkspace(opts, sitePath, agentWorkspace, provider, error);
+      // A focused source fix cannot silently drop or stale the reviewed documentation.
+      readinessFiles = (await writeAgentReadiness(agentWorkspace, discovery, tools)).files;
       workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
       await runGenerationPreflight(sitePath, agentWorkspace);
+      await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
+      await assertGeneratedFormFeedback(agentWorkspace, tools);
     }
-    await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
   } finally {
     await removeAgentWorkspace(agentWorkspace);
   }
 
   try {
-    const rawDraft = await readFile(saveTo, "utf8");
-    const tools = extractAndValidateProposedTools(rawDraft, discovery);
-    const proposedTasks = extractTasksFromText(rawDraft);
-    if (!proposedTasks) {
-      throw new Error("The generation output did not contain 5-6 valid verification tasks. Every task must declare requiredTools from the generated proposal.");
-    }
-    validateTaskToolBindings(proposedTasks, tools);
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
     const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);
@@ -345,11 +360,37 @@ ${productContext}`
     console.log(`[generate] validated ${tools.length} tool proposal(s)`);
     console.log(`[generate] security (${securityPolicy}): ${security.status} (${security.summary.review} review finding(s)); ${securityFile}`);
     console.log(`[generate] generated source changes: ${patch.changedFiles.join(", ")}`);
+    console.log(`[generate] agent-readiness files included for review: ${readinessFiles.join(", ")}`);
     console.log(`[generate] patch: ${patch.patchPath}`);
     console.log("[generate] status: awaiting review");
   } catch (error) {
     console.error(`[generate] ${error instanceof Error ? error.message : String(error)}`);
     throw error;
+  }
+}
+
+/** A declarative proposal must include actual styles and accessible UI feedback. */
+export async function assertGeneratedFormFeedback(workspace: string, tools: ProposedTool[]): Promise<void> {
+  const formTools = tools.filter((tool) => tool.placement.strategy === "declarative");
+  if (!formTools.length) return;
+  const { discoverProject } = await import("../lib/discovery.js");
+  const generated = await discoverProject(workspace);
+  const contents = await Promise.all(generated.sourceFiles.map(async (file) => ({ file, text: await readFile(path.join(workspace, file), "utf8") })));
+  const source = contents.filter(({ file }) => !/\.(?:css|scss)$/.test(file)).map(({ text }) => text).join("\n");
+  const assetsConfig = await readFile(path.join(workspace, "angular.json"), "utf8").catch(() => "");
+  const loadedStyles = contents.filter(({ file }) => /\.(?:css|scss)$/.test(file)
+    && (source.includes(path.posix.basename(file)) || assetsConfig.includes(file))).map(({ text }) => text).join("\n");
+  const inlineStyles = contents.filter(({ file, text }) => !/\.(?:css|scss)$/.test(file) && /<style\b|\bstyles\s*:\s*\[/.test(text)).map(({ text }) => text).join("\n");
+  if (!/:tool-form-active/.test(loadedStyles + inlineStyles) || !/:tool-submit-active/.test(loadedStyles + inlineStyles)) {
+    throw new Error("WebMCP forms need loaded styles for :tool-form-active and :tool-submit-active before review.");
+  }
+  // Each form's component must expose status text or deliberately use its existing live region.
+  for (const tool of formTools) {
+    const component = await readFile(path.join(workspace, tool.placement.file), "utf8");
+    if (!/(?:role\s*=\s*["']status["']|aria-live\s*=\s*["']polite["'])/.test(component)
+      || !/(?:toolactivated|agentInvoked)/.test(source)) {
+      throw new Error(`WebMCP form "${tool.name}" needs an accessible agent-status region and activation/submit feedback before review.`);
+    }
   }
 }
 
@@ -372,7 +413,7 @@ async function assertGeneratedWebMcpWiring(
   const hasDeclarativeRuntime = /tool-name\s*=|toolname\s*=/.test(generatedSource);
   if (!hasImperativeRuntime && !hasDeclarativeRuntime) {
     throw new Error(
-      "Generated source has no current WebMCP runtime wiring. Add document.modelContext registration or tool-name on the real form before approval.",
+      "Generated source has no current WebMCP runtime wiring. Add document.modelContext registration or toolname/tooldescription on the real form before approval.",
     );
   }
 }
