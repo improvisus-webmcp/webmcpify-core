@@ -12,6 +12,7 @@ export interface ProposedTool {
   parameters: { type: "object"; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean };
   annotations: { readOnlyHint: boolean; untrustedContentHint: boolean; consequentialHint: boolean };
   security?: {
+    executionScope?: "ui-state" | "backend";
     userAuthentication: "required" | "optional" | "none";
     agentIdentity: "required" | "optional" | "none";
     authorization: "backend" | "server-action" | "client-only" | "none";
@@ -238,6 +239,7 @@ function normalizeSecurity(value: unknown, toolName: string): ProposedTool["secu
   const security = value as Record<string, unknown>;
   const rateLimit = security.rateLimit as Record<string, unknown> | undefined;
   const idempotency = security.idempotency as Record<string, unknown> | undefined;
+  if (security.executionScope !== undefined && !["ui-state", "backend"].includes(String(security.executionScope))) throw new Error(`Tool "${toolName}" has an invalid security.executionScope value.`);
   if (!["required", "optional", "none"].includes(String(security.userAuthentication))) throw new Error(`Tool "${toolName}" has an invalid security.userAuthentication value.`);
   if (!["required", "optional", "none"].includes(String(security.agentIdentity))) throw new Error(`Tool "${toolName}" has an invalid security.agentIdentity value.`);
   if (!["backend", "server-action", "client-only", "none"].includes(String(security.authorization))) throw new Error(`Tool "${toolName}" has an invalid security.authorization value.`);
@@ -251,6 +253,7 @@ function normalizeSecurity(value: unknown, toolName: string): ProposedTool["secu
   }
   if (idempotency.keyParameter !== undefined && (typeof idempotency.keyParameter !== "string" || !idempotency.keyParameter.trim())) throw new Error(`Tool "${toolName}" has an invalid security.idempotency.keyParameter.`);
   return {
+    ...(security.executionScope ? { executionScope: security.executionScope as "ui-state" | "backend" } : {}),
     userAuthentication: security.userAuthentication as NonNullable<ProposedTool["security"]>["userAuthentication"],
     agentIdentity: security.agentIdentity as NonNullable<ProposedTool["security"]>["agentIdentity"],
     authorization: security.authorization as NonNullable<ProposedTool["security"]>["authorization"],

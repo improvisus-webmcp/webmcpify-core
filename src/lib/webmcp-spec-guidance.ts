@@ -31,6 +31,11 @@ IMPLEMENTATION AREAS
 - Declarative WebMCP: attach tool metadata to the actual rendered form and
   preserve the form's existing submit, validation, accessibility, and state
   behaviour. Do not create an unconnected standalone registration.
+  Chrome's declarative API uses toolname, tooldescription, and optional
+  toolautosubmit attributes. Style :tool-form-active and :tool-submit-active
+  using feature-guarded CSS. Listen for toolactivated/toolcancel on the supported
+  document.modelContext event target (older implementations may differ), match
+  toolName, and provide visible accessible status with cleanup.
 - Lifecycle and events: pass an AbortController signal as the registerTool
   option and call controller.abort() to unregister. Do not call or invent an
   unregisterTool() API. Register stable tools once per mounted lifecycle; do
@@ -88,6 +93,9 @@ SECURITY AND PRIVACY AREAS
 - Backend enforcement and automated abuse: authorization, quotas, validation,
   and business rules must run in the underlying API/server action. Client-only
   checks and WebMCP annotations are not security boundaries.
+  These backend requirements apply to actual server/consequential effects.
+  Local form filling, focus, navigation, filtering, and reversible UI state
+  do not need invented backend authorization, identities, quotas, or nonces.
 - Retries and evidence: consequential or repeatable mutations need a bounded
   idempotency key, replay-safe backend behavior, and a structured result or
   receipt that identifies what completed. Propagate cancellation signals where

@@ -59,12 +59,30 @@ try {
     implementation: { ...base.implementation, action: "add item to cart" },
   }] }, discovery);
   const strictCart = auditToolSecurity([cart], discovery, fixture, "strict");
-  assert.equal(strictCart.status, "block");
+  assert.equal(strictCart.status, "review");
+  assert.equal(strictCart.summary.block, 0);
+  assert.ok(!strictCart.findings.some((item) => /backend|binding|quota|replay/.test(item.code)));
   assert.ok(strictCart.findings.some((item) => item.code === "string-unbounded"));
   const balancedCart = auditToolSecurity([cart], discovery, fixture, "balance");
   assert.equal(balancedCart.policy, "balance");
   assert.equal(balancedCart.status, "pass");
   assert.equal(balancedCart.findings.length, 0);
+
+  const uiSecurity = { ...cart.security, executionScope: "ui-state" };
+  const [click] = validateProposedTools({ tools: [{ ...cart, id: "select_tab", name: "select_tab", title: "Select tab", annotations: { ...cart.annotations, consequentialHint: false }, parameters: { type: "object", properties: {}, additionalProperties: false }, security: uiSecurity, implementation: { ...cart.implementation, action: "select tab" } }] }, discovery);
+  const noApis = { ...discovery, apis: [] };
+  assert.equal(auditToolSecurity([click], noApis, fixture, "strict").status, "pass");
+  const serverUpdate = { ...click, name: "update_profile", title: "Update profile", implementation: { ...click.implementation, action: "update profile" }, security: { ...uiSecurity, executionScope: "backend" } };
+  assert.equal(auditToolSecurity([serverUpdate], noApis, fixture, "strict").status, "block");
+  // A reversible-sounding prefix, false annotation, or false scope cannot hide checkout.
+  const disguisedPurchase = { ...click, name: "click_checkout", title: "Click checkout", implementation: { ...click.implementation, action: "click to checkout" } };
+  const disguisedReport = auditToolSecurity([disguisedPurchase], noApis, fixture, "strict");
+  assert.equal(disguisedReport.status, "block");
+  assert.ok(disguisedReport.findings.some((item) => item.code === "backend-authorization-missing"));
+  assert.ok(disguisedReport.findings.some((item) => item.code === "agent-binding-missing"));
+  const crossOriginUi = { ...click, security: { ...uiSecurity, originScope: "restricted-cross-origin", allowedOrigins: ["*"] } };
+  assert.equal(auditToolSecurity([crossOriginUi], noApis, fixture, "strict").status, "block");
+  assert.throws(() => validateProposedTools({ tools: [{ ...click, security: { ...uiSecurity, executionScope: "anything" } }] }, discovery), /executionScope/);
 
   const balancedCheckout = auditToolSecurity([anonymous], discovery, fixture, "balance");
   assert.equal(balancedCheckout.status, "block");

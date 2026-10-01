@@ -29,7 +29,7 @@ export interface SecurityReport {
 const REPLAY_PRONE = /(?:book|buy|checkout|create|delete|email|message|order|pay|post|publish|purchase|reserve|send|submit|transfer|update)/i;
 const SENSITIVE_PARAMETER = /(?:age|birth|card|credit|debit|health|history|location|password|pregnan|secret|token)/i;
 const HIGH_IMPACT_ACTION = /(?:\bcheckout\b|\b(?:buy|purchase|pay|transfer|withdraw|refund)\b|\b(?:place|submit|create|cancel)\s+(?:an?\s+)?order\b|\b(?:book|reserve)\b|\b(?:send|publish|post)\s+(?:an?\s+)?(?:email|message|comment|post)\b|\b(?:delete|close)\s+(?:my\s+|the\s+|an?\s+)?account\b|\bchange\s+(?:my\s+|the\s+)?password\b)/i;
-const REVERSIBLE_UI_ACTION = /(?:\b(?:add|remove|clear|update)\b.{0,30}\bcart\b|\b(?:filter|search|sort)\b|\b(?:log|sign)[\s_-]?(?:in|out)\b|\blogin\b|\blogout\b)/i;
+const REVERSIBLE_UI_ACTION = /(?:\b(?:add|remove|clear|update)\b.{0,30}\bcart\b|\b(?:filter|search|sort|navigate|toggle|select|expand|collapse|open|close)\b|\b(?:log|sign)[\s_-]?(?:in|out)\b|\blogin\b|\blogout\b)/i;
 const BALANCED_ACCESS_CODES = new Set([
   "access-contract-missing",
   "backend-authorization-missing",
@@ -50,8 +50,18 @@ export function resolveSecurityPolicy(policy?: string, fallback: SecurityPolicy 
 }
 
 function isHighImpactTool(tool: ProposedTool): boolean {
-  const action = `${tool.name} ${tool.title} ${tool.implementation.action}`;
-  return !REVERSIBLE_UI_ACTION.test(action) && HIGH_IMPACT_ACTION.test(action);
+  const action = `${tool.name} ${tool.title} ${tool.implementation.action}`.replace(/[_-]+/g, " ");
+  // UI words must not mask a purchase, transfer, or other irreversible effect.
+  return HIGH_IMPACT_ACTION.test(action);
+}
+
+function isUiStateTool(tool: ProposedTool): boolean {
+  if (isHighImpactTool(tool)) return false;
+  if (tool.security?.executionScope === "backend") return false;
+  if (tool.security?.executionScope === "ui-state") return !tool.annotations.consequentialHint;
+  const action = `${tool.name} ${tool.title} ${tool.implementation.action}`.replace(/[_-]+/g, " ");
+  return !["backend", "server-action"].includes(tool.security?.authorization ?? "")
+    && REVERSIBLE_UI_ACTION.test(action);
 }
 
 function finding(tool: ProposedTool, severity: SecuritySeverity, code: string, message: string, recommendation: string): SecurityFinding {
@@ -82,21 +92,23 @@ export function auditToolSecurity(
     const mutates = !tool.annotations.readOnlyHint;
     const consequential = tool.annotations.consequentialHint;
     const highImpact = isHighImpactTool(tool);
-    const requiresConsequentialControls = consequential || (policy === "balance" && highImpact);
+    const uiState = isUiStateTool(tool);
+    const backendMutation = mutates && !uiState;
+    const requiresConsequentialControls = !uiState && (consequential || highImpact);
     const replayProne = REPLAY_PRONE.test(`${tool.name} ${tool.description} ${tool.implementation.action}`);
     const security = tool.security;
 
     if (!security) {
       strictFindings.push(finding(
         tool,
-        mutates ? "block" : "review",
+        backendMutation ? "block" : "review",
         "access-contract-missing",
         "The proposal does not declare who may call this tool or where access is enforced.",
         "Add a security contract and make its claims match the reviewed source patch.",
       ));
     } else {
-      if (mutates && !["backend", "server-action"].includes(security.authorization)) {
-        strictFindings.push(finding(tool, "block", "backend-authorization-missing", "A state-changing tool relies on client-only or no authorization.", "Enforce authorization in the underlying server/API path used by the human interface."));
+      if (backendMutation && !["backend", "server-action"].includes(security.authorization)) {
+        strictFindings.push(finding(tool, "block", "backend-authorization-missing", "A backend or consequential mutation relies on client-only or no authorization.", "Enforce authorization in the underlying server/API path used by the human interface. Pure UI state needs no invented backend."));
       }
       if (requiresConsequentialControls && security.userAuthentication !== "required") {
         strictFindings.push(finding(tool, "block", "user-binding-missing", "A consequential tool is not bound to an authenticated user.", "Require and verify the user identity in the backend action."));
@@ -104,13 +116,13 @@ export function auditToolSecurity(
       if (requiresConsequentialControls && security.agentIdentity !== "required") {
         strictFindings.push(finding(tool, "block", "agent-binding-missing", "A consequential tool does not require a verified agent identity.", "Require a verified agent principal and bind it to the user, origin, tool, and short-lived grant."));
       }
-      if (mutates && !security.rateLimit.enforced) {
+      if (backendMutation && !security.rateLimit.enforced) {
         strictFindings.push(finding(tool, requiresConsequentialControls ? "block" : "review", "quota-missing", "No per-tool usage limit is declared for this state-changing action.", "Enforce a backend quota scoped to the agent/user/tool as appropriate."));
       }
       if (security.rateLimit.enforced && (!security.rateLimit.limit || !security.rateLimit.windowSeconds)) {
         strictFindings.push(finding(tool, "review", "quota-unspecified", "Rate limiting is declared without a numeric limit and window.", "Record the enforced call limit and window so the policy is reviewable."));
       }
-      if (mutates && (requiresConsequentialControls || replayProne) && !security.idempotency.enforced) {
+      if (backendMutation && (requiresConsequentialControls || replayProne) && !security.idempotency.enforced) {
         strictFindings.push(finding(tool, requiresConsequentialControls ? "block" : "review", "replay-protection-missing", "This action may be duplicated by retries but declares no idempotency protection.", "Require a backend idempotency key and return the original structured result for safe retries."));
       }
       if (security.idempotency.enforced && !security.idempotency.keyParameter) {
@@ -134,7 +146,7 @@ export function auditToolSecurity(
     for (const [name, schema] of parameterRecords(tool)) {
       if (name.length > 30) strictFindings.push(finding(tool, "review", "parameter-name-budget", `Parameter "${name}" exceeds 30 characters.`, "Use a shorter stable parameter name."));
       if (schema.type === "string" && (typeof schema.maxLength !== "number" || schema.maxLength <= 0)) {
-        strictFindings.push(finding(tool, "review", "string-unbounded", `String parameter "${name}" has no positive maxLength.`, "Add a realistic maximum input length and validate it again in the backend."));
+        strictFindings.push(finding(tool, "review", "string-unbounded", `String parameter "${name}" has no positive maxLength.`, uiState ? "Use real UI input constraints and validate in the existing handler; no backend is needed." : "Add a realistic maximum input length and validate it again in the backend."));
       }
       if (typeof schema.description === "string" && schema.description.length > 150) {
         strictFindings.push(finding(tool, "review", "parameter-description-budget", `Parameter "${name}" has a description longer than 150 characters.`, "Shorten the description and keep instructions out of schema text."));
@@ -144,7 +156,7 @@ export function auditToolSecurity(
       }
     }
 
-    if (mutates && discovery.apis.length === 0) {
+    if (backendMutation && discovery.apis.length === 0) {
       strictFindings.push(finding(tool, "review", "backend-evidence-not-discovered", "Discovery found no API/server signal supporting this state-changing tool.", "Inspect the exact patch and confirm that the real backend path—not browser-only state—enforces the action."));
     }
   }
@@ -180,6 +192,7 @@ export function auditToolSecurity(
       ...(policy === "balance" ? ["Balanced policy reports access-control gaps only for high-impact actions and invalid cross-origin allowlists."] : []),
       ...(policy === "ignore" ? ["Automated security findings were skipped by the ignore policy; human patch approval is still required."] : []),
       "Static declarations and source signals are not proof of runtime enforcement.",
+      "Browser-only UI state does not require backend authorization, identity binding, quotas, or backend replay protection; verify executionScope against the reviewed handler.",
       "Core does not yet define or verify a universal third-party agent-attestation token.",
       "Production quotas, nonces, capability grants, and audit storage must be enforced by the target backend.",
     ],
