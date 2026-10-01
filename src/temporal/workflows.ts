@@ -1,11 +1,21 @@
-import { proxyActivities } from "@temporalio/workflow";
+import { ActivityCancellationType, proxyActivities } from "@temporalio/workflow";
 import type * as activities from "./activities.js";
 
-const { generateActivity, testActivity, reviewActivity, applyActivity } =
+const { generateActivity, testActivity, applyActivity } =
   proxyActivities<typeof activities>({
-    startToCloseTimeout: "5 minutes",
-    retry: { maximumAttempts: 3 },
+    startToCloseTimeout: "30 minutes",
+    heartbeatTimeout: "30 seconds",
+    cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+    // Generation and apply mutate pending artifacts/source. Retrying without
+    // an idempotency contract can race an operation that is still running.
+    retry: { maximumAttempts: 1 },
   });
+const { reviewActivity } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "24 hours",
+  heartbeatTimeout: "30 seconds",
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+  retry: { maximumAttempts: 1 },
+});
 
 export interface RepairWorkflowOptions {
   path: string;

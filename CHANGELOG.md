@@ -4,6 +4,27 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: runtime isolation, providers, and durable execution
+
+- Browser tasks and baselines now verify the exact acted-on tab in a fresh task context, preserving transient state, cookies, and navigation without clearing the existing browser profile. Browser-only agents receive empty workspaces; browser MCP and scoring share the configured CDP endpoint.
+- Exclude complete Git metadata/runtime/dependency entries when copying worktrees; share generation/repair workspace capture, isolate Git hooks/signing/line-ending settings, and allow larger source diffs. Parse spaced and Git C-quoted filenames, include untracked source content in identity checks, and bind approvals to exact patch bytes and changed-file metadata.
+- Correct OpenCode CLI/MCP configuration without overwriting owner settings, forward MCP configuration to Gemini, and serialize Codex environment overrides as TOML assignments. All providers receive deadlines, cancellation, and platform-aware process cleanup.
+- Temporal worker/client address, namespace, TLS, and API-key settings now align. Operation-specific activity deadlines, heartbeats, cancellation propagation, and single-attempt side-effect activities prevent automatic overlapping retries. Optional peer/dev dependency structure is unchanged.
+- Add Windows executable/browser discovery, dependency junctions, Windows TypeScript entry points, native-platform CI, runtime regressions, and an explicit real-Chrome state check. Fix Chrome-profile cleanup races, Vite asset-root resolution, unsafe readiness paths, and malformed documentation markers.
+- Consolidate repository-maintenance and browser-capability guidance into one target-root `AGENTS.md`, outside private `.webmcpify` state. Preserve existing owner files and reject reversed or duplicate documentation markers without overwriting them.
+
+### Added: agent-readiness files and framework-aware feedback
+
+- Generation includes merged `AGENTS.md`, `llms.txt`, capability documentation, and narrowly scoped metadata crawl permissions in the same human-reviewed patch. Existing owner documentation and crawler restrictions are preserved; unknown deployment layouts receive explicit setup guidance instead of claimed public support.
+- The combined target-root `AGENTS.md` documents each proposed capability's inputs, prerequisites, effects, successful outcome, expected rejection, and safe WebMCP usage, with Improvisus/WebMCPify integration attribution. Owner notes are preserved; neither this guide nor public discovery documents belong in private `.webmcpify` run state. No second `.agent.md` is generated.
+- Generation guidance preserves JavaScript/TypeScript and framework conventions, requires loaded WebMCP form CSS plus accessible agent-status feedback, and covers React/Angular lifecycle cleanup. Discovery recognizes Angular events/state, declarative registrations, styles, and existing readiness files.
+- JavaScript preflight no longer runs an implicit TypeScript build just because a transitive `tsc` binary is installed.
+
+### Fixed: strict security follows actual action effects
+
+- Strict auditing distinguishes local reversible UI state from backend mutations. Clicks, selections, filters, and local cart changes no longer require invented backend authorization, user/agent binding, quotas, or replay protection; high-impact actions remain gated even when mislabeled as UI state.
+- Added JS/TS generation, reviewed readiness artifacts, crawler preservation, framework layout, loaded form-feedback, and strict UI/backend regression coverage.
+
 ### Fixed: private failures and complete tool verification
 
 - Provider stderr and raw subprocess errors are no longer streamed or rethrown to the terminal, preventing prompts and embedded source code from appearing when an agent command fails; raw diagnostics remain in the local trajectory.

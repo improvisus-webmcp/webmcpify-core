@@ -24,7 +24,7 @@ flowchart LR
 - The target checkout is read during discovery and changed only by `apply` after approval.
 - Coding agents edit a disposable copy without the target's `.git`, `.webmcpify`, or `node_modules` contents.
 - Selected entries from the target's installed dependencies are linked into the disposable workspace for typecheck/build validation; they are not copied into it.
-- Browser agents receive the approved task and Chrome DevTools MCP tools, not target source access.
+- Browser agents receive empty disposable workspaces, not copied source. Each task uses a fresh browser context and independent scoring of the exact acted-on page. Non-Claude adapters do not enforce the requested tool allowlist as an OS sandbox. See the [runtime audit](docs/audits/2026-10-01-runtime-compatibility.md).
 - The independent scorer evaluates each approved `verify` expression against fresh live-page state.
 - Temporal stores workflow progress only for optional durable repair. It does not replace approval or verification.
 
@@ -58,6 +58,7 @@ flowchart LR
 | --- | --- |
 | `src/lib/discovery.ts` | Detects stack, routes, forms, actions, APIs, auth, state, and existing WebMCP signals. |
 | `src/lib/agent-workspace.ts` | Copies a target into a temporary Git workspace, captures its real diff, and removes it. |
+| `src/lib/agent-readiness.ts` | Merges target-root agent guides and public capability/crawler documentation into the same reviewed patch. |
 | `src/lib/agent.ts` | Normalizes provider invocation, MCP configuration, timeouts, output capture, and process cleanup. |
 | `src/lib/claude.ts` | Implements the Claude-specific provider invocation. |
 | `src/lib/ai-provider.ts` | Validates a selected provider or detects an installed provider CLI. |
@@ -134,3 +135,5 @@ Core writes these only inside the selected target project:
 | `.webmcpify/rollback/` | Temporary snapshots used while applying a patch. |
 | `.webmcpify/stale/` | Previous approval state invalidated by a new generation. |
 | `.webmcpify/final-eval-state.json` | Resume checkpoint for advanced final evaluation. |
+| `AGENTS.md` | One reviewed guide combining repository-maintenance and detailed site-capability instructions; separate from private run state. |
+| Served `llms.txt`, `webmcp.md`, and `robots.txt` | Reviewed public discovery guidance and scoped metadata crawler policy; deployment location is framework-dependent. |

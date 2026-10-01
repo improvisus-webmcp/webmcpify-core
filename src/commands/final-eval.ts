@@ -13,7 +13,7 @@ import { gitSourceSnapshot, readPatchMetadata } from "../lib/patches.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../lib/trajectories.js";
 import type { TaskScoreSummary, TaskResult } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
-import { loadTemporalClient } from "../lib/temporal.js";
+import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.js";
 import { resolveProvider } from "../lib/ai-provider.js";
 
 export interface FinalEvalOptions {
@@ -213,7 +213,7 @@ async function confirmResume(resumable: ResumableFinalEval): Promise<boolean> {
 
 async function runTemporalLevel(sitePath: string, url: string, provider: string, tasks: Task[], runId: string, taskSetId: string, seedScores?: TaskScoreSummary): Promise<LevelResult> {
   const { Client, Connection } = await loadTemporalClient();
-  const connection = await Connection.connect({ address: process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233" });
+  const connection = await Connection.connect(temporalConnectionOptions());
   try {
     const client = new Client({ connection, namespace: process.env.WEBMCPIFY_TEMPORAL_NAMESPACE ?? "default" });
     const results: TaskResult[] = [];

@@ -1,17 +1,29 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import * as activities from "./activities.js";
+import { temporalConnectionOptions } from "../lib/temporal.js";
+import { coreActivityContext } from "./activity-context.js";
 
 async function main(): Promise<void> {
-  let Worker: typeof import("@temporalio/worker").Worker;
+  let sdk: typeof import("@temporalio/worker");
   try {
-    ({ Worker } = await import("@temporalio/worker"));
-  } catch {
+    sdk = await import("@temporalio/worker");
+  } catch (error) {
+    if (!(error instanceof Error)
+      || !["ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND"].includes((error as NodeJS.ErrnoException).code ?? "")
+      || !/['"]@temporalio\/(?:worker|workflow)['"]/.test(error.message)) throw error;
     throw new Error(
-      "Temporal support is optional. Install @temporalio/client, @temporalio/worker, and @temporalio/workflow before starting the worker.",
+      "Temporal support is optional. Install it before starting the worker: npm install @temporalio/client @temporalio/worker @temporalio/workflow",
     );
   }
-  const worker = await Worker.create({
+  const connection = await sdk.NativeConnection.connect(temporalConnectionOptions());
+  try {
+  const worker = await sdk.Worker.create({
+    connection,
+    namespace: process.env.WEBMCPIFY_TEMPORAL_NAMESPACE ?? "default",
+    interceptors: {
+      activity: [coreActivityContext],
+    },
     workflowsPath: fileURLToPath(new URL("./workflows.js", import.meta.url)),
     activities,
     taskQueue: process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify",
@@ -23,6 +35,9 @@ async function main(): Promise<void> {
     }`
   );
   await worker.run();
+  } finally {
+    await connection.close();
+  }
 }
 
 main().catch((error: unknown) => {

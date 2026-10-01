@@ -10,6 +10,7 @@
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
     "CHANGELOG.md",
+    "docs/audits",
     "LICENSE"
   ],
   "bin": {
@@ -37,8 +38,11 @@
     "verify:temporal-optional": "node scripts/verify-optional-temporal.mjs",
     "verify:tools": "node scripts/verify-tool-proposals.mjs",
     "verify:agent": "node scripts/verify-agent-invocation.mjs",
+    "verify:runtime": "node scripts/verify-runtime-safety.mjs",
+    "verify:browser-state": "node scripts/verify-browser-state.mjs",
     "verify:provider-output": "node scripts/verify-provider-output.mjs",
     "verify:product-context": "node scripts/verify-product-context.mjs",
+    "verify:agent-readiness": "node scripts/verify-agent-readiness.mjs",
     "verify:security": "node scripts/verify-security-audit.mjs",
     "verify:review": "node scripts/verify-review.mjs",
     "verify:repair": "node scripts/verify-repair.mjs",
@@ -47,7 +51,7 @@
     "temporal:worker": "node dist/temporal/worker.js",
     "dev": "tsx watch src/cli.ts",
     "test:mcp": "node scripts/verify-mcp.mjs",
-    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:temporal-optional --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:agent --silent && npm run verify:provider-output --silent && npm run verify:product-context --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent",
+    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:temporal-optional --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:agent --silent && npm run verify:runtime --silent && npm run verify:provider-output --silent && npm run verify:product-context --silent && npm run verify:agent-readiness --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent",
     "barry": "barry-cache",
     "barry:validate": "barry-cache validate",
     "barry:resume": "barry-cache resume",

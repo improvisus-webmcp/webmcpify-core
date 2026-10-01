@@ -1,8 +1,7 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
-import { execa } from "execa";
+import { readFile, rm } from "node:fs/promises";
+import { createAgentWorkspace, initializeAgentWorkspace, readAgentWorkspaceDiff } from "../lib/agent-workspace.js";
 import { runAgent } from "../lib/agent.js";
 import { resolveProvider } from "../lib/ai-provider.js";
 import { resolveDurable } from "../lib/config.js";
@@ -20,7 +19,7 @@ import {
 import { createPendingPatch } from "../lib/patches.js";
 import { runGenerationPreflight } from "../lib/preflight.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
-import { loadTemporalClient } from "../lib/temporal.js";
+import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.js";
 import type { TaskResult } from "../lib/scoring.js";
 import type { StoredTestEvaluation } from "./test.js";
 
@@ -119,41 +118,22 @@ WebMCPify after this session; do not claim approval or deployment.`;
 }
 
 async function createRepairWorkspace(sitePath: string): Promise<string> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "webmcpify-repair-"));
-  await cp(sitePath, workspace, {
-    recursive: true,
-    filter: (source) => !source.includes(`${path.sep}.git${path.sep}`) && !source.includes(`${path.sep}.webmcpify${path.sep}`) && !source.includes(`${path.sep}node_modules${path.sep}`),
-  });
-  await execa("git", ["init", "-q"], { cwd: workspace });
-  await execa("git", ["config", "user.email", "webmcpify@example.invalid"], { cwd: workspace });
-  await execa("git", ["config", "user.name", "WebMCPify Repair"], { cwd: workspace });
-  await execa("git", ["add", "-A"], { cwd: workspace });
-  await execa("git", ["commit", "-qm", "repair baseline"], { cwd: workspace });
-  return workspace;
+  const workspace = await createAgentWorkspace(sitePath);
+  try {
+    await initializeAgentWorkspace(workspace);
+    return workspace;
+  } catch (error) {
+    await rm(workspace, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function workspaceDiff(workspace: string): Promise<string> {
   // Include newly-created source files in repair patches. Plain `git diff`
   // omits untracked files, which can leave imports without their new module.
-  await execa("git", ["add", "-A"], { cwd: workspace });
-  const result = await execa(
-    "git",
-    [
-      "diff",
-      "--cached",
-      "--binary",
-      "HEAD",
-      "--",
-      ".",
-      ":(exclude).webmcpify/**",
-      ":(exclude).agents/**",
-      ":(exclude)node_modules/**",
-      ":(exclude)tasks.json",
-    ],
-    { cwd: workspace },
-  );
-  if (!result.stdout.trim()) throw new Error("Repair agent produced no source changes.");
-  return result.stdout;
+  const diff = await readAgentWorkspaceDiff(workspace);
+  if (!diff.trim()) throw new Error("Repair agent produced no source changes.");
+  return diff;
 }
 
 async function runPlainRepair(opts: RepairOptions): Promise<void> {
@@ -307,9 +287,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
   }
 
   const { Client, Connection } = await loadTemporalClient();
-  const connection = await Connection.connect({
-    address: process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233",
-  });
+  const connection = await Connection.connect(temporalConnectionOptions());
 
   try {
     const client = new Client({

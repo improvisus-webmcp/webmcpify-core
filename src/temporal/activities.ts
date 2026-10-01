@@ -6,6 +6,7 @@ import {
 import { runApprovedTask } from "../commands/test.js";
 import { runRepair } from "../commands/repair.js";
 import { createTrajectoryArtifact } from "../lib/trajectories.js";
+import { withManagedChrome } from "../lib/browser.js";
 
 export interface ActivityTaskResult {
   task: string;
@@ -43,7 +44,7 @@ export async function testActivity(
   taskSetId?: string,
   provider?: string,
 ): Promise<ActivityTaskResult> {
-  const result = await runApprovedTask({ path: sitePath, url, provider, taskId: task, runId, taskSetId });
+  const result = await withManagedChrome(url, () => runApprovedTask({ path: sitePath, url, provider, taskId: task, runId, taskSetId }));
 
   const taskResult = {
     task: result.task,

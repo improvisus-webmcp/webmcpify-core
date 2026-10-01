@@ -72,7 +72,7 @@ try {
     );
     const destination = path.join(packageRoot, "node_modules", dependency);
     await mkdir(path.dirname(destination), { recursive: true });
-    await symlink(source, destination, "dir");
+    await symlink(source, destination, process.platform === "win32" ? "junction" : "dir");
   }
 
   for (const temporalPackage of ["client", "worker", "workflow"]) {
@@ -92,7 +92,7 @@ try {
 
   const version = runNode(["dist/cli.js", "--version"]);
   assertSucceeded(version, "normal CLI startup");
-  assert.equal(version.stdout.trim(), manifest.version);
+  assert.equal(version.stdout.trim(), manifest.version, JSON.stringify({ status: version.status, stdout: version.stdout, stderr: version.stderr }));
 
   const discovery = runNode([
     "dist/cli.js",
@@ -136,7 +136,7 @@ try {
   assert.notEqual(worker.status, 0);
   assert.match(
     worker.stderr,
-    /Temporal support is optional\. Install @temporalio\/client, @temporalio\/worker, and @temporalio\/workflow before starting the worker/,
+    /Temporal support is optional\..*npm install @temporalio\/client @temporalio\/worker @temporalio\/workflow/,
   );
 
   console.log(
