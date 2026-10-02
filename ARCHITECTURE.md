@@ -59,6 +59,8 @@ flowchart LR
 | `src/lib/discovery.ts` | Detects stack, routes, forms, actions, APIs, auth, state, and existing WebMCP signals. |
 | `src/lib/agent-workspace.ts` | Copies a target into a temporary Git workspace, captures its real diff, and removes it. |
 | `src/lib/agent-readiness.ts` | Merges target-root agent guides and public capability/crawler documentation into the same reviewed patch. |
+| `src/lib/agent-discovery-content.ts` | Renders safe static HTML capability guidance and source-backed deployment/GEO/AEO checks without invented deployment URLs or indexing promises. |
+| `src/lib/project-identity.ts` | Chooses a bounded project display name from discovery or the repository folder, shared by review and public guidance. |
 | `src/lib/agent.ts` | Normalizes provider invocation, MCP configuration, timeouts, output capture, and process cleanup. |
 | `src/lib/claude.ts` | Implements the Claude-specific provider invocation. |
 | `src/lib/ai-provider.ts` | Validates a selected provider or detects an installed provider CLI. |
@@ -73,6 +75,7 @@ flowchart LR
 | `src/lib/tasks.ts` | Validates 5–6 tasks, fingerprints them, and atomically binds them to approval. |
 | `src/lib/patches.ts` | Extracts safe Git patches, validates paths and source state, and stores patch metadata. |
 | `src/lib/preflight.ts` | Runs target typecheck/build inside the disposable workspace before review. |
+| `src/lib/package-manager.ts` | Chooses the target package manager and anchors its executable before changing workspace; environment launch failures do not trigger LLM source repair. |
 | `src/lib/mcp-config.ts` | Reuses or safely merges user MCP configuration with Core's pinned Chrome DevTools MCP bridge. |
 | `src/lib/browser.ts` | Reuses configured CDP or starts and cleans an isolated WebMCP-enabled Chrome process. |
 | `src/lib/scoring.ts` | Creates isolated pages, checks the WebMCP runtime, evaluates tasks, and closes CDP. |

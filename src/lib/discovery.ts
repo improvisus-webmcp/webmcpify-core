@@ -138,7 +138,7 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
     const relative = path.relative(sitePath, file).split(path.sep).join("/");
     const content = await readFile(file, "utf8");
     // Styles belong in the source inventory, not in the executable capability signals.
-    if (/\.(?:css|scss)$/i.test(relative)) continue;
+    if (/\.(?:css|scss)$/i.test(relative) || (/\.html$/i.test(relative) && content.includes("<!-- webmcpify:capability-page -->"))) continue;
     const route = routeFromFile(relative);
     if (route) routes.add(route);
     forms.push(...lineSignals(relative, content, [["form", /<form\b|<input\b|<select\b|<textarea\b/i]]));
@@ -184,7 +184,7 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
     forms: forms.slice(0, 200), buttons: buttons.slice(0, 200), actions: actions.slice(0, 300), apis: apis.slice(0, 300), authentication: authentication.slice(0, 200), state: state.slice(0, 200), existingWebMCP: existingWebMCP.slice(0, 200), capabilities: [...capabilitySet].sort(), sourceFiles: files.map((file) => path.relative(sitePath, file).split(path.sep).join("/")).sort(), filesScanned: files.length,
   };
   const publicDirectory = await agentPublicDirectory(sitePath, result);
-  const readinessPaths = ["AGENTS.md", ".agent.md", "angular.json", "docs/webmcp-readiness.md", ...[".", "public", "static", publicDirectory].filter((dir): dir is string => dir !== undefined).flatMap((dir) => ["llms.txt", "webmcp.md", "robots.txt", "sitemap.xml"].map((file) => path.posix.join(dir, file)))];
+  const readinessPaths = ["AGENTS.md", ".agent.md", "angular.json", "docs/webmcp-readiness.md", ...[".", "public", "static", publicDirectory].filter((dir): dir is string => dir !== undefined).flatMap((dir) => ["llms.txt", "webmcp.md", "webmcp.html", "webmcp-capabilities.html", "robots.txt", "sitemap.xml"].map((file) => path.posix.join(dir, file)))];
   const robotsFile = publicDirectory !== undefined ? await readOptional(sitePath, path.join(publicDirectory, "robots.txt")) : robotsRaw;
   result.agentReadiness = { publicDirectory, files: [...new Set(readinessPaths)].filter((file) => existsSync(path.join(sitePath, file))), robotsPolicy: robotsFile?.split(/\r?\n/).filter((line) => /^\s*(?:User-agent|Allow|Disallow|Sitemap):/i.test(line)) };
   return result;

@@ -125,8 +125,11 @@ a directory served at the website root:
 | --- | --- |
 | `llms.txt` | A concise Markdown entry point linking to capability guidance and crawler policy. The filename is plural. |
 | `webmcp.md` | Public tool names, inputs, authentication requirements, preconditions, and interaction boundaries. Documentation, not an HTTP MCP endpoint. |
-| `robots.txt` | Narrow `Allow` entries for `/llms.txt$` and `/webmcp.md$` in the wildcard crawler group. Existing groups, restrictions, and sitemap entries are retained. |
+| `webmcp.html` | Plain, crawlable HTML with project identity, descriptions, input constraints, prerequisites, outcomes, expected rejections, access answers, and truthful WebPage metadata. Uses `webmcp-capabilities.html` if the first filename belongs to the owner; preserves both if both are owner-authored. |
+| `robots.txt` | Narrow `Allow` entries for the generated public reference files in the wildcard crawler group. Existing groups, restrictions, and sitemap entries are retained. |
 | `AGENTS.md` | One target-root guide combining repository-maintenance instructions and detailed site capabilities: inputs, prerequisites, effects, outcomes, expected rejections, safe WebMCP usage, and Improvisus/WebMCPify integration attribution. Existing owner instructions are retained. |
+| `README.md` | A merged target-repository summary explaining its proposed agent-ready capabilities and linking to detailed guidance. |
+| `docs/webmcp-readiness.md` | Deployment, crawlability, internal linking, canonical/sitemap, metadata, privacy, and GEO/AEO verification checklist. Always included, even if asset serving is unknown. |
 
 Core merges its marked documentation sections on subsequent generations.
 `AGENTS.md` contains both coding-agent and browser-agent guidance; Core does not
@@ -140,6 +143,20 @@ private `.webmcpify` state must not be served.
 Public documentation excludes internal security notes, source paths, and schema
 default values. It describes the proposed integration and does not certify
 that it has passed browser tests.
+
+The human review page displays the target project name (from discovery, falling
+back to the repository folder name) and local repository path, so you can identify
+the draft before approving it. That local path is not added to public documents.
+
+GEO/AEO readiness means useful, readable, source-grounded content and deliberate
+crawler access—not guaranteed discovery, recommendations, or citations by GPT,
+Claude, Improvisus, or another agent. Core supplies a static capability reference,
+but the owner must link it appropriately, verify deployment, and maintain actual
+canonical URLs/sitemaps. It does not invent a production domain, submit indexing
+requests, register an Improvisus crawler, or enable training bots. Search and
+training controls are separate. Google requires no special `llms.txt` or AI schema;
+ordinary search eligibility remains important. See the [research and implementation
+notes](docs/audits/2026-10-02-agent-discovery.md) and official references there.
 
 Common React/Next/Vue/Astro projects use `public/`; literal Vite `root`/`publicDir`
 settings are honored. Svelte uses `static/` or its literal configured assets
@@ -400,6 +417,15 @@ hash -r
 ```
 
 `npm test` runs discovery, proposal, provider-output, product-context, optional Temporal, runtime safety, agent-readiness, security, review, patch, repair, evaluation, final-evaluation, and MCP checks. Runtime regressions cover real Git worktrees, spaced/quoted paths, patch tampering, untracked source changes, provider MCP adapters, cancellation, and shared Temporal settings. Agent-readiness fixtures exercise JS/TS generation, reviewed guidance, owner/crawler preservation, asset locations, and form-feedback checks. Run `npm run verify:browser-state` separately for a real-Chrome same-tab/cookie/navigation regression. The CI matrix runs Node 20/22 on Linux, macOS, and Windows; configuration is not evidence that those jobs have passed. Publishing runs the complete suite before packing.
+
+Use the [complete step-by-step test guide](docs/testing/end-to-end.md) for local
+installation, every CLI stage, partial approval, discovery files, browser feedback,
+security modes, failures, MCP, and optional live Temporal checks. Preflight anchors
+package-manager executables before changing workspace, skips stale optional
+dependency links, and reports missing/non-executable validation commands without
+asking the LLM to repair source. Review tries at most 20 ports before asking you
+to choose another `--port`. Prompts and raw provider/build diagnostics stay out
+of terminal failure messages.
 
 ## Architecture and contributing
 

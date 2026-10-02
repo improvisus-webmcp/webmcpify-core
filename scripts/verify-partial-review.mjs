@@ -122,6 +122,11 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,['TOOL_PROPOSALS_JSON'
       assert.doesNotMatch(await readFile(path.join(site, "src/webmcp.js"), "utf8"), /name:\s*["']dismiss_item/);
       assert.match(await readFile(path.join(site, "src/app.js"), "utf8"), /export function dismissItem/, "Rejecting a WebMCP tool must preserve its original app action");
       assert.doesNotMatch(await readFile(path.join(site, "AGENTS.md"), "utf8"), /dismiss_item/);
+      for (const file of ["README.md", "webmcp.md", "webmcp.html"]) {
+        const content = await readFile(path.join(site, file), "utf8");
+        assert.match(content, /select_item/);
+        assert.doesNotMatch(content, /dismiss_item/, `${file} must describe only retained tools`);
+      }
     } else {
       assert.equal(selectedResponse.status, 400, selectedText);
       assert.match(selectedText, /Could not safely revise/);

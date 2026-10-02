@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +13,7 @@ import { temporalConnectionOptions } from "../dist/lib/temporal.js";
 import { coreActivityContext } from "../dist/temporal/activity-context.js";
 import { currentOperationSignal, withOperationSignal } from "../dist/lib/operation-context.js";
 import { resolvePackageManager } from "../dist/lib/package-manager.js";
+import { PreflightEnvironmentError, runGenerationPreflight } from "../dist/lib/preflight.js";
 
 const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-runtime-"));
 const exec = promisify(execFile);
@@ -132,9 +133,25 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
   await mkdir(packageManagerSite);
   delete process.env.WEBMCPIFY_PACKAGE_MANAGER;
   await writeFile(path.join(packageManagerSite, "package.json"), '{"packageManager":"yarn@4.0.0"}');
-  assert.equal(await resolvePackageManager(packageManagerSite), "yarn");
+  assert.equal(path.basename(await resolvePackageManager(packageManagerSite)).replace(/\.(cmd|exe|bat)$/i, ""), "yarn");
   await writeFile(path.join(packageManagerSite, "bun.lock"), "");
-  assert.equal(await resolvePackageManager(packageManagerSite), "bun");
+  assert.equal(path.basename(await resolvePackageManager(packageManagerSite)).replace(/\.(cmd|exe|bat)$/i, ""), "bun");
+  const manager = await fixtureProvider(root, "check-manager", "process.exit(0);");
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = path.relative(process.cwd(), manager);
+  assert.equal(await resolvePackageManager(packageManagerSite), manager, "Relative overrides must be anchored before switching cwd");
+  await writeFile(path.join(packageManagerSite, "package.json"), '{"scripts":{"build":"fixture-check"}}');
+  await mkdir(path.join(packageManagerSite, "node_modules"));
+  if (process.platform !== "win32") await symlink(path.join(root, "nonexistent-optional-dependency"), path.join(packageManagerSite, "node_modules", "stale-optional"));
+  const preflightWorkspace = path.join(root, "preflight-workspace");
+  await mkdir(preflightWorkspace);
+  await runGenerationPreflight(packageManagerSite, preflightWorkspace);
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = path.join(root, "missing-manager");
+  await assert.rejects(runGenerationPreflight(packageManagerSite, preflightWorkspace), (error) => {
+    assert.ok(error instanceof PreflightEnvironmentError);
+    assert.match(error.message, /WEBMCPIFY_PACKAGE_MANAGER/);
+    assert.doesNotMatch(error.message, /fixture-check|Command failed|spawn /);
+    return true;
+  });
   console.log("Runtime safety verification passed: worktrees, patch paths/hash, untracked changes, source-free browser workspaces, provider MCP adapters, Temporal settings");
 } finally {
   for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];

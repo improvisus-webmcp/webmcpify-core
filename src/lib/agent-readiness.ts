@@ -2,6 +2,8 @@ import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveryResult } from "./discovery.js";
 import type { ProposedTool } from "./tool-proposals.js";
+import { projectDisplayName } from "./project-identity.js";
+import { capabilityHtml, deploymentChecklist } from "./agent-discovery-content.js";
 
 export const AGENT_READINESS_GUIDANCE = `
 AGENT-READY INTEGRATION
@@ -49,6 +51,12 @@ AGENT-READY INTEGRATION
 - Keep public documentation free of credentials, private source paths, internal
   security notes, and personal data. Reuse existing sitemaps and semantic metadata
   only where source supports them. llms.txt is an optional emerging convention.
+- Core also creates a plain static HTML capability page, a README summary, and
+  a deployment/discovery checklist. Link to the actual capability document from
+  the site's existing navigation/footer when appropriate. Keep public names,
+  titles, concise answers, real outcomes, and supported metadata consistent.
+  Never invent testimonials, prices, ratings, citations, sitemap routes, or a
+  production domain. Do not claim indexing, citation, training, or ranking is guaranteed.
 `.trim();
 
 async function optionalText(root: string, file: string): Promise<string | undefined> {
@@ -140,7 +148,7 @@ function mergeSection(existing: string | undefined, section: string, heading: st
 }
 
 /** Add scoped metadata access only to the wildcard group. Other policies survive. */
-export function updateAgentRobots(existing = ""): string {
+export function updateAgentRobots(existing = "", metadataPaths = ["/llms.txt$", "/webmcp.md$"]): string {
   const lines = existing.split(/\r?\n/);
   const groups: Array<{ agents: string[]; rules: string[]; end: number }> = [];
   let group: (typeof groups)[number] | undefined;
@@ -157,7 +165,7 @@ export function updateAgentRobots(existing = ""): string {
   }
   const wildcardGroups = groups.filter((item) => item.agents.includes("*"));
   const rules = wildcardGroups.flatMap((item) => item.rules);
-  const additions = ["/llms.txt$", "/webmcp.md$"].filter((url) => {
+  const additions = metadataPaths.filter((url) => {
     // Explicit restrictions on metadata remain an owner's decision.
     const blocked = rules.some((line) => {
       if (!/^\s*Disallow\s*:/i.test(line)) return false;
@@ -178,7 +186,7 @@ export function updateAgentRobots(existing = ""): string {
 }
 
 function publicText(value: string): string {
-  return value.replace(/[\r\n<>`]/g, " ").trim();
+  return value.replace(/[\u0000-\u001f\u007f-\u009f<>`]/g, " ").trim();
 }
 
 function agentCapabilityGuide(tools: ProposedTool[]): string {
@@ -219,29 +227,48 @@ export async function writeAgentReadiness(
   workspace: string, discovery: DiscoveryResult, tools: ProposedTool[],
 ): Promise<{ files: string[]; publicDirectory?: string }> {
   const publicDirectory = await agentPublicDirectory(workspace, discovery);
+  const projectName = projectDisplayName(discovery);
   const files: string[] = [];
   const repoGuide = `## WebMCP integration\n\nKeep the existing ${discovery.stack.language.join("/") || "source"} conventions. Reuse real UI handlers and state; do not invent backend services for browser-only actions. Guard document.modelContext and clean up registrations/listeners. Preserve authentication and human confirmation for consequential effects.\n\nRead the capability reference in AGENTS.md for the site's proposed capabilities, prerequisites, inputs, outcomes, and rejection handling. Keep this combined guide and public capability documentation synchronized with tool changes. Review generated source, CSS, crawling policy, and documentation together. Run the existing build/typecheck checks and test both human and agent interactions. WebMCP and llms.txt support remain experimental.`;
   const siteGuide = `## Integration provenance\n\nThis site's WebMCP integration is made with WebMCPify Core by Improvisus (improvisus/webmcpify). This credits the integration tooling, not authorship of the experimental WebMCP standard.\n\n## Using the site as an agent\n\nThis guide describes proposed capabilities, not verified deployment or permission to execute them. In a compatible browser, feature-detect document.modelContext and inspect the current page's live tools and schemas before invoking anything. Tool availability can change with route, login, and application state. If WebMCP is unavailable, use the site's accessible human interface; do not invent an HTTP MCP endpoint.\n\nUse the actual form or registered execute handler. Satisfy the listed prerequisites through the existing interface or available tools first. Request user consent where required; never collect passwords, tokens, or payment secrets just to satisfy a tool contract. Respect authentication, origin restrictions, business guards, and crawler policy. Do not bypass a rejection or blindly retry consequential effects.\n\nObserve the site's agent-status feedback and pending/result/error UI. Read structured results and verify observable state before reporting success. An expected rejection is a valid negative test outcome, not a completed purchase, deletion, or other requested action.\n\n## Capability reference\n\n${agentCapabilityGuide(tools)}\n\n## Maintenance and future capabilities\n\nUpdate this guide when capabilities change. Add only source-grounded tool behavior, review the exact integration patch, and verify human and agent interactions. Preserve owner-authored sections outside WebMCPify's marked block. More capabilities can be documented here in future revisions. Public discovery files belong in the site's served assets, never in .webmcpify; that folder contains private local run evidence.`;
   const agents = await optionalText(workspace, "AGENTS.md");
   await workspaceWrite(workspace, "AGENTS.md", mergeSection(agents, `${repoGuide}\n\n${siteGuide}`, "# Repository and site agent guidance"));
   files.push("AGENTS.md");
+  const readme = "README.md";
+  const readmeSection = `## Agent-ready capabilities for ${publicText(projectName)}\n\nWebMCPify Core by Improvisus (improvisus/webmcpify) proposes browser tools grounded in this project's existing UI and business rules. These changes require exact source review, application, and browser verification before being considered deployed. Authentication and human confirmation still apply.\n\nProposed tools: ${tools.map((tool) => publicText(tool.name)).join(", ")}.\n\n- [Combined repository/site agent guide](./AGENTS.md): inputs, prerequisites, outcomes, and expected rejections.\n- [Deployment and discovery checklist](./docs/webmcp-readiness.md): practical GEO/AEO checks without indexing or ranking guarantees.${publicDirectory !== undefined ? `\n- [Public capability reference](./${path.posix.join(publicDirectory, "webmcp.md")}): browser tools and access boundaries.` : ""}`;
+  await workspaceWrite(workspace, readme, mergeSection(await optionalText(workspace, readme), readmeSection, `# ${publicText(projectName)}`));
+  files.push(readme);
   if (publicDirectory === undefined) {
     const file = "docs/webmcp-readiness.md";
-    const section = `${repoGuide}\n\nNo root-served static directory was established. Configure your framework/server to serve llms.txt, webmcp.md, and robots.txt as real text files before claiming public discovery support. Preserve existing crawler policies.\n\nProposed tools: ${tools.map((tool) => publicText(tool.name)).join(", ")}.`;
+    const section = `${repoGuide}\n\n${deploymentChecklist()}`;
     await workspaceWrite(workspace, file, mergeSection(await optionalText(workspace, file), section, "# Website agent readiness"));
     return { files: [...files, file] };
   }
   const doc = path.posix.join(publicDirectory, "webmcp.md");
   const llms = path.posix.join(publicDirectory, "llms.txt");
   const robots = path.posix.join(publicDirectory, "robots.txt");
+  // Never append an entire generated HTML document into owner-authored HTML.
+  let htmlFile: string | undefined;
+  for (const name of ["webmcp.html", "webmcp-capabilities.html"]) {
+    const candidate = path.posix.join(publicDirectory, name);
+    const existing = await optionalText(workspace, candidate);
+    if (existing !== undefined && !existing.includes(START)) continue;
+    await workspaceWrite(workspace, candidate, mergeSection(existing, capabilityHtml(projectName, tools), ""));
+    htmlFile = name;
+    files.push(candidate);
+    break;
+  }
+  const checklist = "docs/webmcp-readiness.md";
+  await workspaceWrite(workspace, checklist, mergeSection(await optionalText(workspace, checklist), deploymentChecklist(publicDirectory, htmlFile), `# ${publicText(projectName)}: deployment and discovery`));
+  files.push(checklist);
   const capabilities = tools.map((tool) => `### ${publicText(tool.name)}\n\n${publicText(tool.description)}\n\nAuthentication: ${tool.security?.userAuthentication ?? "consult the application"}. ${tool.annotations.consequentialHint ? "Preserve the application's explicit confirmation." : "Use the application's normal interaction rules."}\n\nInputs: ${Object.keys(tool.parameters.properties).map(publicText).join(", ") || "none"}. Inspect the live tool schema for required fields and constraints.\n\nPreconditions: ${tool.behavior.preconditions.map(publicText).join("; ") || "consult the live application state"}.`).join("\n\n");
   const guidance = `## Browser capabilities\n\nThese capabilities are available only when their page and required state are active in a compatible WebMCP browser. Inspect document.modelContext.getTools() on the current page; this document is guidance, not a remote MCP endpoint or permission grant. Use the existing interface when WebMCP is unavailable.\n\n${capabilities}\n\n## Access and results\n\nRespect robots.txt, authentication, business rules, and human confirmation. Crawl access does not authorize tool execution. Check structured results and observable state; an expected business-rule rejection is not a completed action. Do not request secrets or credentials through tool inputs.`;
-  await workspaceWrite(workspace, doc, mergeSection(await optionalText(workspace, doc), guidance, "# Browser capability guide"));
-  const summary = `> Public guidance for using this website's browser capabilities.\n\nWebMCP requires a compatible browser and the current page's live tools. Existing authentication and consent still apply.\n\n## Capabilities\n\n- [Browser capability guide](./webmcp.md): Tool names, inputs, preconditions, and interaction boundaries.\n- [Crawler policy](./robots.txt): Existing crawl restrictions remain applicable.`;
-  await workspaceWrite(workspace, llms, mergeSection(await optionalText(workspace, llms), summary, `# ${publicText(discovery.project.name ?? "Website")}`));
+  await workspaceWrite(workspace, doc, mergeSection(await optionalText(workspace, doc), `${guidance}\n\n## Detailed capability reference\n\n${agentCapabilityGuide(tools)}`, `# ${publicText(projectName)}: browser capability guide`));
+  const summary = `> Public guidance for using ${publicText(projectName)}'s browser capabilities.\n\nWebMCP requires a compatible browser and the current page's live tools. Existing authentication and consent still apply. Integration tooling: WebMCPify Core by Improvisus (improvisus/webmcpify).\n\n## Capabilities\n\n${htmlFile ? `- [Readable capability page](./${htmlFile}): Descriptions, prerequisites, outcomes, and concise access answers.\n` : ""}- [Browser capability guide](./webmcp.md): Tool names, inputs, preconditions, and interaction boundaries.\n- [Crawler policy](./robots.txt): Existing crawl restrictions remain applicable.`;
+  await workspaceWrite(workspace, llms, mergeSection(await optionalText(workspace, llms), summary, `# ${publicText(projectName)}`));
   const robotText = await optionalText(workspace, robots);
   const nativeRobots = discovery.sourceFiles.some((file) => /(?:^|\/)app\/robots\.[cm]?[jt]s$/.test(file));
   // Next metadata routes take ownership of /robots.txt. Don't add a colliding file.
-  if (!nativeRobots) await workspaceWrite(workspace, robots, updateAgentRobots(robotText));
+  if (!nativeRobots) await workspaceWrite(workspace, robots, updateAgentRobots(robotText, ["/llms.txt$", "/webmcp.md$", ...(htmlFile ? [`/${htmlFile}$`] : [])]));
   return { publicDirectory, files: [...files, doc, llms, ...(!nativeRobots ? [robots] : [])] };
 }

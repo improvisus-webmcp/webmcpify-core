@@ -10,14 +10,15 @@ import {
   TOOL_PROPOSAL_PROMPT,
 } from "../lib/prompts.js";
 import { createTrajectoryPath } from "../lib/trajectories.js";
-import { createPendingPatch } from "../lib/patches.js";
-import { GenerationPreflightError, runGenerationPreflight } from "../lib/preflight.js";
+import { createPendingPatch, extractUnifiedDiff } from "../lib/patches.js";
+import { GenerationPreflightError, PreflightEnvironmentError, runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { writeProposedTools } from "../lib/tool-proposals.js";
 import { validateGenerationMetadata } from "../lib/generation-metadata.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
+import { currentOperationSignal } from "../lib/operation-context.js";
 import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
 import type { ProposedTool } from "../lib/tool-proposals.js";
 import {
@@ -330,6 +331,7 @@ ${productContext}`
       await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
       await assertGeneratedFormFeedback(agentWorkspace, tools);
     } catch (error) {
+      if (error instanceof PreflightEnvironmentError || currentOperationSignal()?.aborted) throw error;
       await repairGeneratedWorkspace(opts, sitePath, agentWorkspace, provider, error);
       // A focused source fix cannot silently drop or stale the reviewed documentation.
       readinessFiles = (await writeAgentReadiness(agentWorkspace, discovery, tools)).files;
@@ -399,16 +401,19 @@ export async function assertGeneratedWebMcpWiring(
   discovery: Awaited<ReturnType<typeof runDiscovery>>,
   diff: string,
 ): Promise<void> {
-  const source = (await Promise.all(discovery.sourceFiles.map(async (file) => {
+  const changed = diff.trim() ? extractUnifiedDiff(diff).changedFiles : [];
+  const runtimeFiles = [...new Set([...discovery.sourceFiles, ...changed])].filter((file) => /\.(?:[cm]?[jt]sx?|html|vue|svelte|astro)$/i.test(file));
+  const source = (await Promise.all(runtimeFiles.map(async (file) => {
     try {
-      return await readFile(path.join(workspace, file), "utf8");
+      const content = await readFile(path.join(workspace, file), "utf8");
+      return content.includes("<!-- webmcpify:capability-page -->") ? "" : content;
     } catch {
       return "";
     }
   }))).join("\n");
-  // Include the actual diff because generation may create a new integration
-  // file that was not present in the pre-generation discovery file list.
-  const generatedSource = `${source}\n${diff}`;
+  // Inspect current runtime files, not removed lines or documentation in the
+  // diff. New modules are included, but guidance alone cannot prove wiring.
+  const generatedSource = source;
   const hasImperativeRuntime = /document\s*\.\s*modelContext|registerTool\s*\(/.test(generatedSource);
   const hasDeclarativeRuntime = /tool-name\s*=|toolname\s*=/.test(generatedSource);
   if (!hasImperativeRuntime && !hasDeclarativeRuntime) {

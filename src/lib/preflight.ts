@@ -12,6 +12,12 @@ export class GenerationPreflightError extends Error {
   }
 }
 
+export class PreflightEnvironmentError extends Error {
+  constructor(artifact: string) {
+    super(`Could not launch the project validation executable. Install the project's package manager/check tools, verify executable permissions, or set WEBMCPIFY_PACKAGE_MANAGER to an executable path. No source patch was applied. Private diagnostics: ${artifact}`);
+  }
+}
+
 type PackageJson = {
   scripts?: Record<string, string>;
 };
@@ -51,7 +57,14 @@ async function linkDependencies(sitePath: string, workspace: string): Promise<bo
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const isDirectory = (await stat(targetEntry)).isDirectory();
+    let isDirectory: boolean;
+    try { isDirectory = (await stat(targetEntry)).isDirectory(); }
+    catch (error) {
+      // A stale optional-dependency link must not break unrelated build checks.
+      // Real missing imports will still fail the actual check below.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     if (process.platform === "win32" && !isDirectory) await copyFile(targetEntry, workspaceEntry);
     else await symlink(targetEntry, workspaceEntry, process.platform === "win32" ? "junction" : isDirectory ? "dir" : "file");
   }
@@ -118,6 +131,7 @@ export async function runGenerationPreflight(
   } catch (error) {
     const details = outputFromError(error).slice(-4_000);
     const artifact = await createTrajectoryArtifact("preflight-failure", { error: outputFromError(error) }, { sitePath, status: "failed" });
+    if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new PreflightEnvironmentError(artifact);
     throw new GenerationPreflightError(details, artifact);
   }
 }

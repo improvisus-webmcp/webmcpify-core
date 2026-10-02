@@ -11,6 +11,7 @@
     "CONTRIBUTING.md",
     "CHANGELOG.md",
     "docs/audits",
+    "docs/testing",
     "LICENSE"
   ],
   "bin": {

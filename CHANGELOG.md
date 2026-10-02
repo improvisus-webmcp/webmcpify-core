@@ -4,6 +4,21 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Added: project identity and grounded GEO/AEO discovery
+
+- Show the target project name and repository folder on the human review page; escape owner-provided identity safely.
+- Include plain HTML capability guidance, truthful WebPage metadata, a merged target README summary, and a deployment/discovery checklist in the exact reviewed patch. Preserve owner pages, use an alternate HTML filename when needed, and regenerate retained-only documentation after partial selection.
+- Document search versus training crawler controls, internal linking, real deployment/canonical/sitemap checks, and llms.txt's optional status. Preserve owner restrictions; do not invent domains or promise indexing, citations, or rankings.
+- Add a complete end-to-end testing guide and source-backed research notes.
+
+### Fixed: validation and intermittent terminal failures
+
+- Anchor relative/PATH package-manager executables before disposable-workspace checks. Skip dangling optional dependency links; real missing imports still fail the build.
+- Report missing or non-executable preflight commands as environment failures instead of invoking LLM source repair. Cancellation also stops without that repair retry.
+- Bound occupied review-port retries to 20 attempts with an actionable alternative-port message.
+- Inspect current runtime files, not documentation or deleted diff lines, when checking WebMCP wiring; readiness guidance alone cannot satisfy that check.
+- Add regressions for HTML/JSON-LD escaping, owner preservation, idempotence, private metadata omission, project fallback identity, relative executable paths, missing managers, and busy-port fallback.
+
 ### Fixed: balanced defaults and selected-tool review
 
 - Align generation, review fallback, and audit defaults with `run`'s balanced policy. Add `generate --security balance|ignore|strict`; preserve explicitly recorded draft policies.

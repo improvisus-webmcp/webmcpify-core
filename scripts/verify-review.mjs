@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { createServer } from "node:net";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +17,7 @@ await mkdir(path.dirname(sourceFile), { recursive: true });
 await writeFile(sourceFile, "export function App() { return null; }\n");
 const discovery = {
   version: 1, discoveredAt: new Date().toISOString(), targetProject: sitePath,
-  project: { name: "review-fixture" }, stack: { language: ["TypeScript"], framework: "React" },
+  project: { name: 'review-fixture <img src=x onerror="alert(1)">' }, stack: { language: ["TypeScript"], framework: "React" },
   routes: ["/"], sitemap: [], forms: [], buttons: [{ file: "src/App.tsx", kind: "button", detail: "<button>Run</button>" }],
   actions: [{ file: "src/App.tsx", kind: "event-handler", detail: "onClick={run}" }], apis: [], authentication: [], state: [], existingWebMCP: [],
   capabilities: ["buttons"], sourceFiles: ["src/App.tsx"], filesScanned: 1,
@@ -36,6 +37,10 @@ assert.ok(taskVerificationIssues({ id: "trivial", description: "Check the result
 assert.ok(taskVerificationIssues({ id: "missing_selector", description: "Check the result", verify: 'document.querySelector("#missing") !== null' }, { discovery }).some((issue) => issue.severity === "warning"));
 const review = runReviewPrompt(sitePath, "4387", { fixture: true });
 await new Promise((resolve) => setTimeout(resolve, 100));
+const reviewHtml = await (await fetch("http://127.0.0.1:4387/approve")).text();
+assert.match(reviewHtml, /Project: review-fixture &lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
+assert.ok(reviewHtml.includes(sitePath));
+assert.doesNotMatch(reviewHtml, /<img src=x onerror=/);
 const editedTool = { ...tool, description: "Edited reviewed action description." };
 const metadata = await readPatchMetadata(sitePath);
 const patchHash = sourcePatchHash(await readPendingPatch(sitePath, metadata));
@@ -78,5 +83,16 @@ await new Promise((resolve) => setTimeout(resolve, 100));
 abortController.abort();
 await cancelledAssertion;
 await assert.rejects(fetch("http://127.0.0.1:4388"), undefined, "Cancelled review must release its localhost server");
+const busyPort = createServer();
+await new Promise((resolve, reject) => { busyPort.once("error", reject); busyPort.listen(4390, "127.0.0.1", resolve); });
+const fallbackController = new AbortController();
+try {
+  const fallback = withOperationSignal(fallbackController.signal, () => runReviewPrompt(sitePath, "4390", { fixture: true }));
+  const fallbackAssertion = assert.rejects(fallback, /Review was cancelled/);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal((await fetch("http://127.0.0.1:4391/approve")).status, 200, "Occupied review port must fall back");
+  fallbackController.abort();
+  await fallbackAssertion;
+} finally { fallbackController.abort(); await new Promise((resolve) => busyPort.close(resolve)); }
 await rm(sitePath, { recursive: true, force: true });
 console.log("review verification passed: structured display/edit persistence, task approval, and rejection");
