@@ -48,6 +48,26 @@ try {
   const fresh = await discoverProject(fixture);
   assert.equal(fresh.stack.framework, stored.stack.framework);
   assert.equal(fresh.filesScanned, stored.filesScanned);
+  await mkdir(path.join(fixture, "src"));
+  const actions = ["addToCart", "removeFromCart", "updateCartQuantity", "checkout", "login", "logout", "clearNotice"];
+  await writeFile(path.join(fixture, "src/store.ts"), `const set = (value: unknown) => value;
+export const store = {${actions.map(action => `${action}: () => set({action: '${action}'})`).join(",")}};`);
+  await writeFile(path.join(fixture, "src/App.tsx"), `import {store} from './store';
+const {login, logout, removeFromCart, updateCartQuantity} = store;
+export function App() {return <main><button onClick={true ? logout : login}>Session</button>
+<button onClick={() => {
+  if (true) removeFromCart();
+  else updateCartQuantity();
+}}>Quantity</button>${Array.from({length: 310}, () => '\n<button onClick={login}>Login</button>').join('')}</main>;}`);
+  await writeFile(path.join(fixture, "src/broken.ts"), "const invalid: = <button onClick={login}>\n");
+  const expanded = await discoverProject(fixture);
+  const candidates = expanded.actionCandidates;
+  assert.deepEqual(candidates.filter(candidate => candidate.file === "src/store.ts" && candidate.resolved).map(candidate => candidate.handler).sort(), [...actions].sort());
+  for (const handler of ["login", "logout", "removeFromCart", "updateCartQuantity"]) assert.ok(candidates.some(candidate => candidate.file === "src/App.tsx" && candidate.handler === handler), `Conditional/multiline action ${handler} must survive discovery`);
+  assert.ok(expanded.actions.length > 300, "Discovery must not silently truncate action signals");
+  assert.ok(expanded.buttons.length > 300, "Discovery must not silently truncate UI signals");
+  assert.match(expanded.discoveryWarnings.join("\n"), /src\/broken.ts/);
+  assert.deepEqual((await discoverProject(fixture)).actionCandidates, candidates, "Inventory IDs and ordering must be repeatable");
   console.log("Self-contained discovery verification passed");
 } finally {
   await rm(fixture, { recursive: true, force: true });

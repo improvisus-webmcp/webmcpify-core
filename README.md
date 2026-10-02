@@ -99,6 +99,25 @@ webmcpify generate --provider codex --security balance
 6. Reuse an available CDP browser or start an isolated headless Chrome session.
 7. Exercise approved WebMCP tools and independently verify the resulting page state.
 
+There is **no six-tool limit**. JS/TS discovery records source-backed handlers,
+named store actions, both sides of conditional event bindings (such as login
+and logout), and multiline callbacks; signal lists are not silently truncated.
+Generation must account for every resolved candidate through a proposed tool,
+an existing registration, or an explicit source-grounded omission reason in
+`CAPABILITY_COVERAGE_JSON` in the review draft. Core accepts exact handler matches
+from older providers, and requests one focused source-capable completion when
+actions are unaccounted for. That pass preserves existing valid tool contracts
+and adds corresponding tests; it cannot swap logout out to keep an arbitrary
+count. Build, wiring, security, and human approval checks still apply.
+
+The inventory is not a guarantee of discovering every possible capability:
+dynamic handlers, cross-file aliases, and non-JS/TS templates still require the
+coding agent to trace the real source. Parsing failures produce warnings and
+retain line-based discovery signals. Cosmetic/private/unsafe actions may be
+deliberately omitted with an explanation; equivalent variants can share a tool
+only if its schema and implementation actually support them. Read the exact
+source patch and omission reasons before approving.
+
 Allow several minutes for a run, and potentially longer for larger projects or
 slower providers. Core generates source and verification tasks, runs build checks,
 waits for your review, then executes approved tasks in isolated browser sessions
@@ -150,7 +169,8 @@ returned on their own and are validated against the combined set. Extra unaffect
 tests are preserved even when they exceed the minimum. Provider latency can still
 take minutes on these fallback paths. The final draft always undergoes build,
 wiring, feedback, security, and exact-source-identity checks before fresh review.
-The page locks immediately, including other open tabs, displays progress, and
+The page locks immediately, including other open tabs, displays an animated
+spinner, elapsed time, connection status, and safe current phase text, and
 automatically returns to review when ready. You can remove more tools and repeat
 this process. A failed revision returns a safe error, preserves the rejected-tool
 selection on the current review server, and permits retry. A provider failure

@@ -157,7 +157,7 @@ export async function runReviewPrompt(
   let revising = false;
   let processingApproval = false;
   let closing = false;
-  let revisionJob: { state: "idle" | "revising" | "ready" | "error"; phase?: string; message?: string } = { state: "idle" };
+  let revisionJob: { state: "idle" | "revising" | "ready" | "error"; phase?: string; message?: string; startedAt?: number } = { state: "idle" };
   let activeRevision: Promise<void> | undefined;
   let pendingConfirmation: { token: string; input: string } | undefined;
   let retrySelection: Set<string> | undefined;
@@ -340,7 +340,7 @@ ${reviewClientScript(approvalId)}
           const rejected = proposedTools.filter((tool) => !selected.some((approved) => approved.id === tool.id));
           console.log(`[review] drafting a revised patch for ${selected.length} selected tool(s); ${rejected.length} rejected tool(s) will be omitted`);
           pendingConfirmation = undefined;
-          revisionJob = { state: "revising", phase: "Preparing selected tools" };
+          revisionJob = { state: "revising", phase: "Preparing selected tools", startedAt: Date.now() };
           response.status(202).type("html").send(reviewBusyPage(projectDisplayName(discovery), revisionJob.phase!));
           activeRevision = (async () => {
             try {

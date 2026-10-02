@@ -4,6 +4,14 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: complete capability accounting and live revision activity
+
+- Expand JS/TS discovery into deterministic handler/store-action candidates, including both conditional login/logout branches and multiline event callbacks. Remove silent 200/300-signal truncation; disclose parser fallbacks.
+- Explicitly forbid fixed/top-six tool sampling. Account for every resolved action through actual proposed tools, existing registration evidence, or a source-grounded omission reason. Request one bounded source-capable completion for gaps while preserving existing valid contracts and enforcing scaled test coverage, build/wiring/security checks, and human approval.
+- Preserve explicit omission reasons across metadata-only corrections. Treat unresolved/dynamic/cross-file discovery as inspection hints, not invented capabilities or proof of exhaustive coverage.
+- Add a live spinner, elapsed-time and connection feedback to revision pages and other-tab locking overlays, preserving fresh-review controls, private diagnostics, and reduced-motion accessibility.
+- Add seven-action/login-logout completion and ten-test regressions, uncapped discovery lists, guarded completion failures, and real-browser activity checks.
+
 ### Fixed: tool-scaled verification and supplemental task validation
 
 - Remove the fixed six-test ceiling. Initial and revised drafts require at least `ceil(tool count × 1.3)` valid tests, with no upper count limit; 10 tools need at least 13 tests.

@@ -28,7 +28,7 @@ try {
 import {appendFileSync,existsSync,readFileSync,writeFileSync,writeSync} from 'node:fs';
 const selection = existsSync('.webmcpify/tool-selection.json') ? JSON.parse(readFileSync('.webmcpify/tool-selection.json','utf8')) : null;
 if(selection)appendFileSync(${JSON.stringify(path.join(root, "revision-calls"))},'call\\n');
-if(selection&&['tasks-only','reordered','coverage-gap','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?3000:500));
+if(selection&&['tasks-only','reordered','coverage-gap','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?6500:500));
 const makeTool = (name,handler)=>({id:name,name,title:name,description:'Changes local selection state',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Browser local state only'},implementation:{handler:'src/app.js#'+handler,action:'change selection',state:'document.body.dataset.selected'},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Loaded entry integration'},sourceFiles:['src/app.js'],behavior:{success:'Selection changes',preconditions:[],expectedFailures:[]}});
 let tools=selection?selection.selected:[makeTool('select_item','selectItem'),makeTool('dismiss_item','dismissItem')];
 if(!selection&&process.env.PARTIAL_REVIEW_MODE==='repeat')tools.push(makeTool('clear_item','clearItem'));
@@ -114,9 +114,12 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     let page;
     let secondPage;
     let selectedResponse;
+    const pageErrors = [];
     if (browserContext) {
       page = await browserContext.newPage();
       secondPage = await browserContext.newPage();
+      page.on("pageerror", error => pageErrors.push(error.message));
+      secondPage.on("pageerror", error => pageErrors.push(error.message));
       await Promise.all([page.goto("http://127.0.0.1:4390"), secondPage.goto("http://127.0.0.1:4390")]);
       const firstCard = page.locator(".grid > details.card").nth(0);
       const secondCard = page.locator(".grid > details.card").nth(1);
@@ -163,10 +166,20 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       await page.waitForFunction(() => document.body.getAttribute("aria-busy") === "true");
       if (mode === "provider-failure") {
         await secondPage.waitForFunction(() => document.body.getAttribute("aria-busy") === "true");
+        assert.equal(await secondPage.locator(".review-spinner").getAttribute("aria-hidden"), "true");
+        assert.equal(await secondPage.locator(".review-spinner").evaluate(element => getComputedStyle(element).animationName), "review-spin", "Other-tab overlay must show live animation");
         assert.ok(await secondPage.locator("form").evaluate(form => form.inert), "Other open tabs must lock during revision");
         assert.equal(await secondPage.locator("input:not(:disabled), button:not(:disabled), textarea:not(:disabled)").count(), 0);
         await secondPage.reload();
         assert.equal(await secondPage.locator("form, input, button, textarea").count(), 0, "Refreshing during revision must not reopen controls");
+        assert.equal(await secondPage.locator(".review-spinner").isVisible(), true);
+        assert.equal(await secondPage.locator(".review-spinner").evaluate(element => getComputedStyle(element).animationName), "review-spin");
+        await secondPage.waitForFunction(() => /Live status connected.*\d+s elapsed/.test(document.getElementById("activity")?.textContent ?? ""));
+        const activity = await secondPage.locator("#activity").textContent();
+        await secondPage.waitForFunction(previous => document.getElementById("activity")?.textContent !== previous, activity);
+        await secondPage.emulateMedia({ reducedMotion: "reduce" });
+        assert.equal(await secondPage.locator(".review-spinner").evaluate(element => getComputedStyle(element).animationName), "none", "Reduced-motion users still get text progress without animation");
+        await secondPage.emulateMedia({ reducedMotion: "no-preference" });
       }
     } else selectedResponse = await post(form("prepare", firstSelection));
     assert.equal(selectedResponse.status, 202, "Revision must return a progress page immediately, not keep the POST open");
@@ -179,6 +192,8 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       assert.equal((await fetch("http://127.0.0.1:4390/reject", { method: "POST" })).status, 409);
     }
     const selectedText = await selectedResponse.text();
+    assert.match(selectedText, /review-spinner/);
+    assert.match(selectedText, /Reconnecting to Core/);
     assert.doesNotMatch(selectedText, /PRIVATE_REVIEW_PROVIDER_OUTPUT/);
     assert.equal(await readFile(path.join(site, "src/app.js"), "utf8"), source, "Review must never change target source");
     await assert.rejects(readFile(path.join(site, ".webmcpify/approved-tools.json")), { code: "ENOENT" });
@@ -293,6 +308,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       await assert.rejects(review, /Review was cancelled/);
     }
     assert.ok((await readdir(path.join(site, ".webmcpify/trajectories"))).some(name => name.startsWith("review-selection-")));
+    assert.deepEqual(pageErrors, [], "Review-to-progress replacements and fresh drafts must not redeclare script globals or throw browser errors");
   }
   const calls = (await readFile(path.join(root, "revision-calls"), "utf8")).trim().split("\n").length;
   assert.equal(calls, browserCheck ? 2 : 9, "Independent removals must use zero provider calls; entangled/coverage-gap/unused-integration revisions and explicit retries use focused calls");

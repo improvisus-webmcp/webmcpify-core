@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { agentPublicDirectory } from "./agent-readiness.js";
+import { inventoryActions, type ActionCandidate } from "./action-inventory.js";
 
 export interface DiscoverySignal {
   file: string;
@@ -27,6 +28,8 @@ export interface DiscoveryResult {
   forms: DiscoverySignal[];
   buttons: DiscoverySignal[];
   actions: DiscoverySignal[];
+  actionCandidates?: ActionCandidate[];
+  discoveryWarnings?: string[];
   apis: DiscoverySignal[];
   authentication: DiscoverySignal[];
   state: DiscoverySignal[];
@@ -41,7 +44,7 @@ const EXCLUDED = new Set(["node_modules", ".git", "dist", "build", ".next", ".nu
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro", ".html", ".mjs", ".cjs", ".css", ".scss", ".go", ".py", ".rb", ".java", ".rs"]);
 
 async function walk(root: string, current = root): Promise<string[]> {
-  const entries = await readdir(current, { withFileTypes: true });
+  const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const files: string[] = [];
   for (const entry of entries) {
     if (EXCLUDED.has(entry.name) || entry.name.startsWith(".")) continue;
@@ -129,6 +132,8 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
   const forms: DiscoverySignal[] = [];
   const buttons: DiscoverySignal[] = [];
   const actions: DiscoverySignal[] = [];
+  const actionCandidates: ActionCandidate[] = [];
+  const discoveryWarnings: string[] = [];
   const apis: DiscoverySignal[] = [];
   const authentication: DiscoverySignal[] = [];
   const state: DiscoverySignal[] = [];
@@ -141,6 +146,9 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
     if (/\.(?:css|scss)$/i.test(relative) || (/\.html$/i.test(relative) && content.includes("<!-- webmcpify:capability-page -->"))) continue;
     const route = routeFromFile(relative);
     if (route) routes.add(route);
+    const inventory = await inventoryActions(relative, content);
+    actionCandidates.push(...inventory.candidates);
+    if (inventory.warning) discoveryWarnings.push(inventory.warning);
     forms.push(...lineSignals(relative, content, [["form", /<form\b|<input\b|<select\b|<textarea\b/i]]));
     buttons.push(...lineSignals(relative, content, [["button", /<button\b|type\s*=\s*["']submit|type\s*=\s*["']button/i]]));
     actions.push(...lineSignals(relative, content, [["event-handler", /on(?:Click|Submit|Change|Input|Press)\s*=|addEventListener\s*\(|\((?:click|ngSubmit|submit|change|input)\)\s*=/i], ["navigation", /navigate\(|router\.(?:push|replace)|<a\b|<Link\b|routerLink\s*=/i]]));
@@ -181,7 +189,8 @@ export async function discoverProject(sitePath: string): Promise<DiscoveryResult
     routes: [...new Set([...routes, ...sitemap.map((entry) => { try { return new URL(entry).pathname; } catch { return entry; } })])].sort(),
     sitemap: [...new Set(sitemap)],
     robots: robots.length ? [...new Set(robots)] : undefined,
-    forms: forms.slice(0, 200), buttons: buttons.slice(0, 200), actions: actions.slice(0, 300), apis: apis.slice(0, 300), authentication: authentication.slice(0, 200), state: state.slice(0, 200), existingWebMCP: existingWebMCP.slice(0, 200), capabilities: [...capabilitySet].sort(), sourceFiles: files.map((file) => path.relative(sitePath, file).split(path.sep).join("/")).sort(), filesScanned: files.length,
+    forms, buttons, actions, apis, authentication, state, existingWebMCP, actionCandidates, discoveryWarnings,
+    capabilities: [...capabilitySet].sort(), sourceFiles: files.map((file) => path.relative(sitePath, file).split(path.sep).join("/")).sort(), filesScanned: files.length,
   };
   const publicDirectory = await agentPublicDirectory(sitePath, result);
   const readinessPaths = ["AGENTS.md", ".agent.md", "angular.json", "docs/webmcp-readiness.md", ...[".", "public", "static", publicDirectory].filter((dir): dir is string => dir !== undefined).flatMap((dir) => ["llms.txt", "webmcp.md", "webmcp.html", "webmcp-capabilities.html", "robots.txt", "sitemap.xml"].map((file) => path.posix.join(dir, file)))];

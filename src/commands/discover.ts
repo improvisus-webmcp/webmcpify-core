@@ -9,5 +9,7 @@ export async function runDiscover(opts: { path?: string }): Promise<void> {
   console.log(`[discover] scanned ${result.filesScanned} source file(s)`);
   console.log(`[discover] framework: ${result.stack.framework ?? "unknown"}`);
   console.log(`[discover] routes: ${result.routes.length}, actions: ${result.actions.length}, APIs: ${result.apis.length}`);
+  console.log(`[discover] action candidates: ${result.actionCandidates?.length ?? 0} (${result.actionCandidates?.filter(candidate => candidate.resolved).length ?? 0} resolved handlers)`);
+  for (const warning of result.discoveryWarnings ?? []) console.warn(`[discover] ${warning}`);
   console.log(`[discover] discovery saved to ${discoveryPath(sitePath)}`);
 }

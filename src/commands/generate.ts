@@ -16,6 +16,7 @@ import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { writeProposedTools } from "../lib/tool-proposals.js";
 import { validateGenerationMetadata } from "../lib/generation-metadata.js";
+import { CAPABILITY_COVERAGE_GUIDANCE, completeCapabilityCoverage } from "../lib/capability-coverage.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
@@ -72,6 +73,8 @@ ${WEBMCP_SPEC_GUIDANCE}
 ${AGENT_READINESS_GUIDANCE}
 
 ${TOOL_PROPOSAL_PROMPT}
+
+${CAPABILITY_COVERAGE_GUIDANCE}
 
 ${TASK_AUTHORING_PROMPT}
 `.trim();
@@ -320,8 +323,14 @@ ${productContext}`
       );
     }
     const metadata = await validateGenerationMetadata({ provider, sitePath, workspace: agentWorkspace, draftPath, discovery });
-    tools = metadata.tools;
-    draftPath = metadata.draftPath;
+    const complete = await completeCapabilityCoverage({ provider, sitePath, workspace: agentWorkspace, discovery,
+      tools: metadata.tools, draftPath: metadata.draftPath, originalDraftPath: saveTo,
+      instructions: [strategy, securityInstruction, productContextInstruction].filter(Boolean).join("\n\n") });
+    tools = complete.tools;
+    draftPath = complete.draftPath;
+    const skipped = complete.coverage.entries.filter(entry => entry.status === "skipped").length;
+    console.log(`[generate] capability coverage: ${complete.coverage.entries.length} resolved action(s) accounted for; ${skipped} explicitly omitted; no fixed tool-count limit`);
+    for (const warning of complete.coverage.warnings) console.warn(`[generate] ${warning}`);
     const readiness = await writeAgentReadiness(agentWorkspace, discovery, tools);
     readinessFiles = readiness.files;
     if (!readiness.publicDirectory) console.log("[generate] public asset serving could not be established; deployment guidance is included in the reviewed patch");
