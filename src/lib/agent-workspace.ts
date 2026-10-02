@@ -1,4 +1,5 @@
 import { appendFile, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { constants } from "node:fs";
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,10 @@ export async function createAgentWorkspace(sitePath: string): Promise<string> {
   try {
     await cp(sitePath, workspace, {
       recursive: true,
+      // Reflinks share storage only until a write, never an editable inode.
+      // Unlike FICLONE_FORCE, this transparently falls back to a normal copy
+      // on unsupported filesystems/platforms or cross-device copies.
+      mode: constants.COPYFILE_FICLONE,
       filter: (source) => !path.relative(sitePath, source).split(path.sep)
         .some((component) => [".git", ".webmcpify", ".serena", "node_modules"].includes(component)),
     });

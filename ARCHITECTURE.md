@@ -22,7 +22,7 @@ flowchart LR
 ## Runtime boundaries
 
 - The target checkout is read during discovery and changed only by `apply` after approval.
-- Coding agents edit a disposable copy without the target's `.git`, `.webmcpify`, or `node_modules` contents.
+- Coding agents edit a disposable copy of the saved working tree, including uncommitted/untracked files, without the target's `.git`, `.webmcpify`, `.serena`, or `node_modules` contents. Copying requests optional filesystem reflinks with ordinary-copy fallback, never source hard links; no new asset/cache exclusions are inferred from Git ignore rules.
 - Selected entries from the target's installed dependencies are linked into the disposable workspace for typecheck/build validation; they are not copied into it.
 - Browser agents receive empty disposable workspaces, not copied source. Each task uses a fresh browser context and independent scoring of the exact acted-on page. Non-Claude adapters do not enforce the requested tool allowlist as an OS sandbox. See the [runtime audit](docs/audits/2026-10-01-runtime-compatibility.md).
 - The independent scorer evaluates each approved `verify` expression against fresh live-page state.
@@ -113,6 +113,7 @@ flowchart LR
 | `scripts/verify-tool-proposals.mjs` | Tests structured proposal parsing and grounding. |
 | `scripts/verify-agent-invocation.mjs` | Tests provider invocation, executable paths, safe launch diagnostics, and terminal redaction. |
 | `scripts/verify-generation-recovery.mjs` | Exercises generation metadata recovery and fail-closed source/contract checks using credential-free providers in disposable repositories. |
+| `scripts/verify-workspace-copy.mjs` | Tests optional-reflink/ordinary copying, saved dirty/staged/untracked/required-ignored files, binary assets, nested exclusions, unchanged original contents/Git state, and copy-error cleanup. |
 | `scripts/verify-browser-state.mjs` | Tests real Chrome same-tab scoring, retained task state, expected-error matching, forbidden-state rejection, and personal-context preservation. |
 | `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
 | `scripts/verify-review.mjs` | Tests read-only tasks/contracts, tamper rejection, confirmation, persistence, cancellation, and rejection. |

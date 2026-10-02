@@ -333,6 +333,21 @@ Core works from the target's real source rather than assuming a blank applicatio
 
 Core reduces risk; it does not guarantee that generated code or WebMCP tools are safe. Review every proposal before approval.
 
+Disposable source workspaces copy the current files on disk—not only the last
+Git commit—including saved uncommitted edits, staged changes, and untracked or
+ignored files that may be needed by the app. Save your editor buffers before
+running Core; you do not need to commit first. The existing exclusions remain
+`.git`, `.webmcpify`, `.serena`, and `node_modules`, including nested occurrences.
+Core does not blindly exclude all Git-ignored files or build assets.
+
+Copying requests filesystem copy-on-write (reflinks) where supported, with
+Node's ordinary-copy fallback on unsupported platforms/filesystems or
+cross-device copies. This does not hard-link editable source files, change the
+included file set, or bypass approval. Speed and disk-space savings depend on
+the filesystem; it is not a guarantee that every run will be faster. The
+temporary workspace is removed after use, while the reviewable patch and run
+evidence remain in the target's `.webmcpify/` directory.
+
 ## Commands
 
 | Command | Purpose |

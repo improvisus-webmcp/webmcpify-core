@@ -4,6 +4,18 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: review link contrast and confirmation controls
+
+- Keep WebMCP reference links readable and underlined on the blue review banner, including visited links and visible keyboard focus.
+- Style Cancel as a secondary control aligned with Confirm Approval, with touch-sized targets, hover/focus feedback, and mobile-safe confirmation layout. Cancel returns to review without approving or rejecting the draft.
+- Verify rendered controls, keyboard focus, mobile layout, and Cancel navigation in the real-browser review regression.
+
+### Improved: copy-on-write disposable workspaces
+
+- Request optional filesystem reflinks when copying source workspaces, with Node's ordinary-copy fallback rather than forced-clone failures or source hard links.
+- Preserve the existing file-selection policy, saved working-tree/staged/untracked contents, required ignored files, binary assets, and the human approval boundary. No additional caches or build assets are silently excluded.
+- Add focused regression coverage for both optional-reflink and ordinary-copy paths, independent source edits/deletions, nested exclusions, unchanged target Git state, and cleanup after copy errors.
+
 ### Fixed: complete capability accounting and live revision activity
 
 - Expand JS/TS discovery into deterministic handler/store-action candidates, including both conditional login/logout branches and multiline event callbacks. Remove silent 200/300-signal truncation; disclose parser fallbacks.

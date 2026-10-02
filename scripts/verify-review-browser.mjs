@@ -11,7 +11,7 @@ try {
   process.env.WEBMCPIFY_CDP_URL = `http://127.0.0.1:${port}`;
   process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER = "1";
   await withManagedChrome("about:blank", async () => { await import("./verify-partial-review.mjs"); });
-  console.log("Real-browser review passed: selection consent lock, provider-failure selection/retry, read-only tasks, busy controls/other tabs, refresh lock, automatic reopen, repeated removal, and final confirmation");
+  console.log("Real-browser review passed: banner link contrast, keyboard focus, mobile confirmation controls, Cancel navigation, selection consent lock, provider-failure selection/retry, read-only tasks, busy controls/other tabs, refresh lock, automatic reopen, repeated removal, and final confirmation");
 } finally {
   if (probe.listening) await new Promise(resolve => probe.close(resolve));
   if (previousCdp === undefined) delete process.env.WEBMCPIFY_CDP_URL;

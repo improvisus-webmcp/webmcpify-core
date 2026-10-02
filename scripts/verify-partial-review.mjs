@@ -121,6 +121,20 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       page.on("pageerror", error => pageErrors.push(error.message));
       secondPage.on("pageerror", error => pageErrors.push(error.message));
       await Promise.all([page.goto("http://127.0.0.1:4390"), secondPage.goto("http://127.0.0.1:4390")]);
+      const referenceLinks = page.locator(".hero a");
+      assert.equal(await referenceLinks.count(), 2);
+      for (const link of await referenceLinks.all()) {
+        assert.equal(await link.isVisible(), true);
+        const style = await link.evaluate(element => {
+          const computed = getComputedStyle(element);
+          return { color: computed.color, decoration: computed.textDecorationLine };
+        });
+        assert.equal(style.color, "rgb(255, 255, 255)", "Reference links must contrast with the blue banner");
+        assert.equal(style.decoration, "underline", "Reference links must be identifiable without relying on color");
+      }
+      await referenceLinks.first().focus();
+      await page.keyboard.press("Tab");
+      assert.equal(await referenceLinks.nth(1).evaluate(element => element.matches(":focus-visible") && getComputedStyle(element).outlineWidth === "3px"), true);
       const firstCard = page.locator(".grid > details.card").nth(0);
       const secondCard = page.locator(".grid > details.card").nth(1);
       const secondClosedHeight = (await secondCard.boundingBox()).height;
@@ -244,6 +258,25 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
         assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true);
         await page.setViewportSize({ width: 390, height: 844 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "Review must not overflow a mobile viewport");
+        await page.locator('input[name="approveSourceDiff"]').check();
+        await page.getByRole("button", { name: "Approve reviewed draft" }).click();
+        await page.getByRole("button", { name: "Confirm Approval" }).waitFor();
+        const confirmButton = page.getByRole("button", { name: "Confirm Approval" });
+        const cancelLink = page.getByRole("link", { name: "Cancel", exact: true });
+        const confirmBox = await confirmButton.boundingBox();
+        const cancelBox = await cancelLink.boundingBox();
+        assert.ok(confirmBox.height >= 44 && cancelBox.height >= 44, "Both confirmation controls need touch-sized targets");
+        assert.ok(Math.abs(confirmBox.height - cancelBox.height) < 1, "Cancel must align with Confirm Approval");
+        assert.ok(cancelBox.x - (confirmBox.x + confirmBox.width) >= 11, "Confirmation controls must remain spaced apart");
+        assert.equal(await cancelLink.evaluate(element => getComputedStyle(element).borderTopStyle), "solid");
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "Confirmation must fit a mobile viewport");
+        await confirmButton.focus();
+        await page.keyboard.press("Tab");
+        assert.equal(await cancelLink.evaluate(element => element.matches(":focus-visible") && getComputedStyle(element).outlineWidth === "3px"), true);
+        await cancelLink.click();
+        await page.getByRole("heading", { name: "Review WebMCP draft", exact: true }).waitFor();
+        assert.equal(await page.locator('input[name="approveSourceDiff"]').isChecked(), false, "Cancel returns to review with fresh consent");
+        await assert.rejects(readFile(path.join(site, ".webmcpify/approved-tools.json")), { code: "ENOENT" });
         await page.locator('input[name="approveSourceDiff"]').check();
         await page.getByRole("button", { name: "Approve reviewed draft" }).click();
         await page.getByRole("button", { name: "Confirm Approval" }).waitFor();
