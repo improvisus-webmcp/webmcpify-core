@@ -4,6 +4,13 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: independent review cards, shutdown, and rollback safety
+
+- Stop CSS grid stretching the closed summary card when its neighbor opens; verify each card's actual open state and independent height in Chrome.
+- Reproduce and fix post-approval hangs caused by unfinished HTTP connections. Show closing activity, flush the final response, then force remaining connections closed after a one-second grace period. Refuse further mutation requests during shutdown.
+- Record only pre-existing files in rollback manifests and retain original/new-file classification in memory against manifest alteration. Restore all recoverable patch paths, refuse to delete an original with a missing backup, and keep failure evidence. Backup cleanup failures after successful apply no longer trigger rollback from partly deleted backups.
+- Expand rollback coverage to added/deleted/renamed files, typecheck failure, cancellation, and damaged backups; document scope and recovery limits in the README.
+
 ### Improved: review transparency and workflow activity
 
 - List every patch path with added/modified/deleted/renamed/copied status and a file-role or declared tool-placement reason. Do not cap the list at ten or invent a precise purpose for unexplained changes.

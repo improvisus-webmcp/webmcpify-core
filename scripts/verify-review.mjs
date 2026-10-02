@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
+import { request as httpRequest } from "node:http";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -104,9 +105,34 @@ assert.equal(response.status, 200, responseText);
 assert.match(responseText, /Review approval/, responseText);
 assert.match(responseText, /confirmation-actions[^}]*margin-top:24px/, "Confirmation buttons need space below the summary");
 confirmationToken = responseText.match(/name="confirmationToken" value="([^"]+)"/)[1];
-const confirmation = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("confirm") });
-assert.equal(confirmation.status, 200);
-const result = await review;
+const heldConnection = createConnection({ host: "127.0.0.1", port: 4387 });
+heldConnection.on("error", () => {});
+await new Promise(resolve => heldConnection.once("connect", resolve));
+heldConnection.write("GET / HTTP/1.1\r\nHost: localhost\r\nX-Unfinished:");
+const lateRejection = httpRequest({ host: "127.0.0.1", port: 4387, path: "/reject", method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "content-length": "10" } });
+lateRejection.on("error", () => {});
+const lateResponse = new Promise((resolve, reject) => {
+  lateRejection.once("error", reject);
+  lateRejection.once("response", response => { response.resume(); response.once("end", () => resolve(response.statusCode)); });
+});
+lateResponse.catch(() => {});
+lateRejection.write("x=");
+await new Promise(resolve => setTimeout(resolve, 50));
+let result;
+let shutdownTimedOut = false;
+try {
+  const confirmation = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("confirm") });
+  assert.equal(confirmation.status, 200);
+  assert.match(await confirmation.text(), /Approved ✓/, "Closing review must not truncate the approval response");
+  lateRejection.end("12345678");
+  assert.equal(await lateResponse, 409, "Already-connected requests cannot mutate a finalized review during shutdown");
+  assert.equal((await readPatchMetadata(sitePath)).patchStatus, "approved");
+  let deadline;
+  result = await Promise.race([review, new Promise(resolve => { deadline = setTimeout(() => { shutdownTimedOut = true; resolve(undefined); }, 2500); })]);
+  clearTimeout(deadline);
+} finally { heldConnection.destroy(); lateRejection.destroy(); }
+if (!result) result = await review;
+assert.equal(shutdownTimedOut, false, "An unfinished browser connection must not leave review stuck after confirmed approval");
 assert.equal(result.approved, true);
 const manifest = JSON.parse(await readFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), "utf8"));
 assert.equal(manifest.tools[0].description, tool.description);

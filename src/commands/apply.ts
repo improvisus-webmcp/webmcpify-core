@@ -64,30 +64,40 @@ async function runBuild(sitePath: string): Promise<string[]> {
   return ran;
 }
 
-async function snapshotFiles(sitePath: string, files: string[], rollbackPath: string): Promise<void> {
+async function snapshotFiles(sitePath: string, files: string[], rollbackPath: string): Promise<string[]> {
   await mkdir(rollbackPath, { recursive: true });
+  const originalFiles: string[] = [];
   for (const file of files) {
     const source = safeRelative(sitePath, file);
     if (!existsSync(source)) continue;
     const destination = path.join(rollbackPath, file);
     await mkdir(path.dirname(destination), { recursive: true });
     await copyFile(source, destination);
+    originalFiles.push(file);
   }
-  await writeFile(path.join(rollbackPath, "manifest.json"), `${JSON.stringify(files, null, 2)}\n`, "utf8");
+  await writeFile(path.join(rollbackPath, "manifest.json"), `${JSON.stringify(originalFiles, null, 2)}\n`, "utf8");
+  return originalFiles;
 }
 
-async function rollbackFiles(sitePath: string, files: string[], rollbackPath: string): Promise<void> {
-  const originalFiles = new Set(JSON.parse(await readFile(path.join(rollbackPath, "manifest.json"), "utf8")) as string[]);
+async function rollbackFiles(sitePath: string, files: string[], rollbackPath: string, originals: string[]): Promise<void> {
+  // Build scripts can alter private state too. Original/new classification must
+  // come from the pre-apply snapshot, not a manifest the failed build may change.
+  const originalFiles = new Set(originals);
+  const failures: unknown[] = [];
   for (const file of files) {
-    const target = safeRelative(sitePath, file);
-    const backup = path.join(rollbackPath, file);
-    if (originalFiles.has(file) && existsSync(backup)) {
-      await mkdir(path.dirname(target), { recursive: true });
-      await copyFile(backup, target);
-    } else if (existsSync(target)) {
-      await rm(target);
-    }
+    try {
+      const target = safeRelative(sitePath, file);
+      const backup = path.join(rollbackPath, file);
+      if (originalFiles.has(file)) {
+        if (!existsSync(backup)) throw new Error("An original-file rollback backup is missing; refusing to remove its current source.");
+        await mkdir(path.dirname(target), { recursive: true });
+        await copyFile(backup, target);
+      } else if (existsSync(target)) {
+        await rm(target);
+      }
+    } catch (error) { failures.push(error); }
   }
+  if (failures.length) throw new AggregateError(failures, `${failures.length} patch file(s) could not be restored. Preserve the rollback backups for manual recovery.`);
 }
 
 async function recordApply(sitePath: string, metadata: PatchMetadata, result: Record<string, unknown>): Promise<void> {
@@ -191,7 +201,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
   const patch = metadata.patchPath;
   if (!/^[a-zA-Z0-9_-]+$/.test(metadata.runId)) throw new Error("Invalid patch run ID.");
   const rollbackPath = path.join(sitePath, ".webmcpify", "rollback", metadata.runId);
-  await withCliProgress("apply", "Preparing rollback snapshot", () => snapshotFiles(sitePath, metadata.changedFiles, rollbackPath));
+  const originalFiles = await withCliProgress("apply", "Preparing rollback snapshot", () => snapshotFiles(sitePath, metadata.changedFiles, rollbackPath));
   let buildScripts: string[] = [];
   try {
     console.log("[apply] validating approved patch...");
@@ -210,13 +220,16 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     };
     await writePatchMetadata(sitePath, applied);
     await recordApply(sitePath, applied, { status: "passed", buildScripts, rollbackPath, repairEvaluationPath });
-    await rm(rollbackPath, { recursive: true, force: true });
+    // Backup cleanup is not a source/build failure. Never initiate rollback
+    // after cleanup may already have removed some of the recovery material.
+    try { await rm(rollbackPath, { recursive: true, force: true }); }
+    catch { console.warn("[apply] applied successfully; rollback backup cleanup failed. Retain private run state and inspect it locally."); }
     console.log("[apply] ✓ patch applied");
     console.log(buildScripts.length ? "[apply] ✓ build/typecheck passed" : "[apply] ✓ no build/typecheck script found");
     console.log("[apply] WebMCP changes successfully applied.");
   } catch (error) {
     let rollbackError: string | undefined;
-    try { await rollbackFiles(sitePath, metadata.changedFiles, rollbackPath); }
+    try { await withCliProgress("apply", "Restoring patch files after failure", () => rollbackFiles(sitePath, metadata.changedFiles, rollbackPath, originalFiles)); }
     catch (rollbackFailure) { rollbackError = rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure); }
     const message = error instanceof Error ? error.message : String(error);
     const failed: PatchMetadata = {

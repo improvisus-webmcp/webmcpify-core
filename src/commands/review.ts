@@ -155,6 +155,7 @@ export async function runReviewPrompt(
 
   let revising = false;
   let processingApproval = false;
+  let closing = false;
   let revisionJob: { state: "idle" | "revising" | "ready" | "error"; phase?: string; message?: string } = { state: "idle" };
   let activeRevision: Promise<void> | undefined;
   let pendingConfirmation: { token: string; input: string } | undefined;
@@ -176,7 +177,7 @@ export async function runReviewPrompt(
     proposedToolIds = new Set(tools.map(tool => tool.id)); pendingConfirmation = undefined;
   };
   app.get("/review-status", (_request, response) => {
-    response.set("Cache-Control", "no-store").json({ ...revisionJob, state: revising ? "revising" : processingApproval ? "busy" : revisionJob.state, runId: approvalId, patchHash });
+    response.set("Cache-Control", "no-store").json({ ...revisionJob, state: revising ? "revising" : processingApproval || closing ? "busy" : revisionJob.state, runId: approvalId, patchHash });
   });
 
   const renderLocked = (response: express.Response, message = "Approved ✓") => {
@@ -242,7 +243,7 @@ export async function runReviewPrompt(
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${projectName} · Approve WebMCP changes</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.shell{max-width:1120px;margin:0 auto;padding:32px 20px 120px}.hero{background:linear-gradient(135deg,#172554,#2563eb);color:#fff;border-radius:20px;padding:30px 34px;box-shadow:0 12px 35px #1725542e}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.78}.hero h1{font-size:32px;margin:8px 0}.hero p{max-width:760px;margin:0;color:#dbeafe;line-height:1.55}.notice{display:flex;gap:14px;align-items:flex-start;margin:22px 0;padding:18px 20px;border:1px solid #f0c36a;border-radius:14px;background:#fff9e8;color:#694d05}.notice strong{display:block;color:#3d2b00;margin-bottom:3px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.card,.section{background:#fff;border:1px solid #dce3ef;border-radius:16px;padding:22px;box-shadow:0 4px 14px #1725540b}.section{margin-top:18px}.section h2{margin:0 0 14px;font-size:20px}.section>p{color:#536176}.count{display:inline-flex;align-items:center;gap:7px;background:#eaf1ff;color:#1746a2;border-radius:999px;padding:5px 10px;font-size:13px;font-weight:750}.item{display:block;padding:14px 0;border-top:1px solid #edf0f5;line-height:1.45}.item:first-of-type{border-top:0}.item input{width:18px;height:18px;vertical-align:-4px;margin-right:8px;accent-color:#2563eb}.item strong{color:#111827}.item code,.hint{color:#536176;font-size:12px}.item code{display:block;margin:8px 0 0 28px;padding:8px;background:#f6f8fb;border-radius:8px;overflow:auto}.warning{display:block;margin:8px 0 0 28px;color:#9a5b00;font-size:12px}.source{border-color:#f0c36a;background:#fffdf7}.source pre,pre{white-space:pre-wrap;background:#f6f8fb;border:1px solid #e5eaf2;padding:14px;border-radius:10px;max-height:40vh;overflow:auto;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}textarea{width:100%;min-height:150px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}details{margin-top:14px}summary{cursor:pointer;font-weight:700;color:#1746a2}.draft{margin-top:18px}.actions{position:fixed;bottom:0;left:0;right:0;background:#fffffff2;border-top:1px solid #dce3ef;backdrop-filter:blur(10px);padding:14px 20px;z-index:2}.actions-inner{max-width:1120px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:14px}.actions small{color:#536176}.actions button{border:0;border-radius:10px;padding:13px 22px;font-weight:800;font-size:15px;cursor:pointer}.approve{background:#16a34a;color:#fff;box-shadow:0 5px 15px #16a34a40}.reject{background:#fff;color:#b42318;border:1px solid #efb6b0!important}.actions button:hover{filter:brightness(.96)}@media(max-width:760px){.grid{grid-template-columns:1fr}.hero{padding:24px}.hero h1{font-size:26px}.actions-inner{align-items:stretch;flex-direction:column}.actions small{display:none}}
-.review-panel>summary{font-size:20px;color:#172033}.panel-content{margin-top:18px}.card>summary{font-size:18px}.file-table{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px;border-bottom:1px solid #e5eaf2;vertical-align:top}td code{overflow-wrap:anywhere}.source-approval{margin-top:22px;padding:24px;border:2px solid #df9c23;border-radius:16px;background:#fff5d9}.source-approval label{display:flex;align-items:flex-start;gap:16px;cursor:pointer}.source-approval input{width:30px;height:30px;flex:none;accent-color:#16a34a;margin:0}.source-approval strong{display:block;font-size:22px;line-height:1.3}.source-approval small{display:block;margin-top:10px;font-size:15px;color:#694d05}.approve:disabled{background:#64748b;opacity:.65;cursor:not-allowed;box-shadow:none}.actions button:disabled:hover{filter:none}.actions [role=status]{max-width:420px;font-size:14px;color:#694d05}
+.grid{align-items:start}.grid>.card{margin-top:0}.review-panel>summary{font-size:20px;color:#172033}.panel-content{margin-top:18px}.card>summary{font-size:18px}.file-table{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px;border-bottom:1px solid #e5eaf2;vertical-align:top}td code{overflow-wrap:anywhere}.source-approval{margin-top:22px;padding:24px;border:2px solid #df9c23;border-radius:16px;background:#fff5d9}.source-approval label{display:flex;align-items:flex-start;gap:16px;cursor:pointer}.source-approval input{width:30px;height:30px;flex:none;accent-color:#16a34a;margin:0}.source-approval strong{display:block;font-size:22px;line-height:1.3}.source-approval small{display:block;margin-top:10px;font-size:15px;color:#694d05}.approve:disabled{background:#64748b;opacity:.65;cursor:not-allowed;box-shadow:none}.actions button:disabled:hover{filter:none}.actions [role=status]{max-width:420px;font-size:14px;color:#694d05}
 </style></head><body><main class="shell">
 <header class="hero"><div class="eyebrow">WebMCPify · Human approval required</div><h1>Review WebMCP draft</h1><p><strong>Project: ${projectName}</strong><br>Repository folder: ${htmlEscape(sitePath)}</p><p>Inspect the proposed tools, verification tasks, and source patch. Nothing is applied to the target project until you explicitly approve this exact patch.</p><p class="hint">Reference: <a href="${WEBMCP_SPEC_URL}" target="_blank" rel="noreferrer">WebMCP specification</a> · <a href="${CHROME_WEBMCP_URL}" target="_blank" rel="noreferrer">Chrome WebMCP guide</a></p></header>
 ${revisionJob.message ? `<div class="notice" role="alert">${htmlEscape(revisionJob.message)}</div>` : ""}<div class="notice"><div>⚠️</div><div><strong>Action required</strong>Select only the WebMCP tools you want this project to make available to the approved browser-agent workflow. Review each tool's title, description, schema, and risk annotations, then approve the exact source patch separately.</div></div>
@@ -271,13 +272,30 @@ ${reviewClientScript(approvalId)}
       reject(new Error("Review was cancelled; no new approval was created."));
     };
     signal?.addEventListener("abort", abortReview, { once: true });
-    const finish = (result: ReviewDecision) => {
-      if (server) {
-        server.close(() => resolve(result));
-        server.closeIdleConnections();
-      } else {
-        resolve(result);
-      }
+    const finish = (result: ReviewDecision, response: express.Response) => {
+      closing = true;
+      const closingServer = server;
+      if (!closingServer) { resolve(result); return; }
+      void withCliProgress("review", "Closing review connections", () => new Promise<void>(closed => {
+        let forceClose: NodeJS.Timeout | undefined;
+        let finished = false;
+        // Flush the approval/rejection response before cutting off unfinished
+        // requests. Idle-only closure cannot drain a partially sent request.
+        const flushComplete = () => {
+          if (finished || forceClose) return;
+          forceClose = setTimeout(() => closingServer.closeAllConnections(), 1000);
+          forceClose.unref();
+        };
+        closingServer.close(() => {
+          finished = true;
+          if (forceClose) clearTimeout(forceClose);
+          response.off("finish", flushComplete); response.off("close", flushComplete);
+          closed();
+        });
+        closingServer.closeIdleConnections();
+        if (response.writableFinished || response.destroyed) flushComplete();
+        else { response.once("finish", flushComplete); response.once("close", flushComplete); }
+      })).then(() => resolve(result), reject);
     };
 
     const selectionInput = (request: express.Request) => {
@@ -304,7 +322,7 @@ ${reviewClientScript(approvalId)}
     };
 
     app.post("/approve", async (request, response) => {
-      if (processingApproval || revising) { response.status(409).type("html").send(reviewBusyPage(projectDisplayName(discovery), revisionJob.phase ?? "Processing review…")); return; }
+      if (processingApproval || revising || closing) { response.status(409).type("html").send(reviewBusyPage(projectDisplayName(discovery), revisionJob.phase ?? "Processing review…")); return; }
       processingApproval = true;
       try {
         const existing = existsSync(approvalPath) ? JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { sourceDiff?: { runId?: string; patchHash?: string } } : undefined;
@@ -384,7 +402,7 @@ ${reviewClientScript(approvalId)}
 <h1>Approved ✓</h1><p>${input.tools.length} tool(s) and ${input.tasks.length} verification task(s) have been persisted for <code>${htmlEscape(
           sitePath
         )}</code>.</p><p>You can close this window.</p></body></html>`);
-        finish({ approved: true, tools: input.tools.map((tool) => tool.name), approvedTools: input.tools, tasks: input.tasks, approvalPath, decisionPath, sourceDiff });
+        finish({ approved: true, tools: input.tools.map((tool) => tool.name), approvedTools: input.tools, tasks: input.tasks, approvalPath, decisionPath, sourceDiff }, response);
       } catch (error) {
         console.error(`[review] approval failed: ${error instanceof Error ? error.message : String(error)}`);
         response
@@ -395,7 +413,7 @@ ${reviewClientScript(approvalId)}
     });
 
     app.post("/reject", async (_request, response) => {
-      if (processingApproval || revising) { response.status(409).type("html").send(reviewBusyPage(projectDisplayName(discovery), revisionJob.phase ?? "Processing review…")); return; }
+      if (processingApproval || revising || closing) { response.status(409).type("html").send(reviewBusyPage(projectDisplayName(discovery), revisionJob.phase ?? "Processing review…")); return; }
       processingApproval = true;
       try {
         if (patchMetadata) {
@@ -429,7 +447,7 @@ ${reviewClientScript(approvalId)}
         console.log("[review] draft rejected; no source changes were approved");
         response.type("html").send(`<!doctype html><html lang="en"><body>
 <h1>Draft rejected</h1><p>No approval manifest was changed.</p></body></html>`);
-        finish({ approved: false, tools: [], approvedTools: [], tasks: [], approvalPath, decisionPath, sourceDiff: { status: "rejected", timestamp: new Date().toISOString() } });
+        finish({ approved: false, tools: [], approvedTools: [], tasks: [], approvalPath, decisionPath, sourceDiff: { status: "rejected", timestamp: new Date().toISOString() } }, response);
       } catch (error) {
         console.error(`[review] rejection failed: ${error instanceof Error ? error.message : String(error)}`);
         response

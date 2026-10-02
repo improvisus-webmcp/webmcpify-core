@@ -137,6 +137,9 @@ After confirmation, the CLI shows approval-saving activity. Standalone `review`
 finishes with next-step instructions; `run` continues to apply/build and browser
 tasks, with activity indicators and per-task counters. Allow several minutes;
 these are phase/elapsed-time indicators, not completion-percentage estimates.
+Open the two top summary cards individually: the other card must remain closed
+and keep its closed height. Review shutdown displays closing activity and must
+not hang on incomplete requests from old tabs; confirmation remains persisted.
 
 To test whole-draft rejection instead, click Reject in a separate disposable run.
 Expected: no target source change; apply refuses that rejected draft. Regenerate

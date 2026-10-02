@@ -118,6 +118,13 @@ exact source patch** checkbox must be checked before **Approve reviewed draft**
 is enabled; final confirmation still follows. Preparing a reduced-tool draft
 does not require approving the old patch, and fresh drafts reset consent.
 
+After confirmation, the CLI shows **Closing review connections** activity before
+returning control. Incomplete browser requests are closed after a short grace
+period once the final response has flushed, so an old tab cannot indefinitely
+hold the workflow there. Standalone `review` then exits with next-step instructions;
+`run` continues to apply/build and browser verification. No spinner is expected
+after a command has finished.
+
 To reject individual tools, uncheck them and choose **Prepare selected-tool draft**.
 Core invokes the draft's coding provider in a disposable workspace to remove
 their WebMCP registrations and update corresponding tests; Core regenerates docs
@@ -385,6 +392,31 @@ OpenCode uses `run --auto --format json` and an inline MCP overlay without repla
 
 Local `npm pack` archives (`*.tgz`) are ignored in the Core repository. They are
 installation/test artifacts, not source files; packing does not commit them.
+
+### Automatic rollback
+
+Before applying an approved patch, Core saves the original contents of existing
+patch files under `.webmcpify/rollback/<run-id>/`. If patch application, target
+typecheck, or build fails—or the apply/build operation is cancelled—it attempts
+to restore those originals and remove files newly created by the patch. This
+also restores deleted files and reverses file renames. Recovery shows CLI
+activity; a successful rollback reports **project restored** and marks the
+patch failed. It does not declare the integration successful.
+
+Regression fixtures verify modifications, additions, deletions, renames,
+typecheck/build failure, cancellation, and damaged-backup handling. A missing
+original backup must never cause deletion of the current source. Core restores
+other recoverable files, reports **rollback failed**, and retains recovery
+material for manual inspection. Original/new-file classification stays in memory,
+so a manifest altered by a failed build cannot misclassify and delete originals.
+Keep `.webmcpify` when recovering from a failure.
+After successful apply/build, temporary source backups are removed; cleanup
+failure produces a warning, not an unsafe rollback from partly removed backups.
+
+Rollback is limited to patch paths. It is not a database/payment undo, a reset
+of arbitrary build-script side effects, or an automatic undo after later browser
+test failures. There is currently no standalone `webmcpify rollback` command;
+use your normal Git/recovery workflow for manually reverting a successful apply.
 
 Core writes local state under `<target>/.webmcpify/`, including discovery, proposed tools, `security-report.json`, the pending patch, approvals, evaluations, rollback data, and timestamped evidence. Keep this directory out of source control. The proposed combined `AGENTS.md`, public capability documentation, crawler policy, and UI styles are ordinary target files included in the reviewed patch; they are separate from private run evidence. Core does not require GitHub access and does not upload the target repository.
 
