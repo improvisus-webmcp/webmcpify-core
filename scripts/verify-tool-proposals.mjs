@@ -233,8 +233,8 @@ ${JSON.stringify(tasks)}
   );
   assert.equal(
     expectedRejectionObserved(rejectionTask, {
-      prompt: "Call checkout_now and expect Sign in before checkout",
-      response: "checkout_now returned: Sign in before checkout",
+      source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [],
+      calls: [{ toolName: "checkout_now", status: "error", error: "Sign in before checkout" }],
     }),
     true,
   );
@@ -249,7 +249,7 @@ ${JSON.stringify(tasks)}
   assert.equal(
     requiredToolsObserved(
       { id: "cart", description: "Add then remove", requiredTools: ["add_to_cart", "remove_item"], verify: "true" },
-      { response: "Called add_to_cart and remove_item." },
+      { source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [], calls: [{ toolName: "add_to_cart", status: "success" }, { toolName: "remove_item", status: "success" }] },
     ),
     true,
   );

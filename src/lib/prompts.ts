@@ -89,9 +89,29 @@ if the task's real-world effect actually happened. Base this on real,
 observable state — persisted storage, DOM content, or the site's own state
 management — not on trusting the agent's own claim of success.
 
+Core executes all setup and actions ONLY through Chrome DevTools MCP
+list_webmcp_tools and call_webmcp_tool (which delegates to the upstream
+execute_webmcp_tool method). Never require clicks, direct JavaScript calls to
+handlers/modelContext, or ordinary UI interactions to prepare a test. Setup
+must be achievable through the task's approved requiredTools. For a rejection
+test, successful setup calls to the same tool with other inputs are permitted
+(for example selecting three items before the guarded fourth-item attempt).
+
+Storage keys can legitimately be absent in a fresh context, especially when a
+rejected action makes no mutation. Handle missing storage without throwing:
+for example use JSON.parse(localStorage.getItem('actual-key') ?? '{}')?.state?.cart
+and a source-grounded empty-cart default for a negative test. For a positive
+test, absent state must return false. Use the real persisted key/shape; never
+set or synthesize storage during verification. Verification must be read-only.
+
 Include at least one task that checks tool availability itself, such as
-confirming a conditionally registered tool is or is not present through
-document.modelContext.getTools(). Do not include tasks whose effect cannot be
+discovering the live catalog through list_webmcp_tools and independently
+checking Boolean(document.modelContext). Do not assume draft getTools APIs
+are implemented by the target browser or treat an async getTools result as
+an array. If a source-grounded availability check genuinely uses a supported
+async page API, feature-detect it and await it in an async IIFE. Discovery and
+all capability actions still use Core's Chrome DevTools MCP gateway, never
+direct executeTool calls. Do not include tasks whose effect cannot be
 verified this way.
 
 Verification tasks are tests, not WebMCP tools. Never place a task (including
@@ -117,8 +137,10 @@ checkout without authentication or cart contents, or remove_item with an empty
 cart. A rejection task must test exactly one proposed tool. It may declare
 setup to prepare the negative case, such as emptying the cart or choosing an
 absent item, but that preparation must keep the declared failure condition
-true and must never satisfy the missing prerequisite or execute the guarded
-action. Omit setup when the initial state already meets the negative case.
+true and must never satisfy the missing prerequisite or perform the primary
+rejected operation early. Setup may successfully call the same tool with other
+inputs when that establishes the negative case. Omit setup when the initial
+state already meets the negative case.
 Set expectedError to stable text from that tool's
 behavior.expectedFailures contract, and verify independently that no forbidden
 state change occurred. Do not use rejection tasks for crashes, missing tools,

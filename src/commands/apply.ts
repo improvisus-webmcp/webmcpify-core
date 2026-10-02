@@ -14,8 +14,6 @@ import {
   writePatchMetadata,
   type PatchMetadata,
 } from "../lib/patches.js";
-import { scoreTasks } from "../lib/scoring.js";
-import { loadTasks } from "../lib/tasks.js";
 import { WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
 import { resolvePackageManager } from "../lib/package-manager.js";
@@ -117,12 +115,11 @@ async function recordRepairEvaluation(sitePath: string, metadata: PatchMetadata)
     const before = JSON.parse(await readFile(metadata.repair.sourceEvaluation, "utf8")) as {
       scores?: { results?: Array<{ task: string; passed: boolean; detail: string }> };
     };
-    const tasks = (await loadTasks(sitePath)).filter((task) => metadata.repair?.failedTaskIds.includes(task.id));
-    const scores = await scoreTasks(metadata.repair.url, tasks);
     const beforeResults = (before.scores?.results ?? []).filter((result) => metadata.repair?.failedTaskIds.includes(result.task));
     const beforePassed = beforeResults.filter((result) => result.passed).length;
-    const delta = scores.passed - beforePassed;
-    const status = delta > 0 ? "improved" : delta < 0 ? "regressed" : "unchanged";
+    // Applying/building does not replay the approved task actions. A fresh
+    // page's default state must never be reported as a repaired capability.
+    const status = "awaiting-test";
     return createTrajectoryArtifact("repair-eval", {
       version: 1,
       mode: "repair",
@@ -133,8 +130,7 @@ async function recordRepairEvaluation(sitePath: string, metadata: PatchMetadata)
       sourceEvaluation: metadata.repair.sourceEvaluation,
       failedTaskIds: metadata.repair.failedTaskIds,
       before: { passed: beforePassed, total: beforeResults.length, results: beforeResults },
-      after: scores,
-      improvement: delta,
+      nextStep: "Run webmcpify test against the running app to replay the approved actions. Final-eval and durable repair do this automatically.",
     }, {
       sitePath,
       runId: metadata.runId,
@@ -211,7 +207,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     await runGit(sitePath, ["apply", "--whitespace=nowarn", patch]);
     buildScripts = await runBuild(sitePath);
     const repairEvaluationPath = metadata.repair
-      ? await withCliProgress("apply", "Independently verifying repaired tasks", () => recordRepairEvaluation(sitePath, metadata))
+      ? await withCliProgress("apply", "Recording repair awaiting browser retest", () => recordRepairEvaluation(sitePath, metadata))
       : undefined;
     const applied: PatchMetadata = {
       ...metadata,
@@ -227,6 +223,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     console.log("[apply] ✓ patch applied");
     console.log(buildScripts.length ? "[apply] ✓ build/typecheck passed" : "[apply] ✓ no build/typecheck script found");
     console.log("[apply] WebMCP changes successfully applied.");
+    if (metadata.repair) console.log("[apply] repair applied and build checked; capability result awaits real task execution. Run webmcpify test, or continue final-eval/durable repair.");
   } catch (error) {
     let rollbackError: string | undefined;
     try { await withCliProgress("apply", "Restoring patch files after failure", () => rollbackFiles(sitePath, metadata.changedFiles, rollbackPath, originalFiles)); }

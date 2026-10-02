@@ -11,7 +11,7 @@ export interface Task {
   verify: string;
   /** Whether the primary tool call must succeed or be rejected by a known guard. */
   expectedOutcome?: "success" | "rejection";
-  /** Stable error text that must be present in provider output for a rejection test. */
+  /** Stable error text required in the recorded WebMCP execution response. */
   expectedError?: string;
   /** Approved WebMCP tools needed to complete this task. */
   requiredTools?: string[];
@@ -186,6 +186,10 @@ export function validateTaskToolBindings(
 export function validateToolScaledTasks(tasks: Task[], tools: Iterable<string | ToolTestContract>): Task[] {
   const contracts = [...tools];
   const validated = validateTaskToolBindings(validateTasks(tasks), contracts);
+  for (const task of validated) {
+    const unsafeStorage = taskVerificationIssues(task).find(issue => issue.code === "storage-null");
+    if (unsafeStorage) throw new Error(`Task "${task.id}" has unsafe empty-storage verification: ${unsafeStorage.message}`);
+  }
   const toolCount = new Set(contracts.map(tool => (typeof tool === "string" ? tool : tool.name).trim()).filter(Boolean)).size;
   const minimum = minimumTaskCount(toolCount);
   if (validated.length < minimum) throw new Error(`Proposed ${toolCount} tool(s) require at least ${minimum} valid verification tasks (30% extra, rounded up); received ${validated.length}.`);

@@ -9,6 +9,17 @@ Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/w
 
 Core inspects what a site already does, asks a coding agent to draft grounded WebMCP tools, form feedback, and agent guidance in an isolated copy, and shows the exact proposal for human approval. Only an approved patch can reach the target repository. The result is tested in a real browser and checked independently of the agent's claim. JavaScript and TypeScript targets retain their existing language, module system, and framework conventions.
 
+## Why use WebMCPify Core?
+
+- **Make existing features usable by browser agents.** Expose source-grounded WebMCP capabilities around your app's existing handlers, forms, and workflows instead of rebuilding the application.
+- **Keep control of what ships.** Inspect every proposed tool and changed file, remove unwanted capabilities, and approve the exact source patch before Core applies it. Original application actions remain available when their WebMCP registrations are rejected.
+- **Reduce manual integration work.** Draft tool schemas, registrations, accessible agent-activity feedback, and framework-appropriate changes while preserving JavaScript or TypeScript conventions.
+- **Test real workflows, not just compilation.** Generate tool-scaled tests for every proposed capability, including prerequisite setup and expected business-rule rejections, then check resulting browser state separately from the agent's report. A browser/control failure is not a valid expected rejection.
+- **Apply security checks appropriate to the action.** Distinguish reversible UI state from consequential backend effects, with balanced checks by default and explicit strict or ignore policies.
+- **Document how agents can use your site.** Include reviewable repository guidance, public capability pages, `llms.txt`, and proposed crawler-policy updates. These improve clarity and discoverability; they do not guarantee indexing or inclusion in an LLM's answers.
+- **Use your existing coding provider.** Work through the CLI or MCP server with supported, authenticated Codex, Claude Code, Gemini, OpenCode, or Antigravity installations.
+- **Keep optional infrastructure optional.** Normal workflows do not require Temporal; durable workflows opt into it. Disposable source workspaces and rollback snapshots help preserve the target during drafting and application, with copy-on-write savings where the filesystem supports them.
+
 ```text
 Discover → Draft → Security check → Review → Apply → Test → Verify
 ```
@@ -37,6 +48,30 @@ passing fixtures do not certify every OS or a live durable workflow. See the
 for the original findings, implemented fixes, and remaining native-OS/live-workflow verification limits.
 
 Browser-agent testing uses Chrome DevTools MCP. Core writes or safely merges a project-local configuration and starts its pinned package with `npx`; a separate global installation is not required. The first use needs registry access unless that package is already cached.
+
+For WebMCP audits, Core connects the real Chrome MCP server before starting a
+task agent and binds it to that task's isolated tab. The agent receives only
+`list_webmcp_tools` and `call_webmcp_tool`; the latter delegates to the pinned
+server's `execute_webmcp_tool`. Core handles read-only page binding and independent
+verification. Clicks, injected JavaScript, `cua_repl`, other browser bridges, and
+tool names mentioned in a final report cannot substitute for recorded WebMCP
+calls. A missing connection stops the audit and does not justify source repair.
+`baseline` deliberately remains a separate human-interface comparison.
+
+`test` exits with a nonzero status if any approved task fails, after saving the
+evaluation. Provider failures cannot pass baseline checks just because the page
+already matches. Verification reads have deadlines and respect cancellation;
+rejection checks also observe a short 500 ms unchanged-state settle window
+(not a guarantee against every later side effect). Invalid/timed-out task checks
+require regeneration/review, not an automatic application-source repair.
+
+Applying a repair checks its source/build and records `awaiting-test`; it does
+not claim improvement without replaying the approved actions. Run `test` again;
+final-eval and durable repair already perform that retest. Final-eval only reuses
+current execution-policy results with matching URL, provider, exact tasks, and
+local Git source identity for WebMCP. Older reports remain readable with `eval`
+but cannot replace fresh execution. This does not attest that a remote deployment
+matches the local Git checkout.
 
 ## Fastest path
 
@@ -190,7 +225,19 @@ automatic before-run dependency installation for that subprocess. This prevents
 interactive module-purge failures without forcing confirmation or changing the
 target dependency tree. Missing dependencies and genuine build errors still fail.
 
-Negative tests may prepare their failure condition, such as emptying the cart or choosing an absent item. Their setup must preserve the unmet prerequisite, not satisfy it or perform the guarded action. An unrelated error or forbidden state change still fails the test.
+Negative tests may prepare their failure condition, such as choosing an absent
+item or selecting three coffees before attempting a fourth. Successful setup
+calls with different inputs to the same tool are allowed. The primary rejection
+attempt must happen once, return the declared business error through Chrome
+DevTools WebMCP, and leave the forbidden change unapplied. Missing tools,
+invalid inputs, cancelled calls, connection errors, and successful retries are
+not expected rejections. Independent checks must tolerate absent storage keys
+and must not create persisted state just to make a check readable.
+Core preserves guard exceptions omitted by upstream through read-only
+observation correlated to the actual WebMCP invocation, and recognizes explicit
+structured business-error results even when protocol execution completes.
+Already approved criteria are never rewritten silently—regenerate and review an old
+draft with unsafe storage checks before testing it again.
 
 If generated tool/task metadata is invalid, Core requests one metadata-only correction in the disposable workspace. Already-valid tool contracts and generated source must remain unchanged; corrected metadata is revalidated and becomes the draft shown for review. A failed correction stops generation without applying a patch. Raw output and validation details stay in private trajectories, not terminal messages.
 
@@ -326,6 +373,7 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Apply rejects missing, stale, altered, or unapproved patches.
 - Target typecheck/build failures trigger rollback.
 - Browser tests expose only approved WebMCP tools to the test agent.
+- Actual discovery/call results are recorded by Core, separately from provider reports; an initially-true postcondition without required calls cannot pass.
 - Security gating follows the selected `run --security` policy; human approval of the exact patch is always required.
 - Verification reads the resulting application state instead of trusting the agent's report.
 - Run evidence stays in the target project's ignored `.webmcpify/` directory.
@@ -448,6 +496,14 @@ Provider executable overrides are available as `WEBMCPIFY_CODEX_BIN`, `WEBMCPIFY
 Core checks executable files on `PATH`, not shell aliases or functions. Codex also falls back to an executable in `~/.local/bin` or a supported editor installation. Relative executable paths and relative `PATH` entries are resolved before changing to the disposable workspace. Launch errors distinguish missing CLIs from a missing working directory or a broken launcher/interpreter; use an absolute override when necessary.
 
 Browser agents run in empty disposable workspaces, with a fresh browser context per task. Core verifies the same task tab after execution, preserving DOM/component state, session storage, cookies, and navigation. Baselines also run and score each task separately. The browser MCP bridge and scorer use the same `WEBMCPIFY_CDP_URL`; owner MCP configuration is not overwritten. Non-Claude tool allowlists remain instruction-level constraints, not a universal OS sandbox.
+
+The WebMCP task gateway enforces its own two-method, approved-tool and exact-tab
+boundary regardless of provider allowlist support. It is not an OS sandbox for
+the entire coding provider. Private `test-evidence-*` artifacts record real
+discovery, successful calls, business errors, and connection/policy failures.
+Infrastructure/evidence failures are distinct from application postcondition
+failures and must be resolved before attempting application repair. The same
+execution boundary is used by durable Temporal task attempts.
 
 OpenCode uses `run --auto --format json` and an inline MCP overlay without replacing `opencode.json`. Gemini receives merged workspace MCP settings; workspace trust remains the owner's choice. All providers have Core-level deadlines (5 minutes for browser tasks, 15 for generation/repair); override with `WEBMCPIFY_<PROVIDER>_TIMEOUT`, for example `WEBMCPIFY_CODEX_TIMEOUT=20m`. Antigravity's separate print-timeout setting remains available.
 

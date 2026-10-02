@@ -34,6 +34,9 @@ export function validateVerifyExpression(
   if (/^(?:true|1|true\s*===\s*true|Boolean\(\s*true\s*\))$/i.test(expression.replace(/\s+/g, " "))) {
     issues.push({ severity: "error", code: "trivial", message: "Verification is a trivial always-true expression." });
   }
+  if (/JSON\s*\.\s*parse\s*\(\s*(?:localStorage|sessionStorage)\s*\.\s*getItem\s*\(\s*(['"])[^'"]+\1\s*\)\s*\)\s*\./.test(expression)) {
+    issues.push({ severity: "warning", code: "storage-null", message: "Fresh browser storage may be absent: directly dereferencing JSON.parse(getItem(...)) throws. Use null-safe storage checks, source-grounded empty-state defaults for rejection tests, and false for missing positive state." });
+  }
 
   const selectors = literalSelectors(expression);
   if (selectors.length && context.discovery) {

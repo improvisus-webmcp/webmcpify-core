@@ -12,6 +12,8 @@ try {
   const generatedConfig = await writeChromeDevtoolsMcpConfig(fixture);
   const generated = JSON.parse(await readFile(generatedConfig, "utf8"));
   assert.equal(generated.mcpServers["chrome-devtools"].command, "npx");
+  assert.equal(generated.mcpServers["chrome-devtools"].enabled, true);
+  assert.equal(generated.mcpServers["chrome-devtools"].required, true);
 
   const userConfigPath = path.join(fixture, ".mcp.json");
   await writeFile(userConfigPath, JSON.stringify({ mcpServers: { custom: { command: "custom-mcp" } } }));
@@ -21,10 +23,12 @@ try {
   assert.equal(merged.mcpServers.custom.command, "custom-mcp");
   assert.equal(merged.mcpServers["chrome-devtools"].command, "npx");
 
-  await writeFile(userConfigPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: "custom-chrome" } } }));
+  await writeFile(userConfigPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: "custom-chrome", enabled: false, required: false } } }));
   const userBefore = await readFile(userConfigPath, "utf8");
   const bridged = JSON.parse(await readFile(await writeChromeDevtoolsMcpConfig(fixture), "utf8"));
   assert.equal(bridged.mcpServers["chrome-devtools"].command, "custom-chrome");
+  assert.equal(bridged.mcpServers["chrome-devtools"].enabled, true);
+  assert.equal(bridged.mcpServers["chrome-devtools"].required, true);
   assert.ok(bridged.mcpServers["chrome-devtools"].args.includes("--browserUrl"));
   assert.equal(await readFile(userConfigPath, "utf8"), userBefore, "Owner configuration remains unchanged");
 

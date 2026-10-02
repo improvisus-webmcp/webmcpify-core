@@ -25,7 +25,11 @@ flowchart LR
 - Coding agents edit a disposable copy of the saved working tree, including uncommitted/untracked files, without the target's `.git`, `.webmcpify`, `.serena`, or `node_modules` contents. Copying requests optional filesystem reflinks with ordinary-copy fallback, never source hard links; no new asset/cache exclusions are inferred from Git ignore rules.
 - Selected entries from the target's installed dependencies are linked into the disposable workspace for typecheck/build validation; they are not copied into it.
 - Browser agents receive empty disposable workspaces, not copied source. Each task uses a fresh browser context and independent scoring of the exact acted-on page. Non-Claude adapters do not enforce the requested tool allowlist as an OS sandbox. See the [runtime audit](docs/audits/2026-10-01-runtime-compatibility.md).
+- Core owns the real Chrome DevTools MCP connection and binds the task tab by a unique marker. Its authenticated, task-scoped stdio gateway exposes only `list_webmcp_tools` and `call_webmcp_tool` (delegating to upstream `execute_webmcp_tool`), rejects unapproved tools/routing/scripts, and records execution independently of provider reports. Agent access is revoked and pending calls settle before scoring. The UI baseline is intentionally separate.
 - The independent scorer evaluates each approved `verify` expression against fresh live-page state.
+- WebMCP scoring requires actual discovery and ordered required calls before considering postconditions. Rejection tests need one matching recorded business error and an unchanged-state postcondition, including a bounded 500 ms settle window; protocol/browser errors cannot pass. Individual verification reads have deadlines and respect cancellation. Infrastructure/evidence/verifier failures do not authorize application repair, including durable task attempts.
+- Core waits briefly for matching guard exceptions arriving on its separate CDP observer after the MCP response; it never retries the capability to recover an error. A timed-out MCP request closes the owned connection to avoid overlapping uncertain executions.
+- Failed standalone audits exit nonzero; failed baseline providers cannot pass initially-true checks. Applied repairs report awaiting-test until actual actions are replayed. Final-eval caches must match execution policy, URL/provider, the exact complete task/result set, and current local Git source identity for WebMCP; baselines must be UI-only and intentionally describe pre-apply source.
 - Temporal stores workflow progress only for optional durable repair. It does not replace approval or verification.
 
 ## Entry points
@@ -83,6 +87,11 @@ flowchart LR
 | `src/lib/preflight.ts` | Runs target typecheck/build inside the disposable workspace before review. |
 | `src/lib/package-manager.ts` | Chooses the target package manager and anchors its executable before changing workspace; environment launch failures do not trigger LLM source repair. |
 | `src/lib/mcp-config.ts` | Reuses or safely merges user MCP configuration with Core's pinned Chrome DevTools MCP bridge. |
+| `src/lib/mcp-stdio-client.ts` | Bounded JSONL MCP client with private diagnostics, startup checks, deadlines, cancellation and process cleanup. |
+| `src/lib/webmcp-task-bridge.ts` | Connects real Chrome MCP; binds isolated task tabs and enforces/records the two-method WebMCP gateway. |
+| `src/mcp/webmcp-bridge.ts` | Thin stdio adapter to Core's authenticated loopback task endpoint; no direct browser access. |
+| `src/lib/webmcp-evidence.ts` | Core-owned discovery/call/error evidence, not parsed provider claims. |
+| `src/lib/webmcp-observer.ts` | Read-only CDP observer correlated by invocation/tool/input, preserving thrown guard messages omitted by upstream MCP without calling capabilities itself. |
 | `src/lib/browser.ts` | Reuses configured CDP or starts and cleans an isolated WebMCP-enabled Chrome process. |
 | `src/lib/scoring.ts` | Creates isolated pages, checks the WebMCP runtime, evaluates tasks, and closes CDP. |
 | `src/lib/target-url.ts` | Normalizes target URLs and checks reachability. |
@@ -115,6 +124,8 @@ flowchart LR
 | `scripts/verify-generation-recovery.mjs` | Exercises generation metadata recovery and fail-closed source/contract checks using credential-free providers in disposable repositories. |
 | `scripts/verify-workspace-copy.mjs` | Tests optional-reflink/ordinary copying, saved dirty/staged/untracked/required-ignored files, binary assets, nested exclusions, unchanged original contents/Git state, and copy-error cleanup. |
 | `scripts/verify-browser-state.mjs` | Tests real Chrome same-tab scoring, retained task state, expected-error matching, forbidden-state rejection, and personal-context preservation. |
+| `scripts/verify-webmcp-execution.mjs` | Tests mandatory MCP startup, authenticated two-method gateway, approved-only execution, real rejection records, null-safe checks and false-pass prevention without a live model. |
+| `scripts/verify-webmcp-browser.mjs` | Tests real pinned Chrome MCP and consecutive isolated WebMCP tasks, asynchronous state, absent-storage rejection, same-tool setup and durable-task/connection-failure boundaries with a fixture provider. |
 | `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
 | `scripts/verify-review.mjs` | Tests read-only tasks/contracts, tamper rejection, confirmation, persistence, cancellation, and rejection. |
 | `scripts/verify-partial-review.mjs` | Tests removal of rejected registrations, retained-only contracts/tasks/docs, preserved original app actions, fresh patch confirmation, and refused unsafe revisions. |

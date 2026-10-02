@@ -131,7 +131,7 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
   let config: {
     mcpServers?: Record<
       string,
-      { command?: string; args?: string[]; env?: Record<string, string> }
+      { command?: string; args?: string[]; env?: Record<string, string>; enabled?: boolean; required?: boolean; startup_timeout_sec?: number; enabled_tools?: string[]; disabled_tools?: string[] }
     >;
   };
 
@@ -153,9 +153,15 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
     if (server.args) {
       args.push("-c", `${key}.args=${JSON.stringify(server.args)}`);
     }
+    for (const field of ["enabled", "required", "startup_timeout_sec", "enabled_tools", "disabled_tools"] as const) {
+      if (server[field] !== undefined) args.push("-c", `${key}.${field}=${JSON.stringify(server[field])}`);
+    }
     for (const [name, value] of Object.entries(server.env ?? {})) {
       args.push("-c", `${key}.env.${JSON.stringify(name)}=${JSON.stringify(value)}`);
     }
+  }
+  if (Object.values(config.mcpServers ?? {}).some(server => server.required)) {
+    args.push("-c", "mcp_optional_startup_grace_ms=0");
   }
   return args;
 }

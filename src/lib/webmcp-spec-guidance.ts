@@ -19,8 +19,12 @@ the target browser supports the API and do not claim universal availability.
 
 IMPLEMENTATION AREAS
 - ModelContext: use document.modelContext, not the deprecated
-  navigator.modelContext. Use its supported getTools/executeTool operations
-  when inspecting or invoking tools.
+  navigator.modelContext. The draft's getTools/executeTool operations are
+  asynchronous and may not exist in the target browser implementation;
+  feature-detect before using them in application code. Core browser task
+  agents must discover and call capabilities only through Chrome DevTools
+  MCP list_webmcp_tools/call_webmcp_tool (upstream execute_webmcp_tool), not
+  direct JavaScript invocation of ModelContext or application handlers.
 - Tool definitions: provide a unique 1–128 character ASCII name (letters,
   numbers, underscore, hyphen, or period), a human-readable title, a precise
   description, a structured JSON inputSchema, execute, and annotations.

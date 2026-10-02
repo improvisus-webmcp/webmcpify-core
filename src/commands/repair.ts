@@ -22,6 +22,7 @@ import { normalizeTargetUrl } from "../lib/target-url.js";
 import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.js";
 import type { TaskResult } from "../lib/scoring.js";
 import type { StoredTestEvaluation } from "./test.js";
+import { isNonApplicationFailure } from "../lib/scoring.js";
 
 export interface RepairOptions {
   provider?: string;
@@ -69,6 +70,10 @@ async function readLastEvaluation(sitePath: string, explicitPath?: string): Prom
 
 export function selectFailedTasks(evaluation: StoredTestEvaluation, requestedTask?: string): TaskResult[] {
   const failed = evaluation.scores.results.filter((result) => !result.passed);
+  const infrastructure = failed.filter(isNonApplicationFailure);
+  if (infrastructure.some(result => !requestedTask || result.task === requestedTask)) {
+    throw new Error("The selected test failure is browser/provider infrastructure, missing recorded WebMCP execution, or an invalid/timed-out verification expression, not a proven application defect. Fix the Chrome DevTools MCP connection or regenerate/review the invalid task check, then rerun testing before requesting source repair.");
+  }
   if (!requestedTask) return failed;
   const selected = failed.filter((result) => result.task === requestedTask);
   if (!selected.length) throw new Error(`Task "${requestedTask}" is not a failed task in the selected evaluation.`);

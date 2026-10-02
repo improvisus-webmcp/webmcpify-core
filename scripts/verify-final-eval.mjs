@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildFinalEvalPlan, compareTaskSets } from "../dist/commands/final-eval.js";
+import { assertRepairableWebMcpResults, buildFinalEvalPlan, compareTaskSets, matchesEvaluationContext } from "../dist/commands/final-eval.js";
+import { taskFingerprint } from "../dist/lib/tasks.js";
 import { initializeAgentWorkspace, readAgentWorkspaceDiff } from "../dist/lib/agent-workspace.js";
 
 const tasks = [
@@ -19,6 +20,27 @@ assert.deepEqual(buildFinalEvalPlan(), [
 ]);
 compareTaskSets(tasks, structuredClone(tasks));
 assert.throws(() => compareTaskSets(tasks, [{ ...tasks[0], verify: "false" }, tasks[1]]), /exact same task definitions/);
+assert.throws(() => assertRepairableWebMcpResults({ results: [{ passed: true }, { passed: false, failureKind: "infrastructure" }] }), /not a proven application defect/);
+assert.throws(() => assertRepairableWebMcpResults({ results: [{ passed: false, failureKind: "evidence" }] }), /No source repair or durable evaluation/);
+assert.throws(() => assertRepairableWebMcpResults({ results: [{ passed: false, failureKind: "verification" }] }), /verification expression failed/);
+assert.doesNotThrow(() => assertRepairableWebMcpResults({ results: [{ passed: false, failureKind: "postcondition" }] }));
+const context = { sitePath: process.cwd(), taskSetId: taskFingerprint(tasks), mode: "webmcp", url: "http://localhost:5173", provider: "codex", sourceSnapshot: { sourceVersion: "head", workingTreeHash: "reviewed-tree" } };
+const evaluation = {
+  version: 1, executionVersion: 1, mode: "webmcp", targetProject: context.sitePath,
+  taskSetId: context.taskSetId, url: context.url, provider: context.provider, sourceSnapshot: context.sourceSnapshot, tasks,
+  scores: { passed: 2, total: 2, results: tasks.map(task => ({ task: task.id, passed: true, detail: "recorded calls and independent postcondition passed" })) },
+};
+assert.equal(matchesEvaluationContext(evaluation, context), true);
+assert.equal(matchesEvaluationContext({ ...evaluation, executionVersion: undefined }, context), false, "Old report-only results must be retested");
+assert.equal(matchesEvaluationContext({ ...evaluation, url: "http://localhost:3000" }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, provider: "antigravity" }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, mode: "baseline" }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, sourceSnapshot: { ...context.sourceSnapshot, workingTreeHash: "changed" } }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, sourceSnapshot: undefined }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, scores: { ...evaluation.scores, passed: 1 } }, context), false);
+assert.equal(matchesEvaluationContext({ ...evaluation, scores: { ...evaluation.scores, results: [evaluation.scores.results[0], evaluation.scores.results[0]] } }, context), false, "Duplicate IDs cannot conceal an untested approved task");
+assert.equal(matchesEvaluationContext({ ...evaluation, mode: "baseline", readOnly: true, sourceSnapshot: undefined }, { ...context, mode: "baseline" }), true, "Baseline source is intentionally measured before applying the patch");
+assert.equal(matchesEvaluationContext({ ...evaluation, mode: "baseline", readOnly: false }, { ...context, mode: "baseline" }), false, "A standalone mixed UI/WebMCP baseline cannot replace the UI-only final-eval level");
 
 const workspace = await mkdtemp(path.join(os.tmpdir(), "webmcpify-final-eval-diff-"));
 try {

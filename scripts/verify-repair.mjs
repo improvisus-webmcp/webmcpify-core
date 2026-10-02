@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,8 +7,6 @@ import { execa } from "execa";
 import { createPendingPatch, readPatchMetadata } from "../dist/lib/patches.js";
 import { runApply } from "../dist/commands/apply.js";
 import { repairPrompt, selectFailedTasks } from "../dist/commands/repair.js";
-import { closeScoringBrowser } from "../dist/lib/scoring.js";
-import { withManagedChrome } from "../dist/lib/browser.js";
 import { taskFingerprint } from "../dist/lib/tasks.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../dist/lib/trajectories.js";
 
@@ -40,7 +36,6 @@ assert.match(repairPrompt(evaluation, evaluationPath, sitePath, failed), /verify
 assert.equal(await latestTrajectoryPath("test-eval", sitePath), evaluationPath);
 
 const runId = randomUUID();
-const cdpPort = 4398;
 const diff = `diff --git a/index.html b/index.html\n--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-<!doctype html><body data-repaired="false"><main>ready</main></body>\n+<!doctype html><body data-repaired="true"><main>ready</main></body>\n`;
 const repairTrajectory = await createTrajectoryArtifact("repair", { failedTasks: ["task_2"], diff }, { sitePath, runId, sourceEvaluation: evaluationPath, taskSetId }, "repair-fixture");
 const patch = await createPendingPatch(sitePath, diff, repairTrajectory, { repair: { sourceEvaluation: evaluationPath, url: "http://127.0.0.1:4399", taskSetId, failedTaskIds: ["task_2"] } });
@@ -49,33 +44,25 @@ assert.match(await readFile(patch.patchPath, "utf8"), /data-repaired="true"/);
 await assert.rejects(() => runApply({ path: sitePath }), /explicitly approve/);
 
 await writeFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), `${JSON.stringify({ sourceDiff: { status: "approved", runId: patch.runId, patchHash: patch.patchHash } }, null, 2)}\n`);
-const server = createServer((_request, response) => { response.setHeader("content-type", "text/html"); response.end(readFileSync(source)); });
-await new Promise((resolve) => server.listen(4399, "127.0.0.1", resolve));
-const originalCdp = process.env.WEBMCPIFY_CDP_URL;
 const originalManager = process.env.WEBMCPIFY_PACKAGE_MANAGER;
-process.env.WEBMCPIFY_CDP_URL = `http://127.0.0.1:${cdpPort}`;
 process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
 try {
-  await withManagedChrome("http://127.0.0.1:4399", async () => {
-  try {
   await runApply({ path: sitePath });
   const repairEvalPath = await latestTrajectoryPath("repair-eval", sitePath);
   assert.ok(repairEvalPath);
   const repairEval = JSON.parse(await readFile(repairEvalPath, "utf8"));
-  assert.equal(repairEval.status, "improved");
+  assert.equal(repairEval.status, "awaiting-test");
   assert.equal(repairEval.before.passed, 0);
-  assert.equal(repairEval.after.passed, 1);
-  } finally { await closeScoringBrowser(); }
-  });
+  assert.equal(repairEval.after, undefined, "Applying a patch never pretends to replay the tool actions");
+  assert.equal(repairEval.improvement, undefined);
+  assert.match(repairEval.nextStep, /webmcpify test/);
+  assert.match(await readFile(source, "utf8"), /data-repaired="true"/, "The approved repair source is applied; only the browser outcome awaits test");
 } finally {
-  await closeScoringBrowser();
-  if (originalCdp === undefined) delete process.env.WEBMCPIFY_CDP_URL; else process.env.WEBMCPIFY_CDP_URL = originalCdp;
   if (originalManager === undefined) delete process.env.WEBMCPIFY_PACKAGE_MANAGER; else process.env.WEBMCPIFY_PACKAGE_MANAGER = originalManager;
-  await new Promise((resolve) => server.close(resolve));
 }
 
 const regressionPath = await createTrajectoryArtifact("repair-eval", { version: 1, mode: "repair", status: "regressed", runId, targetProject: sitePath, before: { passed: 4 }, after: { passed: 3 }, improvement: -1 }, { sitePath, runId, targetProject: sitePath, repairStatus: "regressed" }, "repair-regression-fixture");
 assert.equal(JSON.parse(await readFile(regressionPath, "utf8")).status, "regressed");
 await readPatchMetadata(sitePath);
 await rm(sitePath, { recursive: true, force: true });
-console.log("repair verification passed: failed-task context, real diff, approval boundary, apply/retest, and regression evidence");
+console.log("repair verification passed: failed-task context, real diff, approval boundary, honest awaiting-retest status without Chrome, and regression evidence");

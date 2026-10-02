@@ -16,6 +16,9 @@ const CHROME_DEVTOOLS_SERVER = {
     "execute_webmcp_tool",
   ],
   approveTools: ["execute_webmcp_tool"],
+  enabled: true,
+  required: true,
+  startup_timeout_sec: 90,
 };
 
 interface McpConfig {
@@ -68,6 +71,9 @@ export async function writeChromeDevtoolsMcpConfig(
           "chrome-devtools": {
             ...CHROME_DEVTOOLS_SERVER,
             ...server,
+            enabled: true,
+            required: true,
+            startup_timeout_sec: Math.max(90, typeof server?.startup_timeout_sec === "number" ? server.startup_timeout_sec : 0),
             args: [...retainedArgs, "--browserUrl", process.env.WEBMCPIFY_CDP_URL ?? "http://127.0.0.1:9222"],
           },
         },

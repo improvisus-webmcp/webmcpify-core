@@ -103,7 +103,10 @@ program
   .action(async (opts) => {
     await withManagedChrome(opts.url, async () => {
       try {
-        await runTest(opts);
+        const evaluation = await runTest(opts);
+        if (evaluation.scores.passed !== evaluation.scores.total) {
+          throw new Error(`WebMCP audit failed: ${evaluation.scores.passed}/${evaluation.scores.total} tasks passed. Inspect the saved evaluation and private diagnostics before retrying.`);
+        }
       } finally {
         await closeScoringBrowser();
       }

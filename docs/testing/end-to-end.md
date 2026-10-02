@@ -14,6 +14,7 @@ cd /home/olumide/Desktop/Webmcpify/webmcpify-packages/public/webmcpify-core
 pnpm install
 pnpm typecheck
 pnpm test
+pnpm run verify:webmcp-browser
 pnpm run verify:browser-state
 pnpm run verify:review-browser
 pnpm audit --prod
@@ -200,6 +201,25 @@ observable state is independently checked on the same tab. Rejected tools must n
 remain registered by the revised source. An expected rejection needs matching tool/
 error evidence and a passing unchanged-state postcondition. Unrelated errors fail.
 
+The agent must use only Core's Chrome DevTools `list_webmcp_tools` and
+`call_webmcp_tool` gateway. Core connects the upstream MCP server and binds the
+exact isolated tab before starting it. Inspect private `test-evidence-*` files
+for real calls, not merely tool names in provider reports. A missing MCP/provider
+connection stops the audit; remaining tasks are marked not executed and must
+not trigger app-source repair. `verify:webmcp-browser` exercises the real pinned
+MCP and Chrome with a credential-free fixture agent, including empty-storage
+business rejections and same-tool setup. It does not certify your live model.
+If an older approved task dereferences an absent storage key, regenerate and
+review a null-safe check; Core never silently changes approved criteria.
+
+Check the exit status immediately after `webmcpify test`: zero means every
+approved task passed; any failed task produces a nonzero status after reports
+are saved. The credential-free browser regression also checks failed-provider
+baseline false passes, delayed forbidden mutations after a rejection, unresolved
+verification promises, and CLI failure status. Verification errors/timeouts must
+not launch source repair. The 500 ms rejection settle window detects immediate
+queued changes, not every possible future side effect.
+
 Use a compatible WebMCP browser to inspect live tool availability on relevant pages.
 For declarative forms, inspect `toolname`/`tooldescription`, loaded CSS, visible
 agent-active outline, readable status/live region, cancellation/reset behavior,
@@ -290,6 +310,11 @@ webmcpify eval
 Repair must use failure evidence and preserve approved task criteria. It cannot
 change task definitions or silently approve a fix. If no tasks failed, a repair is
 not needed. Keep reports private; do not paste trajectories or prompts publicly.
+
+After applying a repair, its `repair-eval` report must say `awaiting-test` with
+no fabricated after-score or improvement. Only the subsequent real browser
+`test` establishes the capability outcome. Apply needs no browser just to record
+this status; final-eval and durable repair replay tasks automatically.
 
 ## 11. Full normal workflow and MCP
 

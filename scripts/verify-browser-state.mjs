@@ -5,6 +5,7 @@ import { withManagedChrome } from "../dist/lib/browser.js";
 import { closeScoringBrowser, resetScoringState, scoreTask, scoreTasks } from "../dist/lib/scoring.js";
 
 const previousCdp = process.env.WEBMCPIFY_CDP_URL;
+const evidence = calls => ({ source: "chrome-devtools-mcp", pageId: 1, discovered: true, calls, policyViolations: [] });
 const server = createServer((_request, response) => {
   response.setHeader("Content-Type", "text/html");
   const scenarios = Array.from({ length: 13 }, (_, index) => `<span id="scenario-${index}">${index}</span>`).join("");
@@ -27,7 +28,7 @@ try {
       assert.deepEqual(await session.page.context().cookies(), [], "Tasks start fresh without erasing personal state");
       await session.page.click("#cart");
       const task = { id: "cart", description: "Add cart item", requiredTools: ["add_item"], verify: 'document.body.dataset.cart === "filled" && sessionStorage.getItem("cart") === "filled" && document.cookie.includes("taskAuth=fixture")' };
-      const result = await scoreTask(url, task, { page: session.page, resetStorage: false, agentOutput: "add_item completed", requireToolEvidence: true });
+      const result = await scoreTask(url, task, { page: session.page, resetStorage: false, toolEvidence: evidence([{ toolName: "add_item", status: "success" }]), requireToolEvidence: true });
       assert.equal(result.passed, true, result.detail);
       assert.equal(session.page.isClosed(), false, "Scoring must leave the caller-owned task page intact");
       await session.page.goto(`${url}/after-navigation`);
@@ -35,11 +36,11 @@ try {
       assert.equal(navigation.passed, true, navigation.detail);
       assert.ok((await personalContext.cookies()).some((cookie) => cookie.name === "personalAuth"), "Scoring never clears reused CDP authentication");
       const rejectionTask = { ...task, setup: "Stay logged out; do not purchase anything.", expectedOutcome: "rejection", expectedError: "Must log in", requiredTools: ["checkout"], verify: '!document.body.dataset.purchased' };
-      const rejection = await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Must log in" });
+      const rejection = await scoreTask(url, rejectionTask, { page: session.page, toolEvidence: evidence([{ toolName: "checkout", status: "error", error: "Must log in" }]), requireToolEvidence: true });
       assert.equal(rejection.passed, true, rejection.detail);
-      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Network unavailable" })).passed, false, "An unrelated failure must not pass a rejection test");
+      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, toolEvidence: evidence([{ toolName: "checkout", status: "error", error: "Network unavailable" }]), requireToolEvidence: true })).passed, false, "An unrelated failure must not pass a rejection test");
       await session.page.evaluate(() => { document.body.dataset.purchased = "true"; });
-      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Must log in" })).passed, false, "Expected errors must not hide forbidden state changes");
+      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, toolEvidence: evidence([{ toolName: "checkout", status: "error", error: "Must log in" }]), requireToolEvidence: true })).passed, false, "Expected errors must not hide forbidden state changes");
       await session.page.evaluate(() => { delete document.body.dataset.purchased; });
       assert.equal((await scoreTask(url, task, { resetStorage: false })).passed, false, "Never silently verify a fresh tab as live state");
       const largeSet = Array.from({ length: 14 }, (_, index) => ({ id: `read-scenario-${index}`, description: `Read rendered scenario ${index}`, verify: `document.querySelector('#scenario-${index}')?.textContent === '${index}'` }));

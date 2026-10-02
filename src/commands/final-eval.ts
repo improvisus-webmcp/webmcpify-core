@@ -11,7 +11,7 @@ import { runTest, type StoredTestEvaluation } from "./test.js";
 import { loadApprovedTasks, taskFingerprint, type Task } from "../lib/tasks.js";
 import { gitSourceSnapshot, readPatchMetadata } from "../lib/patches.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../lib/trajectories.js";
-import type { TaskScoreSummary, TaskResult } from "../lib/scoring.js";
+import { isNonApplicationFailure, type TaskScoreSummary, type TaskResult } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
 import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.js";
 import { resolveProvider } from "../lib/ai-provider.js";
@@ -81,6 +81,12 @@ export function compareTaskSets(tasks: Task[], candidate: Task[]): void {
   }
 }
 
+export function assertRepairableWebMcpResults(scores: TaskScoreSummary): void {
+  if (scores.results.some(isNonApplicationFailure)) {
+    throw new Error("[final-eval] WebMCP execution infrastructure/evidence or the verification expression failed, not a proven application defect. No source repair or durable evaluation will be started from these results. Fix the Chrome DevTools/provider connection or regenerate/review an invalid task check, then retry.");
+  }
+}
+
 function failedSummary(tasks: Task[], error: unknown): TaskScoreSummary {
   const detail = error instanceof Error ? error.message : String(error);
   return { passed: 0, total: tasks.length, results: tasks.map((task) => ({ task: task.id, passed: false, detail })) };
@@ -109,18 +115,49 @@ async function readFinalEvalCheckpoint(sitePath: string): Promise<FinalEvalCheck
   }
 }
 
+export function matchesEvaluationContext(value: unknown, expected: {
+  sitePath: string; taskSetId: string; mode: "baseline" | "webmcp"; url: string; provider: string;
+  sourceSnapshot?: Awaited<ReturnType<typeof gitSourceSnapshot>>;
+}): value is StoredTestEvaluation {
+  try {
+    if (!value || typeof value !== "object") return false;
+    const evaluation = value as StoredTestEvaluation;
+    if (evaluation.version !== 1 || evaluation.executionVersion !== 1 || evaluation.mode !== expected.mode
+      || evaluation.provider !== expected.provider || evaluation.url !== expected.url
+      || typeof evaluation.targetProject !== "string" || path.resolve(evaluation.targetProject) !== path.resolve(expected.sitePath)
+      || evaluation.taskSetId !== expected.taskSetId || taskFingerprint(evaluation.tasks) !== expected.taskSetId) return false;
+    const { scores } = evaluation;
+    if (!scores || !Array.isArray(scores.results) || scores.total !== evaluation.tasks.length || scores.total < 1
+      || scores.results.length !== scores.total || scores.passed !== scores.results.filter(result => result.passed === true).length) return false;
+    const ids = new Set(evaluation.tasks.map(task => task.id));
+    if (ids.size !== evaluation.tasks.length || new Set(scores.results.map(result => result.task)).size !== ids.size
+      || scores.results.some(result => !ids.has(result.task) || typeof result.passed !== "boolean" || typeof result.detail !== "string")) return false;
+    if (expected.mode === "webmcp") {
+      const recorded = evaluation.sourceSnapshot;
+      const current = expected.sourceSnapshot;
+      if (!recorded?.sourceVersion || !recorded.workingTreeHash || !current?.sourceVersion || !current.workingTreeHash
+        || recorded.sourceVersion !== current.sourceVersion || recorded.workingTreeHash !== current.workingTreeHash) return false;
+    }
+    if (expected.mode === "baseline" && evaluation.readOnly !== true) return false;
+    return true;
+  } catch { return false; }
+}
+
 async function readMatchingEvaluation(
   sitePath: string,
   role: "baseline-eval" | "test-eval",
   taskSetId: string,
+  context: { url: string; provider: string },
   explicitPath?: string,
 ): Promise<{ path: string; value: StoredTestEvaluation } | undefined> {
   try {
     const evaluationPath = explicitPath ?? (await latestTrajectoryPath(role, sitePath));
     if (!evaluationPath || !existsSync(evaluationPath)) return undefined;
     const value = JSON.parse(await readFile(evaluationPath, "utf8")) as StoredTestEvaluation;
-    if (typeof value.targetProject !== "string" || path.resolve(value.targetProject) !== path.resolve(sitePath)) return undefined;
-    if (value.taskSetId !== taskSetId || taskFingerprint(value.tasks) !== taskSetId) return undefined;
+    if (!matchesEvaluationContext(value, {
+      sitePath, taskSetId, mode: role === "test-eval" ? "webmcp" : "baseline", ...context,
+      sourceSnapshot: role === "test-eval" ? await gitSourceSnapshot(sitePath) : undefined,
+    })) return undefined;
     return { path: evaluationPath, value };
   } catch {
     return undefined;
@@ -128,13 +165,13 @@ async function readMatchingEvaluation(
 }
 
 function evaluationHasAvailabilityFailure(value: StoredTestEvaluation): boolean {
-  return value.scores.results.length > 0
-    && value.scores.results.every((result) =>
+  return value.scores.results.some(result => result.failureKind === "infrastructure" || result.failureKind === "evidence")
+    || (value.scores.results.length > 0 && value.scores.results.every((result) =>
       /ERR_CONNECTION_REFUSED|ECONNREFUSED|Could not connect to Chrome|target URL is not reachable/i.test(result.detail)
-    );
+    ));
 }
 
-async function findResumableFinalEval(sitePath: string): Promise<ResumableFinalEval | undefined> {
+async function findResumableFinalEval(sitePath: string, context: { url: string; provider: string }): Promise<ResumableFinalEval | undefined> {
   const approvalPath = path.join(sitePath, ".webmcpify", "approved-tools.json");
   const metadataPath = path.join(sitePath, ".webmcpify", "pending-diff.meta.json");
   if (!existsSync(approvalPath) || !existsSync(metadataPath)) return undefined;
@@ -181,7 +218,7 @@ async function findResumableFinalEval(sitePath: string): Promise<ResumableFinalE
 
     let stage: Exclude<FinalEvalStage, "complete"> = checkpoint?.stage ?? "baseline";
     if (!checkpoint) {
-      const baseline = await readMatchingEvaluation(sitePath, "baseline-eval", taskSetId);
+      const baseline = await readMatchingEvaluation(sitePath, "baseline-eval", taskSetId, context);
       stage = baseline ? "apply" : "baseline";
     }
     return { tasks, taskSetId, approvalRunId: resumableApprovalRunId, checkpoint, stage };
@@ -257,7 +294,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
   console.log(`[final-eval] target: ${sitePath}`);
   console.log(`[final-eval] URL: ${url}`);
   await ensureTargetReachable(url);
-  const resumable = await findResumableFinalEval(sitePath);
+  const evaluationContext = { url, provider };
+  const resumable = await findResumableFinalEval(sitePath, evaluationContext);
   const canResume = resumable
     && (!resumable.checkpoint || (resumable.checkpoint.provider === provider && resumable.checkpoint.url === url))
     && await confirmResume(resumable);
@@ -343,7 +381,7 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
     } else {
       baselineEvaluationPath = await createTrajectoryArtifact(
         "baseline-eval",
-        { version: 1, mode: "baseline", runId: randomUUID(), targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, baselineError ?? "Baseline did not complete.") },
+        { version: 1, executionVersion: 1, mode: "baseline", readOnly: true, provider, url, runId: randomUUID(), targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, baselineError ?? "Baseline did not complete.") },
         { sitePath, targetProject: sitePath, taskSetId, provider, url, status: "failed", error: baselineError },
       );
       baselineLevel = { level: "baseline", runId, targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, baselineError ?? "Baseline did not complete."), evaluationPath: baselineEvaluationPath, status: "failed", error: baselineError ?? "Baseline did not complete." };
@@ -351,8 +389,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
     stage = "apply";
     await saveCheckpoint(stage);
   } else {
-    const baselineArtifact = await readMatchingEvaluation(sitePath, "baseline-eval", taskSetId, baselineEvaluationPath);
-    if (!baselineArtifact) throw new Error(`[final-eval] Cannot resume from ${stage}: the matching project-scoped baseline evaluation is missing.`);
+    const baselineArtifact = await readMatchingEvaluation(sitePath, "baseline-eval", taskSetId, evaluationContext, baselineEvaluationPath);
+    if (!baselineArtifact) throw new Error(`[final-eval] Cannot resume from ${stage}: a current, matching UI-only baseline evaluation is missing or outdated. URL/provider/task set must match; restart final-eval for a new comparison.`);
     baselineEvaluationPath = baselineArtifact.path;
     const baseline = baselineArtifact.value;
     compareTaskSets(tasks, baseline.tasks);
@@ -374,28 +412,32 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
 
   let webmcpLevel: LevelResult;
   if (stage === "webmcp-test") {
-    const existingWebmcp = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, webmcpEvaluationPath);
+    const existingWebmcp = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext, webmcpEvaluationPath);
     const webmcpEvaluation = existingWebmcp?.value ?? await runTest({ path: sitePath, url, provider });
     compareTaskSets(tasks, webmcpEvaluation.tasks);
-    const webmcpArtifact = existingWebmcp ?? await readMatchingEvaluation(sitePath, "test-eval", taskSetId);
+    const webmcpArtifact = existingWebmcp ?? await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext);
     if (!webmcpArtifact) throw new Error("WebMCP test completed but its project-scoped evaluation artifact could not be found.");
     webmcpEvaluationPath = webmcpArtifact.path;
     webmcpLevel = { level: "webmcp", runId: webmcpEvaluation.runId, targetProject: sitePath, taskSetId, tasks, scores: webmcpEvaluation.scores, evaluationPath: webmcpArtifact.path, status: "completed", agentError: webmcpEvaluation.agentError };
     stage = webmcpLevel.scores.results.some((result) => !result.passed) ? "repair" : "temporal";
     await saveCheckpoint(stage);
   } else {
-    let webmcpArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, webmcpEvaluationPath);
-    if (!webmcpArtifact) throw new Error(`[final-eval] Cannot resume from ${stage}: the matching project-scoped WebMCP evaluation is missing.`);
-    if (evaluationHasAvailabilityFailure(webmcpArtifact.value)) {
-      console.log("[final-eval] previous WebMCP evaluation failed because the target was unavailable; refreshing it now that the target is reachable...");
+    let webmcpArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext, webmcpEvaluationPath);
+    if (!webmcpArtifact || evaluationHasAvailabilityFailure(webmcpArtifact.value)) {
+      console.log("[final-eval] previous WebMCP evaluation is stale or had a target/browser/provider or execution-evidence failure; refreshing it before considering application repair...");
       await runTest({ path: sitePath, url, provider });
-      webmcpArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId);
+      webmcpArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext);
       if (!webmcpArtifact) throw new Error("Refreshed WebMCP test completed but its project-scoped evaluation artifact could not be found.");
     }
     webmcpEvaluationPath = webmcpArtifact.path;
     const webmcpEvaluation = webmcpArtifact.value;
     compareTaskSets(tasks, webmcpEvaluation.tasks);
     webmcpLevel = { level: "webmcp", runId: webmcpEvaluation.runId, targetProject: sitePath, taskSetId, tasks, scores: webmcpEvaluation.scores, evaluationPath: webmcpArtifact.path, status: "completed", agentError: webmcpEvaluation.agentError };
+  }
+
+  if (webmcpLevel.scores.results.some(isNonApplicationFailure)) {
+    await saveCheckpoint("repair");
+    assertRepairableWebMcpResults(webmcpLevel.scores);
   }
 
   if (stage === "repair") {
@@ -440,7 +482,7 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
       }
       if (repairedEvaluation) {
         compareTaskSets(tasks, repairedEvaluation.tasks);
-        const afterArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId);
+        const afterArtifact = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext);
         if (!afterArtifact) throw new Error("Repair retest completed but its project-scoped evaluation artifact could not be found.");
         const status = repairedEvaluation.scores.passed > webmcpLevel.scores.passed
           ? "improved"
@@ -448,6 +490,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
         repair = { beforeEvaluation, afterEvaluation: afterArtifact.path, status };
         webmcpEvaluationPath = afterArtifact.path;
         webmcpLevel = { ...webmcpLevel, runId: repairedEvaluation.runId, scores: repairedEvaluation.scores, evaluationPath: afterArtifact.path, agentError: repairedEvaluation.agentError };
+        await saveCheckpoint("repair");
+        assertRepairableWebMcpResults(webmcpLevel.scores);
         console.log(`[final-eval] repair result: ${status} (${repairedEvaluation.scores.passed}/${repairedEvaluation.scores.total})`);
       }
       stage = "temporal";

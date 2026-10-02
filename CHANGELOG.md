@@ -4,6 +4,19 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: mandatory Chrome DevTools WebMCP execution and honest scoring
+
+- Connect Chrome DevTools MCP in Core before capability tests and bind each agent to its exact isolated task tab. Expose only `list_webmcp_tools` and `call_webmcp_tool`, delegating calls to upstream `execute_webmcp_tool`; reject unapproved tools, page routing and script/UI substitutes.
+- Require independently recorded discovery, ordered successful calls, and real business-error responses. Reports containing tool names cannot pass an initially-true postcondition. Expected rejections need one matching primary failure and a passing unchanged-state check, while successful same-tool setup with different inputs remains supported.
+- Respect upstream page-routing schemas and `Completed`/`Error` statuses, avoid stale closed-tab selection between tasks, and distinguish structured business errors from successful protocol completion. Read-only, invocation-correlated observation preserves thrown guard messages omitted by the pinned MCP server; actions still execute only through its WebMCP method.
+- Require null-safe storage checks in newly generated/revised tasks without silently changing existing approvals. Allow a bounded wait for asynchronous postconditions, revoke agent access before scoring, and keep raw diagnostics private.
+- Classify connection/evidence failures separately, stop unexecutable audits, and prevent source repair of healthy apps for infrastructure failures. Durable Temporal task attempts share the same boundary; normal commands still do not require Temporal.
+- Add MCP startup/transport, restricted gateway, false-pass, null-storage, and real Chrome/pinned-MCP regressions using credential-free providers. Document advantages near the README's top and the audit/recovery boundary.
+- Fix delayed guard-event delivery across separate CDP connections with a bounded invocation-correlated wait, and close timed-out MCP connections before retries. Verify unresolved browser promises, operation cancellation, normal false postconditions, and delayed forbidden mutations after guard rejection.
+- Make failed standalone CLI audits exit nonzero, prevent failed baseline providers from passing initially-true checks, and clean up partially prepared sessions. Invalid/timed-out verification expressions cannot trigger source repair of a healthy app.
+- Record applied repairs as `awaiting-test` rather than claiming improvement from a fresh page without executing actions. Final-eval/durable repair still replay approved tasks; plain repair requests an explicit `test` retest.
+- Stamp current execution-policy evaluations and local Git source identity, reject mid-test source/task drift, and constrain final-eval reuse to the exact URL/provider/mode and complete result set. Do not substitute a mixed standalone baseline for the UI-only comparison or reuse legacy report-only results.
+
 ### Fixed: review link contrast and confirmation controls
 
 - Keep WebMCP reference links readable and underlined on the blue review banner, including visited links and visible keyboard focus.
