@@ -47,7 +47,8 @@
     "verify:agent-readiness": "node scripts/verify-agent-readiness.mjs",
     "verify:security": "node scripts/verify-security-audit.mjs",
     "verify:review": "node scripts/verify-review.mjs",
-    "verify:partial-review": "node scripts/verify-partial-review.mjs",
+    "verify:partial-review": "node scripts/verify-selection-pruning.mjs && node scripts/verify-partial-review.mjs",
+    "verify:task-scaling": "node scripts/verify-task-scaling.mjs",
     "verify:review-browser": "node scripts/verify-review-browser.mjs",
     "verify:repair": "node scripts/verify-repair.mjs",
     "verify:evaluation": "node scripts/verify-evaluation.mjs",
@@ -55,7 +56,7 @@
     "temporal:worker": "node dist/temporal/worker.js",
     "dev": "tsx watch src/cli.ts",
     "test:mcp": "node scripts/verify-mcp.mjs",
-    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:temporal-optional --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:agent --silent && npm run verify:generation-recovery --silent && npm run verify:runtime --silent && npm run verify:provider-output --silent && npm run verify:product-context --silent && npm run verify:agent-readiness --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:partial-review --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent",
+    "test": "npm run build --silent && npm run test:mcp --silent && npm run verify:temporal-optional --silent && npm run verify:discovery --silent && npm run verify:tools --silent && npm run verify:agent --silent && npm run verify:generation-recovery --silent && npm run verify:runtime --silent && npm run verify:provider-output --silent && npm run verify:product-context --silent && npm run verify:agent-readiness --silent && npm run verify:security --silent && npm run verify:review --silent && npm run verify:partial-review --silent && npm run verify:task-scaling --silent && npm run verify:patch --silent && npm run verify:repair --silent && npm run verify:evaluation --silent && npm run verify:final-eval --silent",
     "barry": "barry-cache",
     "barry:validate": "barry-cache validate",
     "barry:resume": "barry-cache resume",
@@ -88,6 +89,7 @@
     "node": "^20.19.0 || ^22.12.0 || >=23"
   },
   "dependencies": {
+    "@babel/parser": "^7.28.0",
     "commander": "^12.1.0",
     "dotenv": "^17.4.2",
     "execa": "^10.0.1",

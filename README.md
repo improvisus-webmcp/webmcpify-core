@@ -129,11 +129,27 @@ hold the workflow there. Standalone `review` then exits with next-step instructi
 after a command has finished.
 
 To reject individual tools, uncheck them and choose **Prepare selected-tool draft**.
-Core invokes the draft's coding provider in a disposable workspace to remove
-their WebMCP registrations and update corresponding tests; Core regenerates docs
-for retained tools. Tool contracts and verification tasks are read-only: choose
-tools, not individual tests. Revision focuses on existing integration files and
-reuses valid retained-only tasks; provider latency can still take minutes.
+Core first removes straightforward inline JS/TS WebMCP registrations directly in
+a disposable workspace, without invoking a coding provider. It drops tasks that
+need a rejected tool (including mixed-tool setup and availability checks), keeps
+unaffected task IDs/setup/outcomes/verification criteria unchanged, and regenerates
+docs for retained tools. Initial and revised drafts require at least
+`ceil(tool count × 1.3)` valid verification tasks: 10 tools need at least 13 tests;
+14 or more are allowed. There is no six-test ceiling. Small sets round up
+(one tool needs two tests). Include distinct, source-grounded success, declared
+rejection, boundary/input, and availability scenarios where applicable, not
+duplicate padding. Every retained tool must still have test coverage. Tool contracts and tasks are read-only:
+choose tools, not individual tests.
+
+Only ambiguous/shared registrations, integration-only cleanup exposed by
+TypeScript unused-symbol checks, missing retained-tool coverage, or a shortfall
+against the retained tool count's extra-test minimum use a focused
+provider pass. A coverage-only pass cannot change source. Core keeps the unaffected
+tests rather than accepting replacements for them; supplemental tests may be
+returned on their own and are validated against the combined set. Extra unaffected
+tests are preserved even when they exceed the minimum. Provider latency can still
+take minutes on these fallback paths. The final draft always undergoes build,
+wiring, feedback, security, and exact-source-identity checks before fresh review.
 The page locks immediately, including other open tabs, displays progress, and
 automatically returns to review when ready. You can remove more tools and repeat
 this process. A failed revision returns a safe error, preserves the rejected-tool
@@ -148,6 +164,11 @@ and subsequent workflow. Every retained tool still needs test coverage. Existing
 application actions are preserved. Repair/durable review cannot change its fixed
 tool/task set; reject that repair and generate a new draft to change capabilities.
 Static source checks are not a substitute for reviewing the revised diff.
+
+Disposable preflight builds reuse installed dependencies and disable pnpm's
+automatic before-run dependency installation for that subprocess. This prevents
+interactive module-purge failures without forcing confirmation or changing the
+target dependency tree. Missing dependencies and genuine build errors still fail.
 
 Negative tests may prepare their failure condition, such as emptying the cart or choosing an absent item. Their setup must preserve the unmet prerequisite, not satisfy it or perform the guarded action. An unrelated error or forbidden state change still fails the test.
 

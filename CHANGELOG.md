@@ -4,6 +4,20 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: tool-scaled verification and supplemental task validation
+
+- Remove the fixed six-test ceiling. Initial and revised drafts require at least `ceil(tool count × 1.3)` valid tests, with no upper count limit; 10 tools need at least 13 tests.
+- Preserve every unaffected test and supplement both missing tool coverage and the retained-tool count's margin. Validate task-only supplements against the combined set instead of requiring a provider to repeat retained tests.
+- Prefer explicit `TASKS_JSON` blocks over unrelated fenced examples; preserve approved legacy task sets and repair/Temporal task-set identity.
+
+### Fixed: direct tool removal, retained tasks, and pnpm preflight
+
+- Remove independent inline JS/TS WebMCP registrations with a lazily loaded parser instead of always invoking a coding agent. Preserve ordinary application handlers; defer dynamic/shared registrations to a focused provider pass.
+- Drop rejected-only and mixed/dependent tasks, preserve unaffected task IDs and criteria, and supplement retained-tool coverage/count gaps without duplicate padding.
+- Keep task-only supplementation source-frozen, regenerate retained-only documentation, and preserve build/security/identity checks plus fresh exact-patch approval. Grounded TypeScript unused-integration cleanup gets one source-assisted fallback.
+- Disable pnpm automatic dependency installation only for disposable preflight subprocesses, preserving the linked target dependency tree. Distinguish interactive installation/environment failures from code validation and show the failing preflight check safely.
+- Add direct JS/TS parsing, immutable/expected-rejection task retention, mixed-task removal, coverage-gap, repeated reduction, real-pnpm, and browser review regressions.
+
 ### Fixed: selection consent and failed-revision recovery
 
 - Clear and disable exact-source consent when tools are deselected; only enable it for the currently displayed complete draft, with fresh unchecked consent after revision.

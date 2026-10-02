@@ -17,6 +17,7 @@ import {
   type ApprovedTaskManifest,
   type Task,
   validateTaskToolBindings,
+  validateToolScaledTasks,
 } from "../lib/tasks.js";
 import { patchExists, patchMetadataPath, readPatchMetadata, readPendingPatch, sourcePatchHash, writePatchMetadata } from "../lib/patches.js";
 import { proposedToolsPath, validateProposedTools, loadDiscovery, type ProposedTool } from "../lib/tool-proposals.js";
@@ -126,8 +127,8 @@ export async function runReviewPrompt(
   let proposedTasks = patchMetadata.repair || trajectoryMetadata.durable === true
     ? await loadApprovedTasks(sitePath)
     : extractTasksFromText(draft) ?? [];
-  if (proposedTasks.length < 5 || proposedTasks.length > 6) throw new Error(`Generated draft must contain 5-6 valid tasks; received ${proposedTasks.length}. Fix the generation output before review.`);
-  validateTaskToolBindings(proposedTasks, proposedTools);
+  if (patchMetadata.repair || trajectoryMetadata.durable === true) validateTaskToolBindings(proposedTasks, proposedTools);
+  else proposedTasks = validateToolScaledTasks(proposedTasks, proposedTools);
   const projectTasksPath = tasksPath(sitePath);
   const approvalPath = path.join(
     sitePath,
@@ -166,8 +167,8 @@ export async function runReviewPrompt(
     const tools = validateProposedTools(JSON.parse(await readFile(proposalFile, "utf8")), discovery);
     const text = draftText(await readFile(metadata.generationTrajectory, "utf8"));
     const tasks = extractTasksFromText(text);
-    if (!tasks || tasks.length < 5 || tasks.length > 6) throw new Error("The revised draft has no valid task set.");
-    validateTaskToolBindings(tasks, tools);
+    if (!tasks) throw new Error("The revised draft has no valid task set.");
+    validateToolScaledTasks(tasks, tools);
     const nextPatch = await readPendingPatch(sitePath, metadata);
     const policy = resolveSecurityPolicy(metadata.securityPolicy);
     const security = auditToolSecurity(tools, discovery, sitePath, policy);

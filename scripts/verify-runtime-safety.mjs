@@ -13,6 +13,7 @@ import { temporalConnectionOptions } from "../dist/lib/temporal.js";
 import { coreActivityContext } from "../dist/temporal/activity-context.js";
 import { currentOperationSignal, withOperationSignal } from "../dist/lib/operation-context.js";
 import { resolvePackageManager } from "../dist/lib/package-manager.js";
+import { executableOnPath } from "../dist/lib/executables.js";
 import { PreflightEnvironmentError, runGenerationPreflight } from "../dist/lib/preflight.js";
 
 const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-runtime-"));
@@ -136,7 +137,7 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
   assert.equal(path.basename(await resolvePackageManager(packageManagerSite)).replace(/\.(cmd|exe|bat)$/i, ""), "yarn");
   await writeFile(path.join(packageManagerSite, "bun.lock"), "");
   assert.equal(path.basename(await resolvePackageManager(packageManagerSite)).replace(/\.(cmd|exe|bat)$/i, ""), "bun");
-  const manager = await fixtureProvider(root, "check-manager", "process.exit(0);");
+  const manager = await fixtureProvider(root, "check-manager", "if(process.env.PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN!=='false')throw new Error('Unsafe automatic dependency installation');process.exit(0);");
   process.env.WEBMCPIFY_PACKAGE_MANAGER = path.relative(process.cwd(), manager);
   assert.equal(await resolvePackageManager(packageManagerSite), manager, "Relative overrides must be anchored before switching cwd");
   await writeFile(path.join(packageManagerSite, "package.json"), '{"scripts":{"build":"fixture-check"}}');
@@ -145,6 +146,27 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
   const preflightWorkspace = path.join(root, "preflight-workspace");
   await mkdir(preflightWorkspace);
   await runGenerationPreflight(packageManagerSite, preflightWorkspace);
+  // pnpm's real default before-run install must not touch a linked target tree.
+  await writeFile(path.join(packageManagerSite, "source.js"), "export const value=1;\n");
+  await writeFile(path.join(packageManagerSite, "package.json"), '{"scripts":{"build":"node --check source.js"}}');
+  await writeFile(path.join(packageManagerSite, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nimporters:\n  .: {}\n");
+  await writeFile(path.join(packageManagerSite, "node_modules", "owner-sentinel"), "owner dependency tree\n");
+  const realPnpmWorkspace = path.join(root, "pnpm-preflight");
+  await mkdir(realPnpmWorkspace);
+  await writeFile(path.join(realPnpmWorkspace, "source.js"), "export const value=1;\n");
+  await writeFile(path.join(realPnpmWorkspace, "package.json"), '{"scripts":{"build":"node --check source.js"}}');
+  delete process.env.WEBMCPIFY_PACKAGE_MANAGER;
+  if (executableOnPath("pnpm")) await runGenerationPreflight(packageManagerSite, realPnpmWorkspace);
+  else console.log("Real pnpm integration skipped: pnpm is not installed; subprocess configuration and no-TTY regression checks still run");
+  assert.equal(await readFile(path.join(packageManagerSite, "node_modules", "owner-sentinel"), "utf8"), "owner dependency tree\n");
+  const interactiveManager = await fixtureProvider(root, "interactive-manager", "process.stderr.write('[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY');process.exit(1);");
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = interactiveManager;
+  await assert.rejects(runGenerationPreflight(packageManagerSite, preflightWorkspace), error => {
+    assert.ok(error instanceof PreflightEnvironmentError);
+    assert.match(error.message, /interactive pnpm dependency install/);
+    assert.doesNotMatch(error.message, /Generated source|ERR_PNPM|Command failed/);
+    return true;
+  });
   process.env.WEBMCPIFY_PACKAGE_MANAGER = path.join(root, "missing-manager");
   await assert.rejects(runGenerationPreflight(packageManagerSite, preflightWorkspace), (error) => {
     assert.ok(error instanceof PreflightEnvironmentError);

@@ -7,7 +7,7 @@ import { readAgentWorkspaceDiff } from "./agent-workspace.js";
 import { gitSourceSnapshot } from "./patches.js";
 import { TASK_AUTHORING_PROMPT, TOOL_PROPOSAL_PROMPT } from "./prompts.js";
 import { normalizeProviderOutput } from "./provider-output.js";
-import { extractTasksFromText, validateTaskToolBindings } from "./tasks.js";
+import { extractTasksFromText, validateToolScaledTasks, type Task } from "./tasks.js";
 import { extractAndValidateProposedTools, type ProposedTool } from "./tool-proposals.js";
 import { createTrajectoryArtifact, createTrajectoryPath } from "./trajectories.js";
 import { canonicalJson } from "./canonical-json.js";
@@ -19,12 +19,14 @@ interface MetadataOptions {
   draftPath: string;
   discovery: DiscoveryResult;
   fixedTools?: ProposedTool[];
+  /** Selection owns retained tests and may request only missing/count-shortfall supplements. */
+  completeTasks?: (generated: Task[]) => Task[];
 }
 
-function validateTasks(raw: string, tools: ProposedTool[]): void {
+function validateTasks(raw: string, tools: ProposedTool[], complete?: (generated: Task[]) => Task[]): Task[] {
   const tasks = extractTasksFromText(raw);
-  if (!tasks) throw new Error("Generation must contain 5-6 valid verification tasks with requiredTools.");
-  validateTaskToolBindings(tasks, tools);
+  if (!tasks) throw new Error("Generation must contain valid verification tasks with requiredTools.");
+  return validateToolScaledTasks(complete ? complete(tasks) : tasks, tools);
 }
 
 function containsToolMetadata(raw: string): boolean {
@@ -43,14 +45,14 @@ export async function validateGenerationMetadata(opts: MetadataOptions): Promise
   }
   const canonicalDraft = async (raw: string, source: string): Promise<string> => {
     if (!selectionTools) return source;
-    const tasks = extractTasksFromText(raw)!;
+    const tasks = validateTasks(raw, selectionTools, opts.completeTasks);
     return createTrajectoryArtifact("review-selection-validated", `TOOL_PROPOSALS_JSON\n\`\`\`json\n${JSON.stringify({ tools: selectionTools })}\n\`\`\`\nTASKS_JSON\n\`\`\`json\n${JSON.stringify(tasks)}\n\`\`\``, { sitePath: opts.sitePath, sourceTrajectory: source });
   };
   let originalTools: ProposedTool[] | undefined;
   let validationError: unknown;
   try {
     originalTools = selectionTools ?? extractAndValidateProposedTools(original, opts.discovery);
-    validateTasks(original, originalTools);
+    validateTasks(original, originalTools, opts.completeTasks);
     return { tools: originalTools, draftPath: await canonicalDraft(original, opts.draftPath) };
   } catch (error) {
     validationError = error;
@@ -91,6 +93,7 @@ expected rejection merely to pass validation.
 
 ${TOOL_PROPOSAL_PROMPT}
 
+${selectionTools ? "Core keeps reusableTasks from ./.webmcpify/tool-selection.json unchanged. Return those unchanged tasks or only new-ID supplements; do not overwrite retained tests. Fill both uncovered-tool coverage and any remaining task-count shortfall." : ""}
 ${TASK_AUTHORING_PROMPT}`,
     });
     const afterDiff = await readAgentWorkspaceDiff(opts.workspace);
@@ -104,7 +107,7 @@ ${TASK_AUTHORING_PROMPT}`,
     if (originalTools && canonicalJson(tools) !== canonicalJson(originalTools)) {
       throw new Error("Metadata correction changed an already-valid tool contract.");
     }
-    validateTasks(corrected, tools);
+    validateTasks(corrected, tools, opts.completeTasks);
     return { tools, draftPath: await canonicalDraft(corrected, repairPath) };
   } catch (error) {
     const failurePath = await createTrajectoryArtifact("generate-metadata-failure", {

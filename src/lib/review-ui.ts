@@ -38,7 +38,7 @@ function selectionChanged(event){
   continueButton.textContent=subset?'Prepare selected-tool draft':'✓ Approve reviewed draft';
   continueButton.disabled=busy||count===0||(!subset&&(!sourceApproval||!sourceApproval.checked));
   if(approvalStatus)approvalStatus.textContent=count===0?'Select at least one tool or reject the draft.':subset?'Source consent is locked until the selected-tool patch is ready for fresh review.':sourceApproval&&sourceApproval.checked?'Source approval checked. Continue to final confirmation.':'Check “I approve this exact source patch” to enable approval.';
-  selectionStatus.textContent=subset?'Core will remove rejected registrations and regenerate corresponding tasks. You will review a new patch before approval.':'';
+  selectionStatus.textContent=subset?'Core will remove rejected registrations and dependent tasks, keep unaffected tests, and add tests only for missing coverage or the 30% extra-test minimum. You will review a new patch before approval.':'';
 }
 toolBoxes.forEach(box=>box.addEventListener('change',selectionChanged));
 if(sourceApproval)sourceApproval.addEventListener('change',selectionChanged);

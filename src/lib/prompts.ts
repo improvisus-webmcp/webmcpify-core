@@ -75,9 +75,13 @@ file organization and runtime conventions.
 `.trim();
 
 export const TASK_AUTHORING_PROMPT = `
-Based on the actions and tools you identified during discovery, propose 5-6
-realistic tasks a user might ask an AI agent to complete on this site using
-the available tools.
+Based on the actions and tools you identified during discovery, propose at least
+ceil(number of proposed tools * 1.3) realistic, distinct verification tasks.
+There is no six-task maximum. For 10 tools, provide at least 13 tasks; 14 or more
+are allowed when grounded in additional scenarios. Apply the same rule to revised
+drafts using only the retained tool count. Include meaningful success, declared
+expected-rejection, boundary/input, and availability checks where applicable;
+never invent failure guards or duplicate a test merely to reach the count.
 
 For each task, write a "verify" expression: a single JavaScript snippet that,
 when evaluated in the live page after the task is attempted, returns true only
@@ -97,7 +101,8 @@ Every task must be executable with the exact WebMCP tools in your
 TOOL_PROPOSALS_JSON. Every proposed tool name must appear in requiredTools for
 at least one task: generated tools without test coverage invalidate the entire
 proposal. Combine compatible tools into a self-contained task when necessary
-to cover every tool within the 5-6 task limit. Do not create a task for an
+to exercise realistic multi-tool flows, but still meet the tool-scaled task minimum.
+Do not create a task for an
 ordinary UI control unless you also propose its matching WebMCP tool. Never
 call an unsupported action an expected pass.
 

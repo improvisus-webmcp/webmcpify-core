@@ -64,14 +64,14 @@ export async function loadApprovedTasks(sitePath: string): Promise<Task[]> {
   if (manifest.approved !== true || typeof manifest.approvalId !== "string" || typeof manifest.taskSetId !== "string") {
     throw new Error("The approved manifest is incomplete or not approved for this draft.");
   }
-  if (!Array.isArray(manifest.tasks) || taskFingerprint(tasks) !== manifest.taskSetId || taskFingerprint(validateTasks(manifest.tasks)) !== manifest.taskSetId) {
+  if (!Array.isArray(manifest.tasks) || taskFingerprint(tasks) !== manifest.taskSetId || taskFingerprint(validateTasks(manifest.tasks, 1)) !== manifest.taskSetId) {
     throw new Error("tasks.json does not match the approved task set; refusing evaluation.");
   }
   return tasks;
 }
 
 export async function writeApprovedTasksAtomically(sitePath: string, manifest: ApprovedTaskManifest): Promise<void> {
-  const validated = validateTasks(manifest.tasks);
+  const validated = validateTasks(manifest.tasks, 1);
   if (taskFingerprint(validated) !== manifest.taskSetId) throw new Error("Approved task manifest fingerprint does not match its tasks.");
   const destination = approvedManifestPath(sitePath);
   const taskDestination = tasksPath(sitePath);
@@ -81,7 +81,7 @@ export async function writeApprovedTasksAtomically(sitePath: string, manifest: A
   try {
     await writeFile(tasksTemp, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
     await writeFile(manifestTemp, `${JSON.stringify({ ...manifest, tasks: validated }, null, 2)}\n`, "utf8");
-    const writtenTasks = validateTasks(JSON.parse(await readFile(tasksTemp, "utf8")));
+    const writtenTasks = validateTasks(JSON.parse(await readFile(tasksTemp, "utf8")), 1);
     const writtenManifest = JSON.parse(await readFile(manifestTemp, "utf8")) as ApprovedTaskManifest;
     if (taskFingerprint(writtenTasks) !== manifest.taskSetId || writtenManifest.approvalId !== manifest.approvalId) throw new Error("Atomic approval verification failed before commit.");
     await rename(tasksTemp, taskDestination);
@@ -96,20 +96,24 @@ export function taskVerificationIssues(task: Task, context: VerificationContext 
   return validateVerifyExpression(task.verify, task.description, context);
 }
 
-const MIN_TASKS = 5;
-const MAX_TASKS = 6;
+/** Round up the requested 30% verification margin; there is no six-task cap. */
+export function minimumTaskCount(toolCount: number): number {
+  if (!Number.isSafeInteger(toolCount) || toolCount < 1) throw new Error("A task proposal requires at least one WebMCP tool.");
+  return Math.ceil(toolCount * 1.3);
+}
 
 export function tasksPath(sitePath: string): string {
   return path.join(sitePath, "tasks.json");
 }
 
-export function validateTasks(value: unknown): Task[] {
+export function validateTasks(value: unknown, minimum = 1): Task[] {
+  if (!Number.isSafeInteger(minimum) || minimum < 1) throw new Error("The minimum task count must be a positive integer.");
   if (!Array.isArray(value)) {
     throw new Error("tasks.json must contain an array of tasks.");
   }
-  if (value.length < MIN_TASKS || value.length > MAX_TASKS) {
+  if (value.length < minimum) {
     throw new Error(
-      `tasks.json must contain ${MIN_TASKS}-${MAX_TASKS} tasks; received ${value.length}.`
+      `tasks.json must contain at least ${minimum} valid task(s); received ${value.length}.`
     );
   }
 
@@ -175,6 +179,16 @@ export function validateTaskToolBindings(
   if (untested.length) {
     throw new Error(`Every proposed WebMCP tool must be tested; missing task coverage for: ${untested.join(", ")}.`);
   }
+  return validated;
+}
+
+/** New and revised proposals share one count/coverage contract; legacy approved sets remain readable. */
+export function validateToolScaledTasks(tasks: Task[], tools: Iterable<string | ToolTestContract>): Task[] {
+  const contracts = [...tools];
+  const validated = validateTaskToolBindings(validateTasks(tasks), contracts);
+  const toolCount = new Set(contracts.map(tool => (typeof tool === "string" ? tool : tool.name).trim()).filter(Boolean)).size;
+  const minimum = minimumTaskCount(toolCount);
+  if (validated.length < minimum) throw new Error(`Proposed ${toolCount} tool(s) require at least ${minimum} valid verification tasks (30% extra, rounded up); received ${validated.length}.`);
   return validated;
 }
 
@@ -252,7 +266,7 @@ export async function loadTasks(sitePath: string): Promise<Task[]> {
   }
 
   try {
-    return validateTasks(JSON.parse(await readFile(filePath, "utf8")));
+    return validateTasks(JSON.parse(await readFile(filePath, "utf8")), 1);
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error(`Could not parse ${filePath}: ${error.message}`);
@@ -273,7 +287,7 @@ export async function writeTasks(
   sitePath: string,
   tasks: Task[]
 ): Promise<string> {
-  const validated = validateTasks(tasks);
+  const validated = validateTasks(tasks, 1);
   const filePath = tasksPath(sitePath);
   await writeFile(filePath, JSON.stringify(validated, null, 2) + "\n", "utf8");
   return filePath;
@@ -290,16 +304,16 @@ export function parseTasksJson(raw: string): Task[] {
   }
 }
 
-function taskArray(value: unknown): Task[] | undefined {
+function taskArray(value: unknown, minimum: number): Task[] | undefined {
   try {
-    return validateTasks(value);
+    return validateTasks(value, minimum);
   } catch {
     return undefined;
   }
 }
 
-function recoverValidTaskArray(value: unknown): Task[] | undefined {
-  if (!Array.isArray(value) || value.length < MIN_TASKS || value.length > MAX_TASKS) return undefined;
+function recoverValidTaskArray(value: unknown, minimum: number): Task[] | undefined {
+  if (!Array.isArray(value) || value.length < minimum) return undefined;
 
   const ids = new Set<string>();
   const valid: Task[] = [];
@@ -314,21 +328,34 @@ function recoverValidTaskArray(value: unknown): Task[] | undefined {
     } catch {
       // A provider can emit TypeScript-only syntax in one verification
       // expression. Keep independently valid tasks only when the resulting
-      // set still satisfies the normal 5-6 task approval contract.
+      // set still satisfies the selected generation/revision count contract.
     }
   }
   try {
-    return validateTasks(valid);
+    return validateTasks(valid, minimum);
   } catch {
     return undefined;
   }
 }
 
-/** Extract a 5-6 task proposal from an agent's draft without executing it. */
-export function extractTasksFromText(raw: string): Task[] | undefined {
+/** Extract syntax-valid tasks; enforce the tool-scaled proposal contract at the review/generation boundary. */
+export function extractTasksFromText(raw: string, minimum = 1): Task[] | undefined {
   const candidates: string[] = [];
   const text = normalizeProviderOutput(raw);
   const sources = text === raw ? [text] : [text, raw];
+  // A labelled task block wins over incidental examples or tool metadata.
+  const labelled = sources.flatMap(source => [...source.matchAll(/\bTASKS_JSON\s*```(?:json)?\s*([\s\S]*?)```/gi)].map(match => match[1]!));
+  if (labelled.length) {
+    for (const candidate of labelled) {
+      try {
+        const parsed: unknown = JSON.parse(candidate);
+        const tasks = taskArray(parsed, minimum) ?? recoverValidTaskArray(parsed, minimum);
+        if (tasks) return tasks;
+      }
+      catch { /* Invalid explicit task metadata must not fall back to unrelated examples. */ }
+    }
+    return undefined;
+  }
   for (const source of sources) {
     for (const match of source.matchAll(/```(?:[^\n]*\n)?([\s\S]*?)```/gi)) {
       if (match[1]) {
@@ -363,7 +390,7 @@ export function extractTasksFromText(raw: string): Task[] | undefined {
   for (const candidate of [...new Set(candidates)]) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
-      const tasks = taskArray(parsed) ?? recoverValidTaskArray(parsed);
+      const tasks = taskArray(parsed, minimum) ?? recoverValidTaskArray(parsed, minimum);
       if (tasks) return tasks;
     } catch {
       // Continue through the possible fenced or embedded JSON candidates.

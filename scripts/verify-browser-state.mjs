@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
 import { withManagedChrome } from "../dist/lib/browser.js";
-import { closeScoringBrowser, resetScoringState, scoreTask } from "../dist/lib/scoring.js";
+import { closeScoringBrowser, resetScoringState, scoreTask, scoreTasks } from "../dist/lib/scoring.js";
 
 const previousCdp = process.env.WEBMCPIFY_CDP_URL;
 const server = createServer((_request, response) => {
   response.setHeader("Content-Type", "text/html");
-  response.end('<!doctype html><html><body><button id="cart">Add</button><script>document.querySelector("button").onclick = () => { document.body.dataset.cart = "filled"; sessionStorage.setItem("cart", "filled"); document.cookie = "taskAuth=fixture; Path=/"; }</script></body></html>');
+  const scenarios = Array.from({ length: 13 }, (_, index) => `<span id="scenario-${index}">${index}</span>`).join("");
+  response.end('<!doctype html><html><body>' + scenarios + '<button id="cart">Add</button><script>document.querySelector("button").onclick = () => { document.body.dataset.cart = "filled"; sessionStorage.setItem("cart", "filled"); document.cookie = "taskAuth=fixture; Path=/"; }</script></body></html>');
 });
 await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
 const portProbe = createServer();
@@ -41,13 +42,19 @@ try {
       assert.equal((await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Must log in" })).passed, false, "Expected errors must not hide forbidden state changes");
       await session.page.evaluate(() => { delete document.body.dataset.purchased; });
       assert.equal((await scoreTask(url, task, { resetStorage: false })).passed, false, "Never silently verify a fresh tab as live state");
+      const largeSet = Array.from({ length: 14 }, (_, index) => ({ id: `read-scenario-${index}`, description: `Read rendered scenario ${index}`, verify: `document.querySelector('#scenario-${index}')?.textContent === '${index}'` }));
+      const largeResult = await scoreTasks(url, largeSet);
+      assert.equal(largeResult.total, 14, "The browser scorer must not truncate larger task sets");
+      assert.equal(largeResult.passed, 13);
+      assert.deepEqual(largeResult.results.map(result => result.task), largeSet.map(task => task.id));
+      assert.equal(largeResult.results[13].passed, false, "A failing test beyond the old six-task cap must still be scored, not ignored");
     } finally {
       await session.close();
       await closeScoringBrowser();
       await browser.close();
     }
   });
-  console.log("Real Chrome browser-state verification passed: same-tab DOM, session storage, cookies, navigation, expected rejection, personal context preservation");
+  console.log("Real Chrome browser-state verification passed: same-tab DOM, session storage, cookies, navigation, expected rejection, personal context preservation, and all 14 tasks scored without truncation");
 } finally {
   await closeScoringBrowser();
   await new Promise((resolve) => server.close(resolve));

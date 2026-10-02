@@ -26,6 +26,8 @@ export interface PatchMetadata {
   generationTrajectory: string;
   securityPolicy?: SecurityPolicy;
   provider?: AIProvider;
+  /** A reduced-tool draft reuses its independently valid retained tests. */
+  selectionRevision?: true;
   repair?: {
     sourceEvaluation: string;
     url: string;
@@ -339,7 +341,7 @@ export async function createPendingPatch(
   sitePath: string,
   rawProviderOutput: string,
   generationTrajectory: string,
-  context?: Pick<PatchMetadata, "repair" | "securityPolicy" | "provider">,
+  context?: Pick<PatchMetadata, "repair" | "securityPolicy" | "provider" | "selectionRevision">,
 ): Promise<PatchMetadata> {
   const timestamp = new Date().toISOString();
   const runId = randomUUID();

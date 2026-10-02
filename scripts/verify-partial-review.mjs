@@ -28,7 +28,7 @@ try {
 import {appendFileSync,existsSync,readFileSync,writeFileSync,writeSync} from 'node:fs';
 const selection = existsSync('.webmcpify/tool-selection.json') ? JSON.parse(readFileSync('.webmcpify/tool-selection.json','utf8')) : null;
 if(selection)appendFileSync(${JSON.stringify(path.join(root, "revision-calls"))},'call\\n');
-if(selection&&['success','repeat','tasks-only','reordered','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?3000:500));
+if(selection&&['tasks-only','reordered','coverage-gap','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?3000:500));
 const makeTool = (name,handler)=>({id:name,name,title:name,description:'Changes local selection state',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Browser local state only'},implementation:{handler:'src/app.js#'+handler,action:'change selection',state:'document.body.dataset.selected'},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Loaded entry integration'},sourceFiles:['src/app.js'],behavior:{success:'Selection changes',preconditions:[],expectedFailures:[]}});
 let tools=selection?selection.selected:[makeTool('select_item','selectItem'),makeTool('dismiss_item','dismissItem')];
 if(!selection&&process.env.PARTIAL_REVIEW_MODE==='repeat')tools.push(makeTool('clear_item','clearItem'));
@@ -38,13 +38,18 @@ if(selection&&process.env.PARTIAL_REVIEW_MODE==='provider-failure'){process.stde
 if(!selection)writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");
 const registrations=tools.map(tool=>"context.registerTool({name:"+JSON.stringify(tool.name)+",title:'Change selection',description:'Change selection',inputSchema:{type:'object',properties:{}},execute:()=>{ "+(tool.name==='select_item'?'selectItem':tool.name==='clear_item'?'clearItem':'dismissItem')+"();return {};}});").join('\\n');
 const rejected=selection&&process.env.PARTIAL_REVIEW_MODE==='source-drift'?"context.registerTool({name:'dismiss_item',execute:dismissItem});":'';
-writeFileSync('src/webmcp.js',"import {selectItem,dismissItem,clearItem} from './app.js';\\nconst context=document.modelContext;if(context){\\n"+registrations+rejected+"\\n}\\n");
-const tasks=Array.from({length:5},(_,i)=>({id:'task_'+i,description:'Verify local selection',requiredTools:[tools[i%tools.length].name],verify:'document.body.dataset.selected === "true"'}));
+const entangled=!selection&&['tasks-only','reordered','provider-failure','source-drift','contract-drift'].includes(process.env.PARTIAL_REVIEW_MODE);
+const sourceRegistrations=entangled?"const definitions=["+tools.map(tool=>"{name:"+JSON.stringify(tool.name)+",execute:"+(tool.name==='select_item'?'selectItem':'dismissItem')+"}").join(',')+"];definitions.forEach(tool=>context.registerTool(tool));":registrations;
+const imports=selection&&process.env.PARTIAL_REVIEW_MODE==='unused-integration'?'selectItem':'selectItem,dismissItem,clearItem';
+if(!selection?.sourceAlreadyPruned)writeFileSync('src/webmcp.js',"import {"+imports+"} from './app.js';\\nconst context=document.modelContext;if(context){\\n"+sourceRegistrations+rejected+"\\n}\\n");
+if(selection?.sourceAlreadyPruned&&process.env.PARTIAL_REVIEW_MODE==='task-only-drift')writeFileSync('src/webmcp.js',readFileSync('src/webmcp.js','utf8')+'\\n// forbidden task-only source edit\\n');
+const gap=!selection&&['coverage-gap','task-only-drift'].includes(process.env.PARTIAL_REVIEW_MODE);
+const tasks=Array.from({length:5},(_,i)=>({id:'task_'+i,description:'Verify local selection',requiredTools:gap?['dismiss_item','select_item']:[tools[i%tools.length].name],...(gap?{setup:'Reset selection with dismiss_item before selecting with select_item'}:{}),verify:'document.body.dataset.selected === "true"'}));
 const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&process.env.PARTIAL_REVIEW_MODE==='tasks-only'?[]:['TOOL_PROPOSALS_JSON',fence+'json',JSON.stringify({tools}),fence]),'TASKS_JSON',fence+'json',JSON.stringify(tasks),fence].join('\\n'));
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN = provider;
   process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
-  for (const mode of browserCheck ? ["repeat", "provider-failure"] : ["success", "tasks-only", "reordered", "repeat", "source-drift", "contract-drift", "provider-failure"]) {
+  for (const mode of browserCheck ? ["repeat", "provider-failure"] : ["success", "tasks-only", "reordered", "repeat", "coverage-gap", "unused-integration", "task-only-drift", "source-drift", "contract-drift", "provider-failure"]) {
     process.env.PARTIAL_REVIEW_MODE = mode;
     const site = path.join(root, mode);
     await mkdir(path.join(site, "src"), { recursive: true });
@@ -52,6 +57,11 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     await writeFile(path.join(site, "index.html"), '<button onclick="selectItem()">Select</button><button onclick="dismissItem()">Dismiss</button>');
     await writeFile(path.join(site, ".gitignore"), ".webmcpify/\nnode_modules/\n");
     await writeFile(path.join(site, "package.json"), JSON.stringify({ name: "partial-fixture", type: "module", scripts: { build: "node --check src/app.js && node --check src/webmcp.js" } }));
+    if (mode === "unused-integration") {
+      await mkdir(path.join(site, "node_modules"));
+      await writeFile(path.join(site, "check.cjs"), "const text=require('node:fs').readFileSync('src/webmcp.js','utf8');if(text.includes('dismissItem,')&&!text.includes('name:'+JSON.stringify(['dismiss','item'].join('_')))){process.stderr.write('error TS6133: unused integration import');process.exit(1);}\n");
+      await writeFile(path.join(site, "package.json"), JSON.stringify({ name: "partial-fixture", type: "module", scripts: { build: "node check.cjs" } }));
+    }
     for (const args of [["init", "-q"], ["config", "user.name", "Fixture"], ["config", "user.email", "fixture@example.invalid"], ["add", "-A"], ["commit", "-qm", "baseline"]]) await execa("git", args, { cwd: site });
     try { await runGenerate({ path: site, provider: "opencode", productContextPrompt: false }); }
     catch (error) {
@@ -67,6 +77,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     assert.equal(original.securityPolicy, "balance");
     assert.equal(original.provider, "opencode");
     const originalPatch = await readPendingPatch(site, original);
+    const originalTasks = extractTasksFromText(await readFile(original.generationTrajectory, "utf8"));
     const tools = JSON.parse(await readFile(path.join(site, ".webmcpify/proposed-tools.json"), "utf8")).tools;
     const controller = new AbortController();
     const review = withOperationSignal(controller.signal, () => runReviewPrompt(site, "4390"));
@@ -98,7 +109,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       }
       throw new Error("Revision did not finish");
     };
-    const successful = ["success", "tasks-only", "reordered", "repeat"].includes(mode);
+    const successful = ["success", "tasks-only", "reordered", "repeat", "coverage-gap", "unused-integration"].includes(mode);
     const firstSelection = mode === "repeat" ? ["select_item", "clear_item"] : ["select_item"];
     let page;
     let secondPage;
@@ -150,14 +161,16 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       const html = await actual.text();
       selectedResponse = { status: actual.status(), text: async () => html };
       await page.waitForFunction(() => document.body.getAttribute("aria-busy") === "true");
-      await secondPage.waitForFunction(() => document.body.getAttribute("aria-busy") === "true");
-      assert.ok(await secondPage.locator("form").evaluate(form => form.inert), "Other open tabs must lock during revision");
-      assert.equal(await secondPage.locator("input:not(:disabled), button:not(:disabled), textarea:not(:disabled)").count(), 0);
-      await secondPage.reload();
-      assert.equal(await secondPage.locator("form, input, button, textarea").count(), 0, "Refreshing during revision must not reopen controls");
+      if (mode === "provider-failure") {
+        await secondPage.waitForFunction(() => document.body.getAttribute("aria-busy") === "true");
+        assert.ok(await secondPage.locator("form").evaluate(form => form.inert), "Other open tabs must lock during revision");
+        assert.equal(await secondPage.locator("input:not(:disabled), button:not(:disabled), textarea:not(:disabled)").count(), 0);
+        await secondPage.reload();
+        assert.equal(await secondPage.locator("form, input, button, textarea").count(), 0, "Refreshing during revision must not reopen controls");
+      }
     } else selectedResponse = await post(form("prepare", firstSelection));
     assert.equal(selectedResponse.status, 202, "Revision must return a progress page immediately, not keep the POST open");
-    if (successful) {
+    if (["tasks-only", "reordered", "coverage-gap"].includes(mode)) {
       const duplicate = await post(form("prepare", firstSelection));
       assert.equal(duplicate.status, 409, "Double submits must not launch overlapping revisions");
       const busyPage = await getPage();
@@ -199,8 +212,11 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       assert.doesNotMatch(revisedPatch, /name:\s*['"]dismiss_item/);
       const retained = JSON.parse(await readFile(path.join(site, ".webmcpify/proposed-tools.json"), "utf8")).tools;
       assert.deepEqual(retained.map(tool => tool.name), ["select_item"]);
-      const tasks = extractTasksFromText(await readFile(revised.generationTrajectory, "utf8"));
+      assert.equal(revised.selectionRevision, true);
+      const tasks = extractTasksFromText(await readFile(revised.generationTrajectory, "utf8"), 1);
       assert.ok(tasks.every(task => task.requiredTools.length === 1 && task.requiredTools[0] === "select_item"));
+      if (mode !== "coverage-gap") assert.deepEqual(tasks, originalTasks.filter(task => task.requiredTools.every(name => name === "select_item")), "Unaffected tasks must retain IDs, setup, outcome, errors, and verification criteria exactly");
+      assert.ok(tasks.length < 5, "Reduced drafts must not regenerate padding tests just to reach five");
       await getPage();
       currentMetadata = original;
       const staleConfirm = await post(form("confirm"));
@@ -279,7 +295,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     assert.ok((await readdir(path.join(site, ".webmcpify/trajectories"))).some(name => name.startsWith("review-selection-")));
   }
   const calls = (await readFile(path.join(root, "revision-calls"), "utf8")).trim().split("\n").length;
-  assert.equal(calls, browserCheck ? 4 : 9, "Each revision attempt should use one focused provider call, including explicit failure retry");
+  assert.equal(calls, browserCheck ? 2 : 9, "Independent removals must use zero provider calls; entangled/coverage-gap/unused-integration revisions and explicit retries use focused calls");
 } finally {
   for (const { controller, review } of reviews) { controller.abort(); await review.catch(() => {}); }
   await browserContext?.close();

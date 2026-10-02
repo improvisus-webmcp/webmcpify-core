@@ -7,14 +7,14 @@ import { resolvePackageManager } from "./package-manager.js";
 import { createTrajectoryArtifact } from "./trajectories.js";
 
 export class GenerationPreflightError extends Error {
-  constructor(readonly diagnostics: string, artifact: string) {
-    super(`Generated source failed pre-approval validation. No source patch was applied and no approval was created. Private build diagnostics: ${artifact}`);
+  constructor(readonly diagnostics: string, artifact: string, readonly check = "project validation") {
+    super(`Generated source did not pass ${check} pre-approval validation. No source patch was applied and no approval was created. Private build diagnostics: ${artifact}`);
   }
 }
 
 export class PreflightEnvironmentError extends Error {
-  constructor(artifact: string) {
-    super(`Could not launch the project validation executable. Install the project's package manager/check tools, verify executable permissions, or set WEBMCPIFY_PACKAGE_MANAGER to an executable path. No source patch was applied. Private diagnostics: ${artifact}`);
+  constructor(artifact: string, reason = "Could not launch the project validation executable. Install the project's package manager/check tools, verify executable permissions, or set WEBMCPIFY_PACKAGE_MANAGER to an executable path.") {
+    super(`${reason} No source patch was applied. Private diagnostics: ${artifact}`);
   }
 }
 
@@ -118,10 +118,16 @@ export async function runGenerationPreflight(
   const startedMs = Date.now();
   console.log(`[generate] preflight running ${checks.map((check) => check.label).join(" + ")} in disposable workspace...`);
 
+  let activeCheck = "project validation";
   try {
     for (const check of checks) {
+      activeCheck = check.label;
       await execa(check.command, check.args, {
         cwd: workspace,
+        // We intentionally reuse installed dependency links. pnpm 11's
+        // auto-install before `run` must not purge or mutate that linked tree.
+        // Boolean false also works on versions predating the string-mode fix.
+        env: { PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false" },
         maxBuffer: 20 * 1024 * 1024,
         cancelSignal: currentOperationSignal(),
       });
@@ -132,6 +138,7 @@ export async function runGenerationPreflight(
     const details = outputFromError(error).slice(-4_000);
     const artifact = await createTrajectoryArtifact("preflight-failure", { error: outputFromError(error) }, { sitePath, status: "failed" });
     if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new PreflightEnvironmentError(artifact);
-    throw new GenerationPreflightError(details, artifact);
+    if (details.includes("ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY")) throw new PreflightEnvironmentError(artifact, "The project's validation attempted an interactive pnpm dependency install and stopped because no terminal was available. Use already-installed dependencies for build checks; do not force a purge of the linked dependency tree.");
+    throw new GenerationPreflightError(details, artifact, activeCheck);
   }
 }

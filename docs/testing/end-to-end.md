@@ -122,9 +122,14 @@ Reselect every tool: consent becomes available but stays unchecked.
 For a partial-approval test, uncheck one tool while keeping at least one selected.
 Continue. Expected: controls lock immediately and a progress page appears. Other
 open tabs lock too; refresh during revision must show only progress, not editable
-controls. The original coding provider creates a revised patch in a
-disposable workspace; rejected registrations and retained-only docs/tests are
-reconciled; the page automatically reopens for fresh review. Remove another tool
+controls. Independent JS/TS registrations are removed directly in a disposable
+workspace; only shared/dynamic integrations or coverage gaps invoke the original
+coding provider. Rejected-only and mixed/dependent tasks disappear; unaffected
+task IDs and criteria stay unchanged. Both initial and revised drafts must have
+at least `ceil(tool count × 1.3)` tests with every tool covered (10 tools → 13+
+tests); there is no six-test cap. If removals cause a count shortfall, Core adds
+grounded scenarios without rewriting retained tests. Retained-only docs are reconciled;
+the page automatically reopens for fresh review. Remove another tool
 and repeat if at least one remains. No approval/application happens
 automatically. Confirm rejected registrations are actually absent, while original
 human handlers still exist. Every remaining proposed tool still has coverage.
