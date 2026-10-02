@@ -68,6 +68,8 @@ flowchart LR
 | `src/lib/generation-metadata.ts` | Validates generated tools/tasks and permits one metadata-only correction with source/Git identity and valid-contract preservation checks. |
 | `src/lib/review-selection.ts` | Revises a pending patch for selected tools in a disposable workspace, checks retained contracts/source/security, updates tasks/docs, and returns a new unapproved draft. |
 | `src/lib/review-ui.ts` | Locks review controls immediately, polls revision progress, and automatically reopens a fresh draft. |
+| `src/lib/review-files.ts` | Describes every actual patch path with change type and grounded file-role/tool-placement explanations. |
+| `src/lib/cli-progress.ts` | Provides safe stderr-only phase activity with elapsed time and cleanup on success or failure. |
 | `src/lib/canonical-json.ts` | Compares immutable JSON contracts without treating object-key order as a change. |
 | `src/lib/prompts.ts` | Holds deterministic discovery, placement, proposal, and task-authoring instructions. |
 | `src/lib/webmcp-spec-guidance.ts` | Holds the WebMCP compatibility, lifecycle, privacy, and security rules supplied to providers. |

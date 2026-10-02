@@ -4,6 +4,13 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Improved: review transparency and workflow activity
+
+- List every patch path with added/modified/deleted/renamed/copied status and a file-role or declared tool-placement reason. Do not cap the list at ten or invent a precise purpose for unexplained changes.
+- Make review cards, tools, security findings, tasks, file inventory, source diff, and raw draft collapsible. Keep a larger source-consent checkbox visible; disable approval until checked and reset consent for every revised draft. Partial draft preparation remains distinct from approval.
+- Show safe stderr phase activity and elapsed-time feedback while saving approval, preparing rollback, running target build/typecheck, preparing browser tasks, and independently scoring results. Preserve raw prompt/code/error privacy and MCP stdout.
+- Explain multi-minute generation/build/browser verification and standalone-review versus full-run behavior in the README. Add file-inventory, consent, collapse, mobile, and progress regressions.
+
 ### Fixed: locked, tool-only review and strict audits
 
 - Make generated contracts and all verification tasks read-only in review; owners select tools only. Reject task/contract edits sent directly to the server.

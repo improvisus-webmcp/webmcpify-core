@@ -99,7 +99,24 @@ webmcpify generate --provider codex --security balance
 6. Reuse an available CDP browser or start an isolated headless Chrome session.
 7. Exercise approved WebMCP tools and independently verify the resulting page state.
 
+Allow several minutes for a run, and potentially longer for larger projects or
+slower providers. Core generates source and verification tasks, runs build checks,
+waits for your review, then executes approved tasks in isolated browser sessions
+and independently checks their results. Tasks collectively cover every approved
+capability; some capabilities have multiple success/rejection checks. Partial
+tool selection can add another drafting/build cycle. CLI phase messages, elapsed-time
+activity indicators, and task counters show ongoing work; they are not percentage
+estimates. A completed standalone `review` does not apply or test the patch—use
+`apply` and `test`, or `run` for the complete workflow.
+
 Use `--path /path/to/project` when running outside the target directory. Supply the running app URL with `--url`, or set `WEBMCPIFY_URL`; Core does not assume an application port.
+
+The review page has collapsible sections and lists **all** changed files with
+their change types and role/placement reasons. Review the exact diff as well:
+inferred purposes do not prove a change is necessary. The larger **I approve this
+exact source patch** checkbox must be checked before **Approve reviewed draft**
+is enabled; final confirmation still follows. Preparing a reduced-tool draft
+does not require approving the old patch, and fresh drafts reset consent.
 
 To reject individual tools, uncheck them and choose **Prepare selected-tool draft**.
 Core invokes the draft's coding provider in a disposable workspace to remove

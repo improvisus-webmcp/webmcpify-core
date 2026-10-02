@@ -19,6 +19,7 @@ import { loadTasks } from "../lib/tasks.js";
 import { WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
 import { resolvePackageManager } from "../lib/package-manager.js";
+import { withCliProgress } from "../lib/cli-progress.js";
 
 interface ApplyOptions { path?: string }
 
@@ -58,7 +59,7 @@ async function runBuild(sitePath: string): Promise<string[]> {
   for (const script of ["typecheck", "build"]) {
     if (!scripts[script]) continue;
     ran.push(script);
-    await execa(manager, ["run", script], { cwd: sitePath, cancelSignal: currentOperationSignal() });
+    await withCliProgress("apply", `Running target ${script}`, () => execa(manager, ["run", script], { cwd: sitePath, cancelSignal: currentOperationSignal() }));
   }
   return ran;
 }
@@ -190,7 +191,7 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
   const patch = metadata.patchPath;
   if (!/^[a-zA-Z0-9_-]+$/.test(metadata.runId)) throw new Error("Invalid patch run ID.");
   const rollbackPath = path.join(sitePath, ".webmcpify", "rollback", metadata.runId);
-  await snapshotFiles(sitePath, metadata.changedFiles, rollbackPath);
+  await withCliProgress("apply", "Preparing rollback snapshot", () => snapshotFiles(sitePath, metadata.changedFiles, rollbackPath));
   let buildScripts: string[] = [];
   try {
     console.log("[apply] validating approved patch...");
@@ -199,7 +200,9 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     console.log("[apply] applying approved patch...");
     await runGit(sitePath, ["apply", "--whitespace=nowarn", patch]);
     buildScripts = await runBuild(sitePath);
-    const repairEvaluationPath = await recordRepairEvaluation(sitePath, metadata);
+    const repairEvaluationPath = metadata.repair
+      ? await withCliProgress("apply", "Independently verifying repaired tasks", () => recordRepairEvaluation(sitePath, metadata))
+      : undefined;
     const applied: PatchMetadata = {
       ...metadata,
       patchStatus: "applied",

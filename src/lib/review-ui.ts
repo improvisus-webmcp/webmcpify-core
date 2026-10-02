@@ -10,6 +10,8 @@ const reviewForm=document.querySelector('form');
 const toolBoxes=Array.from(document.querySelectorAll('input[name="toolIds"][type="checkbox"]'));
 const continueButton=document.querySelector('.approve');
 const selectionStatus=document.getElementById('selection-status');
+const sourceApproval=document.querySelector('input[name="approveSourceDiff"][type="checkbox"]');
+const approvalStatus=document.getElementById('approval-status');
 let busy=false;
 let submitted=false;
 const busyLayer=document.createElement('section');
@@ -30,10 +32,12 @@ function selectionChanged(){
   const count=toolBoxes.filter(box=>box.checked).length;
   const subset=count>0&&count<toolBoxes.length;
   continueButton.textContent=subset?'Prepare selected-tool draft':'✓ Approve reviewed draft';
-  continueButton.disabled=count===0;
+  continueButton.disabled=busy||count===0||(!subset&&(!sourceApproval||!sourceApproval.checked));
+  if(approvalStatus)approvalStatus.textContent=count===0?'Select at least one tool or reject the draft.':subset?'Prepare a new draft first; this does not approve the current patch.':sourceApproval&&sourceApproval.checked?'Source approval checked. Continue to final confirmation.':'Check “I approve this exact source patch” to enable approval.';
   selectionStatus.textContent=subset?'Core will remove rejected registrations and regenerate corresponding tasks. You will review a new patch before approval.':'';
 }
 toolBoxes.forEach(box=>box.addEventListener('change',selectionChanged));
+if(sourceApproval)sourceApproval.addEventListener('change',selectionChanged);
 if(toolBoxes.length)selectionChanged();
 const pollTimer=setInterval(async()=>{
   try{
@@ -44,9 +48,12 @@ const pollTimer=setInterval(async()=>{
   }catch{}
 },1000);
 if(reviewForm)reviewForm.addEventListener('submit',async event=>{
-  event.preventDefault();if(submitted||busy)return;submitted=true;
-  const body=new URLSearchParams(new FormData(reviewForm));
+  event.preventDefault();if(submitted||busy)return;
   const endpoint=event.submitter&&event.submitter.classList.contains('reject')?'/reject':'/approve';
+  const subset=toolBoxes.some(box=>!box.checked)&&toolBoxes.some(box=>box.checked);
+  if(endpoint==='/approve'&&sourceApproval&&!subset&&!sourceApproval.checked){selectionChanged();sourceApproval.focus();return;}
+  submitted=true;
+  const body=new URLSearchParams(new FormData(reviewForm));
   lockReview(endpoint==='/reject'?'Recording rejection…':toolBoxes.some(box=>!box.checked)?'Removing rejected tools and preparing the revised draft…':'Preparing approval…');
   try{
     const response=await fetch(endpoint,{method:'POST',body});

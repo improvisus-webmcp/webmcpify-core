@@ -27,6 +27,8 @@ import { currentOperationSignal } from "../lib/operation-context.js";
 import { reviseToolSelection } from "../lib/review-selection.js";
 import { projectDisplayName } from "../lib/project-identity.js";
 import { reviewBusyPage, reviewClientScript } from "../lib/review-ui.js";
+import { describeReviewFiles } from "../lib/review-files.js";
+import { withCliProgress } from "../lib/cli-progress.js";
 
 export interface ReviewOptions {
   port?: string;
@@ -230,27 +232,29 @@ export async function runReviewPrompt(
           .join("\n")
       : `<p>No valid task proposal was found. Regenerate before approving.</p>`;
 
-    const sourceSection = hasPatch
-      ? `<div class="section"><h2>Source changes</h2><p><strong>${htmlEscape(
-          patchMetadata.patchStatus
-        )}</strong> — ${htmlEscape(patchMetadata.changedFiles.join(", "))}</p><pre>${htmlEscape(
-          patch
-        )}</pre><label><input type="checkbox" name="approveSourceDiff" value="yes"> I approve this exact source patch</label></div>`
-      : `<div class="section"><h2>Source changes</h2><p>No valid pending source patch exists. Generation must produce one before approval.</p></div>`;
+    const panel = (title: string, content: string, open = false, classes = "") => `<details class="section review-panel ${classes}"${open ? " open" : ""}><summary>${title}</summary><div class="panel-content">${content}</div></details>`;
+    const files = describeReviewFiles(patch, proposedTools);
+    const fileRows = files.map(file => `<tr data-review-file="${htmlEscape(file.file)}"><td><code>${htmlEscape(file.file)}</code></td><td>${file.change}</td><td>${htmlEscape(file.reason)}</td></tr>`).join("\n");
+    const fileSection = panel(`4. Files in this patch <span class="count">${files.length} total</span>`, `<p class="hint">Every added, modified, deleted, renamed, or copied path is shown—not just the first ten. Reasons summarize file roles and declared tool-placement rationale; the exact diff is the authority.</p><div class="file-table"><table><thead><tr><th scope="col">File</th><th scope="col">Change</th><th scope="col">Why it is included</th></tr></thead><tbody>${fileRows}</tbody></table></div>`, true);
+    const sourceSection = panel("5. Exact source patch", `<p><strong>${htmlEscape(patchMetadata.patchStatus)}</strong> — inspect every change before checking source approval below.</p><pre>${htmlEscape(patch)}</pre>`, false, "source");
 
     response.type("html").send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${projectName} · Approve WebMCP changes</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.shell{max-width:1120px;margin:0 auto;padding:32px 20px 120px}.hero{background:linear-gradient(135deg,#172554,#2563eb);color:#fff;border-radius:20px;padding:30px 34px;box-shadow:0 12px 35px #1725542e}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.78}.hero h1{font-size:32px;margin:8px 0}.hero p{max-width:760px;margin:0;color:#dbeafe;line-height:1.55}.notice{display:flex;gap:14px;align-items:flex-start;margin:22px 0;padding:18px 20px;border:1px solid #f0c36a;border-radius:14px;background:#fff9e8;color:#694d05}.notice strong{display:block;color:#3d2b00;margin-bottom:3px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.card,.section{background:#fff;border:1px solid #dce3ef;border-radius:16px;padding:22px;box-shadow:0 4px 14px #1725540b}.section{margin-top:18px}.section h2{margin:0 0 14px;font-size:20px}.section>p{color:#536176}.count{display:inline-flex;align-items:center;gap:7px;background:#eaf1ff;color:#1746a2;border-radius:999px;padding:5px 10px;font-size:13px;font-weight:750}.item{display:block;padding:14px 0;border-top:1px solid #edf0f5;line-height:1.45}.item:first-of-type{border-top:0}.item input{width:18px;height:18px;vertical-align:-4px;margin-right:8px;accent-color:#2563eb}.item strong{color:#111827}.item code,.hint{color:#536176;font-size:12px}.item code{display:block;margin:8px 0 0 28px;padding:8px;background:#f6f8fb;border-radius:8px;overflow:auto}.warning{display:block;margin:8px 0 0 28px;color:#9a5b00;font-size:12px}.source{border-color:#f0c36a;background:#fffdf7}.source pre,pre{white-space:pre-wrap;background:#f6f8fb;border:1px solid #e5eaf2;padding:14px;border-radius:10px;max-height:40vh;overflow:auto;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}textarea{width:100%;min-height:150px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}details{margin-top:14px}summary{cursor:pointer;font-weight:700;color:#1746a2}.draft{margin-top:18px}.actions{position:fixed;bottom:0;left:0;right:0;background:#fffffff2;border-top:1px solid #dce3ef;backdrop-filter:blur(10px);padding:14px 20px;z-index:2}.actions-inner{max-width:1120px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:14px}.actions small{color:#536176}.actions button{border:0;border-radius:10px;padding:13px 22px;font-weight:800;font-size:15px;cursor:pointer}.approve{background:#16a34a;color:#fff;box-shadow:0 5px 15px #16a34a40}.reject{background:#fff;color:#b42318;border:1px solid #efb6b0!important}.actions button:hover{filter:brightness(.96)}@media(max-width:760px){.grid{grid-template-columns:1fr}.hero{padding:24px}.hero h1{font-size:26px}.actions-inner{align-items:stretch;flex-direction:column}.actions small{display:none}}
+.review-panel>summary{font-size:20px;color:#172033}.panel-content{margin-top:18px}.card>summary{font-size:18px}.file-table{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px;border-bottom:1px solid #e5eaf2;vertical-align:top}td code{overflow-wrap:anywhere}.source-approval{margin-top:22px;padding:24px;border:2px solid #df9c23;border-radius:16px;background:#fff5d9}.source-approval label{display:flex;align-items:flex-start;gap:16px;cursor:pointer}.source-approval input{width:30px;height:30px;flex:none;accent-color:#16a34a;margin:0}.source-approval strong{display:block;font-size:22px;line-height:1.3}.source-approval small{display:block;margin-top:10px;font-size:15px;color:#694d05}.approve:disabled{background:#64748b;opacity:.65;cursor:not-allowed;box-shadow:none}.actions button:disabled:hover{filter:none}.actions [role=status]{max-width:420px;font-size:14px;color:#694d05}
 </style></head><body><main class="shell">
 <header class="hero"><div class="eyebrow">WebMCPify · Human approval required</div><h1>Review WebMCP draft</h1><p><strong>Project: ${projectName}</strong><br>Repository folder: ${htmlEscape(sitePath)}</p><p>Inspect the proposed tools, verification tasks, and source patch. Nothing is applied to the target project until you explicitly approve this exact patch.</p><p class="hint">Reference: <a href="${WEBMCP_SPEC_URL}" target="_blank" rel="noreferrer">WebMCP specification</a> · <a href="${CHROME_WEBMCP_URL}" target="_blank" rel="noreferrer">Chrome WebMCP guide</a></p></header>
 ${revisionJob.message ? `<div class="notice" role="alert">${htmlEscape(revisionJob.message)}</div>` : ""}<div class="notice"><div>⚠️</div><div><strong>Action required</strong>Select only the WebMCP tools you want this project to make available to the approved browser-agent workflow. Review each tool's title, description, schema, and risk annotations, then approve the exact source patch separately.</div></div>
-<div class="grid"><section class="card"><h2>What will be approved?</h2><p><span class="count">${proposedTools.length} tools</span> <span class="count">${proposedTasks.length} tests</span> <span class="count">${patchMetadata.changedFiles.length} files</span></p><p class="hint">Approval creates a local manifest and task set. It does not deploy or apply source changes; the separate apply step does that.</p></section><section class="card"><h2>Before approving</h2><p class="hint">Confirm that every tool maps to a real user action, every task has a meaningful verification expression, and the source diff contains only expected changes.</p><p class="hint">Only tool selection is editable. Generated contracts and verification tasks are read-only.</p></section></div>
-<form id="review-form" method="post" action="/approve"><input type="hidden" name="stage" value="prepare"><input type="hidden" name="reviewRunId" value="${htmlEscape(approvalId)}"><input type="hidden" name="reviewPatchHash" value="${patchHash}"><section class="section"><h2>1. Approved tools <span class="count">${proposedTools.length} proposed</span></h2><p class="hint">Uncheck unwanted tools. Continuing with a subset runs the coding provider to remove rejected registrations and regenerate tests/docs in a disposable workspace, then returns a revised patch for fresh review. It does not approve the original patch.</p><p id="selection-status" role="status" aria-live="polite"></p>${checkboxes}<details><summary>Inspect generated tool definitions (read-only)</summary>${toolDetails}</details></section>
-<section class="section"><h2>2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span></h2><p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match execution scope and applicable controls to the actual handler; browser-only UI state needs no invented backend. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul></section>
-<section class="section"><h2>3. Verification tasks <span class="count">${proposedTasks.length} proposed</span></h2><p class="hint">These generated tasks are read-only. Changing tool selection automatically revises corresponding tasks; you cannot remove checks or edit their pass criteria.</p>${taskRows}</section>${sourceSection.replace('<div class="section">', '<section class="section source">').replace('</div>', '</section>')}
-<div class="draft"><details><summary>Show raw generation draft</summary><pre>${htmlEscape(draft)}</pre></details></div>
-<div class="actions"><div class="actions-inner"><small>Review complete? Your click is required to continue.</small><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit">✓ Approve reviewed draft</button></div></div></div></form></main><script>
+<div class="grid"><details class="card"><summary>What will be approved?</summary><div class="panel-content"><p><span class="count">${proposedTools.length} tools</span> <span class="count">${proposedTasks.length} tests</span> <span class="count">${files.length} files</span></p><p class="hint">Approval creates a local manifest and task set. It does not deploy or apply source changes; the separate apply step does that.</p></div></details><details class="card"><summary>Before approving</summary><div class="panel-content"><p class="hint">Confirm that every tool maps to a real user action, every task has a meaningful verification expression, and the source diff contains only expected changes.</p><p class="hint">Only tool selection is editable. Generated contracts and verification tasks are read-only.</p></div></details></div>
+<form id="review-form" method="post" action="/approve"><input type="hidden" name="stage" value="prepare"><input type="hidden" name="reviewRunId" value="${htmlEscape(approvalId)}"><input type="hidden" name="reviewPatchHash" value="${patchHash}">
+${panel(`1. Proposed tools <span class="count">${proposedTools.length} proposed</span>`, `<p class="hint">Uncheck unwanted tools. Continuing with a subset removes rejected registrations and updates corresponding tests/docs in a disposable workspace, then returns a revised patch for fresh review. It does not approve the original patch.</p><p id="selection-status" role="status" aria-live="polite"></p>${checkboxes}<details><summary>Inspect generated tool definitions (read-only)</summary>${toolDetails}</details>`, true)}
+${panel(`2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span>`, `<p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match execution scope and applicable controls to the actual handler; browser-only UI state needs no invented backend. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul>`, initialSecurity.status === "block")}
+${panel(`3. Verification tasks <span class="count">${proposedTasks.length} proposed</span>`, `<p class="hint">These generated tasks are read-only. Changing tool selection automatically revises corresponding tasks; you cannot remove checks or edit their pass criteria.</p>${taskRows}`)}
+${fileSection}${sourceSection}
+${panel("6. Raw generation draft", `<pre>${htmlEscape(draft)}</pre>`)}
+<section class="source-approval" aria-label="Required source patch approval"><label for="approve-source-patch"><input id="approve-source-patch" type="checkbox" name="approveSourceDiff" value="yes" aria-required="true" aria-describedby="source-approval-help"><span><strong>I approve this exact source patch</strong><small id="source-approval-help">Required before “Approve reviewed draft” is enabled. Check only after reviewing every file and the exact diff above. Preparing a reduced-tool draft is not approval.</small></span></label></section>
+<div class="actions"><div class="actions-inner"><span id="approval-status" role="status" aria-live="polite">Check “I approve this exact source patch” to enable approval.</span><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" disabled>✓ Approve reviewed draft</button></div></div></div></form></main><script>
 ${reviewClientScript(approvalId)}
 </script></body></html>`);
   });
@@ -270,6 +274,7 @@ ${reviewClientScript(approvalId)}
     const finish = (result: ReviewDecision) => {
       if (server) {
         server.close(() => resolve(result));
+        server.closeIdleConnections();
       } else {
         resolve(result);
       }
@@ -339,41 +344,41 @@ ${reviewClientScript(approvalId)}
         if (!pendingConfirmation || request.body.confirmationToken !== pendingConfirmation.token || JSON.stringify(input) !== pendingConfirmation.input) throw new Error("Prepare and review this exact approval before confirming; changed selections require a new confirmation.");
         if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
         const approvalManifest = { version: 1 as const, approved: true as const, approvalId, draftPath, taskSetId: taskFingerprint(input.tasks), tasks: input.tasks, tools: input.tools, toolNames: input.tools.map((tool) => tool.name), tasksPath: projectTasksPath, proposedToolsPath: proposalFile, sourceDiff: { status: "approved" as const, runId: approvalId, patchHash, timestamp: new Date().toISOString() } };
-        await writeApprovedTasksAtomically(sitePath, approvalManifest);
         const sourceDiff = {
           status: "approved" as const,
           runId: patchMetadata.runId,
           patchHash,
           timestamp: new Date().toISOString(),
         };
-        await writePatchMetadata(sitePath, {
-          ...patchMetadata,
-          patchStatus: "approved",
+        const decisionPath = await withCliProgress("review", "Saving confirmed approval", async () => {
+          await writeApprovedTasksAtomically(sitePath, approvalManifest);
+          await writePatchMetadata(sitePath, { ...patchMetadata, patchStatus: "approved" });
+          return createTrajectoryArtifact(
+            "review-decision",
+            {
+              version: 1,
+              approved: true,
+              tools: input.tools,
+              toolNames: input.tools.map((tool) => tool.name),
+              tasks: input.tasks,
+              approvalPath,
+              tasksPath: projectTasksPath,
+              proposedToolsPath: proposalFile,
+              sourceDiff,
+              draftPath,
+              reviewedAt: new Date().toISOString(),
+            },
+            {
+              sitePath,
+              draftPath,
+              approvalPath,
+              port,
+              ...trajectoryMetadata,
+            }
+          );
         });
         console.log(`[review] approval confirmed: ${input.tools.length} tool(s), ${input.tasks.length} task(s), ${patchMetadata.changedFiles.length} source file(s)`);
-        const decisionPath = await createTrajectoryArtifact(
-          "review-decision",
-          {
-            version: 1,
-            approved: true,
-            tools: input.tools,
-            toolNames: input.tools.map((tool) => tool.name),
-            tasks: input.tasks,
-            approvalPath,
-            tasksPath: projectTasksPath,
-            proposedToolsPath: proposalFile,
-            sourceDiff,
-            draftPath,
-            reviewedAt: new Date().toISOString(),
-          },
-          {
-            sitePath,
-            draftPath,
-            approvalPath,
-            port,
-            ...trajectoryMetadata,
-          }
-        );
+        console.log("[review] approval saved; closing review and returning control to the CLI workflow");
 
         response.type("html").send(`<!doctype html><html lang="en"><body>
 <h1>Approved ✓</h1><p>${input.tools.length} tool(s) and ${input.tasks.length} verification task(s) have been persisted for <code>${htmlEscape(

@@ -50,10 +50,12 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
     return;
   }
 
+  console.log("[run] approval received; continuing with the exact approved patch");
   console.log("[run] 3/4 apply and build");
   await runApply({ path: sitePath });
 
   console.log("[run] 4/4 test and independently verify");
+  console.log("[run] preparing the browser; each approved task will be executed and checked independently");
   const evaluation = await withManagedChrome(url, async () => {
     try {
       return await runTest({ path: sitePath, url, provider: opts.provider });

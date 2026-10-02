@@ -14,6 +14,7 @@ import {
 import { createBrowserAgentWorkspace, removeAgentWorkspace } from "../lib/agent-workspace.js";
 import { WEBMCP_SPEC_GUIDANCE } from "../lib/webmcp-spec-guidance.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
+import { withCliProgress } from "../lib/cli-progress.js";
 
 const TEST_EVALUATION_VERSION = 1;
 
@@ -183,7 +184,7 @@ Approved task:
 ${JSON.stringify(task, null, 2)}
 
 Report the observed result, but do not claim success unless you executed it.`;
-    const session = await resetScoringState(url);
+    const session = await withCliProgress("test", `Preparing browser for task ${index + 1}/${tasks.length}`, () => resetScoringState(url));
     const agentWorkspace = await createBrowserAgentWorkspace();
     let taskAgentOutput: unknown;
     try {
@@ -214,12 +215,12 @@ Report the observed result, but do not claim success unless you executed it.`;
     // intentionally bypassed here; resetting would erase the effect we test.
     let result: Awaited<ReturnType<typeof scoreTask>>;
     try {
-      result = await scoreTask(url, task, {
+      result = await withCliProgress("test", `Independently checking task ${index + 1}/${tasks.length}`, () => scoreTask(url, task, {
         page: session.page,
         resetStorage: false,
         agentOutput: taskAgentOutput,
         requireToolEvidence: true,
-      });
+      }));
     } finally {
       await Promise.all([removeAgentWorkspace(agentWorkspace), session.close()]);
     }

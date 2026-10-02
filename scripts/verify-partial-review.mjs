@@ -108,7 +108,22 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       secondPage = await browserContext.newPage();
       await Promise.all([page.goto("http://127.0.0.1:4390"), secondPage.goto("http://127.0.0.1:4390")]);
       assert.equal(await page.locator('[name="taskIds"], [name="tasksJson"], [name="toolsJson"]').count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true, "Unchecked source consent must disable approval");
+      assert.equal(await page.locator("tr[data-review-file]").count(), original.changedFiles.length);
+      const tasksPanel = page.locator("details.review-panel").filter({ hasText: "3. Verification tasks" });
+      assert.equal(await tasksPanel.evaluate(element => element.open), false);
+      await tasksPanel.locator("summary").first().click();
+      assert.equal(await tasksPanel.evaluate(element => element.open), true);
+      await tasksPanel.locator("summary").first().click();
+      assert.equal(await tasksPanel.evaluate(element => element.open), false);
+      const sourceConsent = page.locator('input[name="approveSourceDiff"]');
+      assert.ok((await sourceConsent.boundingBox()).width >= 28, "Consent checkbox must have a prominent touch target");
+      await sourceConsent.check();
+      assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isEnabled(), true);
+      await sourceConsent.uncheck();
+      assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true);
       await page.locator('input[name="toolIds"][value="dismiss_item"]').uncheck();
+      assert.equal(await page.getByRole("button", { name: "Prepare selected-tool draft" }).isEnabled(), true, "Draft preparation is not consent to the original patch");
       const response = page.waitForResponse(response => response.url().endsWith("/approve") && response.request().method() === "POST");
       await page.getByRole("button", { name: "Prepare selected-tool draft" }).click();
       const actual = await response;
@@ -174,6 +189,10 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       let confirmationPage;
       if (page) {
         await page.waitForFunction(runId => document.querySelector('[name="reviewRunId"]')?.value === runId, revised.runId);
+        assert.equal(await page.locator('input[name="approveSourceDiff"]').isChecked(), false, "Every revised patch must start with fresh, unchecked consent");
+        assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true);
+        await page.setViewportSize({ width: 390, height: 844 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "Review must not overflow a mobile viewport");
         await page.locator('input[name="approveSourceDiff"]').check();
         await page.getByRole("button", { name: "Approve reviewed draft" }).click();
         await page.getByRole("button", { name: "Confirm Approval" }).waitFor();

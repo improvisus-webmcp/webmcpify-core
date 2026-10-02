@@ -109,6 +109,13 @@ webmcpify review --port 4173
 Open the exact localhost URL printed by Core. Confirm project name and repository
 folder. Inspect tools, tasks, security, and source changes.
 Tasks and tool contracts must be view-only: no task checkboxes or JSON editors.
+Expand/collapse each section. The file inventory must list every changed path,
+including changes beyond ten files, its change type, and a reason (or an explicit
+unknown-purpose warning). Inspect the exact diff, not just those summaries.
+With all tools selected, approval must be disabled until the larger source-patch
+checkbox is checked. Uncheck it again: approval must become disabled. A direct
+HTTP request without consent is rejected too. Reduced-tool draft preparation is
+not approval of the old patch; after revision, source consent starts unchecked.
 
 For a partial-approval test, uncheck one tool while keeping at least one selected.
 Continue. Expected: controls lock immediately and a progress page appears. Other
@@ -126,6 +133,10 @@ Approve the revised source checkbox and proceed to confirmation. Check the space
 above Confirm Approval/Cancel. Cancel returns to review without approval. Confirm
 only after checking the exact revised patch. Old tabs/forms cannot approve a new
 draft. Zero selected tools are rejected, not an automatic approval.
+After confirmation, the CLI shows approval-saving activity. Standalone `review`
+finishes with next-step instructions; `run` continues to apply/build and browser
+tasks, with activity indicators and per-task counters. Allow several minutes;
+these are phase/elapsed-time indicators, not completion-percentage estimates.
 
 To test whole-draft rejection instead, click Reject in a separate disposable run.
 Expected: no target source change; apply refuses that rejected draft. Regenerate
