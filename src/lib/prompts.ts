@@ -109,8 +109,12 @@ order and describe that setup.
 
 Use a rejection task for a real, discovered business-rule guard: for example,
 checkout without authentication or cart contents, or remove_item with an empty
-cart. A rejection task must call exactly one proposed tool, omit setup so the
-precondition stays unmet, set expectedError to stable text from that tool's
+cart. A rejection task must test exactly one proposed tool. It may declare
+setup to prepare the negative case, such as emptying the cart or choosing an
+absent item, but that preparation must keep the declared failure condition
+true and must never satisfy the missing prerequisite or execute the guarded
+action. Omit setup when the initial state already meets the negative case.
+Set expectedError to stable text from that tool's
 behavior.expectedFailures contract, and verify independently that no forbidden
 state change occurred. Do not use rejection tasks for crashes, missing tools,
 invalid schemas, browser failures, or invented behavior. The one

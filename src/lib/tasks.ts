@@ -15,7 +15,7 @@ export interface Task {
   expectedError?: string;
   /** Approved WebMCP tools needed to complete this task. */
   requiredTools?: string[];
-  /** Explicit setup the browser agent must complete before the primary action. */
+  /** Preparation before the primary action; rejection setup must preserve the unmet guard. */
   setup?: string;
 }
 
@@ -150,9 +150,9 @@ export function validateTaskToolBindings(
       if (task.requiredTools.length !== 1) {
         throw new Error(`Rejection task "${task.id}" must test exactly one WebMCP tool.`);
       }
-      if (task.setup) {
-        throw new Error(`Rejection task "${task.id}" must preserve the unmet precondition instead of declaring setup.`);
-      }
+      // Negative cases may need preparation (for example, clearing a cart or
+      // selecting an absent item). The declared error and independent
+      // postcondition still have to prove rejection of the guarded action.
       const contract = contracts.find((tool) => tool.name === task.requiredTools?.[0]);
       const expectedFailures = contract?.expectedFailures ?? contract?.behavior?.expectedFailures ?? [];
       if (expectedFailures.length === 0) {

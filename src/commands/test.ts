@@ -39,7 +39,7 @@ export interface StoredTestEvaluation {
 
 function taskOutcomeInstruction(task: Task): string {
   if (taskExpectedOutcome(task) === "rejection") {
-    return `This is an expected business-rule rejection test. Call ${task.requiredTools?.[0]} exactly once without satisfying the unmet precondition. Do not work around the rejection. Preserve the page state for independent verification and include both the exact tool name and its exact rejection text in your final report; the rejection must contain: ${task.expectedError}`;
+    return `This is an expected business-rule rejection test. Any setup must only prepare the negative case and keep the declared failure condition true; never satisfy the missing prerequisite or invoke the guarded action during setup. Call ${task.requiredTools?.[0]} exactly once without satisfying the unmet precondition. Do not work around the rejection. Preserve the page state for independent verification and include both the exact tool name and its exact rejection text in your final report; the rejection must contain: ${task.expectedError}`;
   }
   return "The requested action must succeed. Call every requiredTools entry and report each exact tool name. An unavailable or rejected action is a failure.";
 }

@@ -143,3 +143,14 @@ Recommended priority: same-page/context scoring → workspace/patch safety → p
 - Temporal SDK workflow bundling succeeded.
 - JavaScript/TypeScript generation fixtures and unified `AGENTS.md` content/merge/approval/separation checks succeeded, including regeneration, owner-file preservation, and malformed marker rejection.
 - A missing Chrome executable returned an actionable `ENOENT`; a suspected cleanup hang did **not** reproduce and is not listed as a confirmed bug.
+
+## Live generation follow-up (2026-10-02)
+
+A reported Codex run reached generation after setting an explicit executable path, then failed because a negative remove-item task declared setup. Core previously rejected all rejection-task setup and stopped before its source-preflight repair path.
+
+- Negative setup is now allowed to prepare and preserve the declared failure condition. Expected tool/error evidence and an independent no-forbidden-change postcondition remain required.
+- Invalid tool/task metadata gets one separate metadata-only correction. Generated source/Git identity and already-valid contracts cannot change; corrected metadata becomes the review draft. Failed correction does not publish a pending proposal or apply source.
+- Provider lookup anchors relative executable paths before workspace changes and includes standalone Codex discovery. Safe diagnostics distinguish a missing executable, missing working directory, and an executable with a missing interpreter/runtime. Raw subprocess details stay private.
+- Credential-free generation fixtures cover successful correction, invalid corrections, contract/source/Git drift, provider failure, and unchanged target source. Real Chrome checks confirm unrelated errors and forbidden state changes fail rejection scoring. The complete automated suite passes.
+
+The original shell-versus-Core Codex lookup discrepancy and the separate authenticated Antigravity failure have not been reproduced with the user's environment. These tests do not claim a successful authenticated model run or native Windows/macOS execution.

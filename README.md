@@ -98,6 +98,10 @@ webmcpify run --url http://localhost:5173 --provider agy --security strict
 
 Use `--path /path/to/project` when running outside the target directory. Supply the running app URL with `--url`, or set `WEBMCPIFY_URL`; Core does not assume an application port.
 
+Negative tests may prepare their failure condition, such as emptying the cart or choosing an absent item. Their setup must preserve the unmet prerequisite, not satisfy it or perform the guarded action. An unrelated error or forbidden state change still fails the test.
+
+If generated tool/task metadata is invalid, Core requests one metadata-only correction in the disposable workspace. Already-valid tool contracts and generated source must remain unchanged; corrected metadata is revalidated and becomes the draft shown for review. A failed correction stops generation without applying a patch. Raw output and validation details stay in private trajectories, not terminal messages.
+
 ## Agent-ready websites and repositories
 
 Generation includes these files in the pending patch when Core can identify
@@ -312,6 +316,8 @@ WEBMCPIFY_CDP_URL=http://127.0.0.1:9222
 ```
 
 Provider executable overrides are available as `WEBMCPIFY_CODEX_BIN`, `WEBMCPIFY_CLAUDE_BIN`, `WEBMCPIFY_GEMINI_BIN`, `WEBMCPIFY_OPENCODE_BIN`, and `WEBMCPIFY_ANTIGRAVITY_BIN`.
+
+Core checks executable files on `PATH`, not shell aliases or functions. Codex also falls back to an executable in `~/.local/bin` or a supported editor installation. Relative executable paths and relative `PATH` entries are resolved before changing to the disposable workspace. Launch errors distinguish missing CLIs from a missing working directory or a broken launcher/interpreter; use an absolute override when necessary.
 
 Browser agents run in empty disposable workspaces, with a fresh browser context per task. Core verifies the same task tab after execution, preserving DOM/component state, session storage, cookies, and navigation. Baselines also run and score each task separately. The browser MCP bridge and scorer use the same `WEBMCPIFY_CDP_URL`; owner MCP configuration is not overwritten. Non-Claude tool allowlists remain instruction-level constraints, not a universal OS sandbox.
 

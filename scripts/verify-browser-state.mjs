@@ -33,8 +33,13 @@ try {
       const navigation = await scoreTask(url, { ...task, verify: 'location.pathname === "/after-navigation" && sessionStorage.getItem("cart") === "filled" && document.cookie.includes("taskAuth=fixture")' }, { page: session.page, resetStorage: false });
       assert.equal(navigation.passed, true, navigation.detail);
       assert.ok((await personalContext.cookies()).some((cookie) => cookie.name === "personalAuth"), "Scoring never clears reused CDP authentication");
-      const rejection = await scoreTask(url, { ...task, expectedOutcome: "rejection", expectedError: "Must log in", requiredTools: ["checkout"], verify: '!document.body.dataset.purchased' }, { page: session.page, agentOutput: "checkout: Must log in" });
+      const rejectionTask = { ...task, setup: "Stay logged out; do not purchase anything.", expectedOutcome: "rejection", expectedError: "Must log in", requiredTools: ["checkout"], verify: '!document.body.dataset.purchased' };
+      const rejection = await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Must log in" });
       assert.equal(rejection.passed, true, rejection.detail);
+      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Network unavailable" })).passed, false, "An unrelated failure must not pass a rejection test");
+      await session.page.evaluate(() => { document.body.dataset.purchased = "true"; });
+      assert.equal((await scoreTask(url, rejectionTask, { page: session.page, agentOutput: "checkout: Must log in" })).passed, false, "Expected errors must not hide forbidden state changes");
+      await session.page.evaluate(() => { delete document.body.dataset.purchased; });
       assert.equal((await scoreTask(url, task, { resetStorage: false })).passed, false, "Never silently verify a fresh tab as live state");
     } finally {
       await session.close();

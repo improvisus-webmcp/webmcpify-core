@@ -14,8 +14,8 @@ import { createPendingPatch } from "../lib/patches.js";
 import { GenerationPreflightError, runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
 import { discoveryPath, runDiscovery } from "../lib/discovery.js";
-import { extractAndValidateProposedTools, writeProposedTools } from "../lib/tool-proposals.js";
-import { extractTasksFromText, validateTaskToolBindings } from "../lib/tasks.js";
+import { writeProposedTools } from "../lib/tool-proposals.js";
+import { validateGenerationMetadata } from "../lib/generation-metadata.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
 import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
@@ -282,6 +282,7 @@ ${productContext}`
     "utf8",
   );
   let workspaceDiff = "";
+  let draftPath = saveTo;
   let tools: ProposedTool[];
   let readinessFiles: string[] = [];
   try {
@@ -316,11 +317,9 @@ ${productContext}`
           : "The generation provider did not modify files in its disposable workspace after an edit-only retry. Provider-reported diffs are informational only; no source patch can be created safely."
       );
     }
-    const rawDraft = await readFile(saveTo, "utf8");
-    tools = extractAndValidateProposedTools(rawDraft, discovery);
-    const tasks = extractTasksFromText(rawDraft);
-    if (!tasks) throw new Error("The generation output did not contain 5-6 valid verification tasks. Every task must declare requiredTools from the generated proposal.");
-    validateTaskToolBindings(tasks, tools);
+    const metadata = await validateGenerationMetadata({ provider, sitePath, workspace: agentWorkspace, draftPath, discovery });
+    tools = metadata.tools;
+    draftPath = metadata.draftPath;
     const readiness = await writeAgentReadiness(agentWorkspace, discovery, tools);
     readinessFiles = readiness.files;
     if (!readiness.publicDirectory) console.log("[generate] public asset serving could not be established; deployment guidance is included in the reviewed patch");
@@ -343,7 +342,7 @@ ${productContext}`
   }
 
   try {
-    const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), saveTo);
+    const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), draftPath);
     const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);
     if (security.status === "block") {
@@ -352,10 +351,10 @@ ${productContext}`
     const patch = await createPendingPatch(
       sitePath,
       workspaceDiff,
-      saveTo,
+      draftPath,
       { securityPolicy },
     );
-    console.log(`[generate] draft saved to ${saveTo}`);
+    console.log(`[generate] draft saved to ${draftPath}`);
     console.log(`[generate] proposed tools: ${proposalFile}`);
     console.log(`[generate] validated ${tools.length} tool proposal(s)`);
     console.log(`[generate] security (${securityPolicy}): ${security.status} (${security.summary.review} review finding(s)); ${securityFile}`);

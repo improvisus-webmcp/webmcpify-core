@@ -4,6 +4,13 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: rejection preparation and generation metadata recovery
+
+- Allow negative-test setup that preserves an unmet prerequisite, including choosing an absent cart item. Expected errors and independently verified unchanged state remain mandatory; unrelated failures do not pass.
+- Retry malformed tool/task metadata once without changing generated source or already-valid tool contracts. Revalidate the correction, use it as the canonical review draft, and stop safely if correction fails.
+- Resolve relative provider paths before workspace changes, add standalone Codex executable discovery, and distinguish missing CLIs from missing working directories or broken interpreters. Keep raw subprocess diagnostics private.
+- Add credential-free generation recovery fixtures and regression checks for rejection preparation, executable lookup, terminal redaction, source/contract identity, and browser rejection scoring.
+
 ### Fixed: runtime isolation, providers, and durable execution
 
 - Browser tasks and baselines now verify the exact acted-on tab in a fresh task context, preserving transient state, cookies, and navigation without clearing the existing browser profile. Browser-only agents receive empty workspaces; browser MCP and scoring share the configured CDP endpoint.

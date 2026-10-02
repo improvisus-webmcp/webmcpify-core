@@ -62,7 +62,8 @@ flowchart LR
 | `src/lib/agent.ts` | Normalizes provider invocation, MCP configuration, timeouts, output capture, and process cleanup. |
 | `src/lib/claude.ts` | Implements the Claude-specific provider invocation. |
 | `src/lib/ai-provider.ts` | Validates a selected provider or detects an installed provider CLI. |
-| `src/lib/executables.ts` | Resolves provider executables from `PATH`, optional overrides, or the Codex editor installation. |
+| `src/lib/executables.ts` | Resolves provider executables from `PATH`, optional overrides, standalone/editor Codex installations, and classifies launch failures without exposing raw diagnostics. |
+| `src/lib/generation-metadata.ts` | Validates generated tools/tasks and permits one metadata-only correction with source/Git identity and valid-contract preservation checks. |
 | `src/lib/prompts.ts` | Holds deterministic discovery, placement, proposal, and task-authoring instructions. |
 | `src/lib/webmcp-spec-guidance.ts` | Holds the WebMCP compatibility, lifecycle, privacy, and security rules supplied to providers. |
 | `src/lib/tool-proposals.ts` | Parses, normalizes, validates, persists, and reloads structured tool proposals. |
@@ -99,6 +100,9 @@ flowchart LR
 | `scripts/verify-mcp.mjs` | Tests MCP identity, tools, workspace confinement, and browser MCP config merging. |
 | `scripts/verify-discovery.mjs` | Tests framework, route, action, API, and WebMCP discovery with a temporary fixture. |
 | `scripts/verify-tool-proposals.mjs` | Tests structured proposal parsing and grounding. |
+| `scripts/verify-agent-invocation.mjs` | Tests provider invocation, executable paths, safe launch diagnostics, and terminal redaction. |
+| `scripts/verify-generation-recovery.mjs` | Exercises generation metadata recovery and fail-closed source/contract checks using credential-free providers in disposable repositories. |
+| `scripts/verify-browser-state.mjs` | Tests real Chrome same-tab scoring, retained task state, expected-error matching, forbidden-state rejection, and personal-context preservation. |
 | `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
 | `scripts/verify-review.mjs` | Tests approval editing, confirmation, persistence, locking, and rejection. |
 | `scripts/verify-patch-lifecycle.mjs` | Tests patch validation, approval gating, apply, and rollback. |

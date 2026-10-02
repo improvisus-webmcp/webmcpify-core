@@ -215,6 +215,18 @@ ${JSON.stringify(tasks)}
     verify: "document.querySelector('[data-order-confirmation]') === null",
   };
   assert.deepEqual(validateTaskToolBindings([rejectionTask], [guardedTool]), [rejectionTask]);
+  const preparedRejection = { ...rejectionTask, setup: "Use the normal UI to empty the cart while staying logged out. Do not attempt checkout during setup." };
+  assert.deepEqual(validateTaskToolBindings([preparedRejection], [guardedTool]), [preparedRejection]);
+  const absentCoffee = { ...preparedRejection, id: "remove-absent-coffee-rejected", requiredTools: ["remove_item"], setup: "Use the normal UI to empty the cart, then choose an absent coffee. Do not invoke remove_item during setup.", expectedError: "Item not found" };
+  assert.deepEqual(validateTaskToolBindings([absentCoffee], [{ name: "remove_item", expectedFailures: [{ condition: "Requested coffee is absent", error: "Item not found" }] }]), [absentCoffee]);
+  assert.throws(
+    () => validateTaskToolBindings([{ ...preparedRejection, requiredTools: ["checkout_now", "login"] }], [guardedTool, { name: "login" }]),
+    /exactly one WebMCP tool/,
+  );
+  assert.throws(
+    () => validateTaskToolBindings([preparedRejection], [{ name: "checkout_now", behavior: { expectedFailures: [] } }]),
+    /not backed by a declared expected failure/,
+  );
   assert.throws(
     () => validateTaskToolBindings([{ ...rejectionTask, expectedError: "Invented error" }], [guardedTool]),
     /not declared by tool/,

@@ -5,9 +5,12 @@ import path from "node:path";
 import { runClaude } from "./claude.js";
 import type { AIProvider } from "./ai-provider.js";
 import {
-  executableOnPath,
   findCodexExecutable,
   resolveExecutable,
+  assertProviderCwd,
+  classifyProviderLaunchError,
+  ProviderLaunchError,
+  providerLaunchDiagnostics,
 } from "./executables.js";
 import {
   recordTrajectoryMetadata,
@@ -60,10 +63,7 @@ export function getInvocation(opts: AgentRunOptions): ProviderInvocation {
         output: "json-lines",
       };
     case "antigravity": {
-      const command =
-        process.env.WEBMCPIFY_ANTIGRAVITY_BIN ??
-        executableOnPath("agy") ??
-        "agy";
+      const command = resolveExecutable("agy", "WEBMCPIFY_ANTIGRAVITY_BIN");
       const args = [
         "-p",
         opts.prompt,
@@ -378,6 +378,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
   const stopProgress = startAgentProgress(opts, startedMs);
 
   try {
+    assertProviderCwd(opts.provider, opts.cwd);
     if (opts.provider === "claude") {
       const result = await runClaude({
         prompt: opts.prompt,
@@ -476,6 +477,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
 
     try {
       ({ stdout } = await subprocess);
+    } catch (error) {
+      throw classifyProviderLaunchError(opts.provider, invocation.command, opts.cwd, error);
     } finally {
       // A timed-out parent may leave MCP servers and child shells alive.
       terminateProvider("SIGKILL");
@@ -491,20 +494,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     await recordAgentMetadata(opts, "completed", startedAt, startedMs);
     return result;
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      const missingCliError = new Error(
-        `Could not find the ${opts.provider} CLI. Install it or set WEBMCPIFY_${opts.provider.toUpperCase()}_BIN to its executable path.`
-      );
-      await preserveFailedOutput(opts, missingCliError);
+    if (error instanceof ProviderLaunchError) {
+      await preserveFailedOutput(opts, providerLaunchDiagnostics(error));
       await recordAgentMetadata(opts, "failed", startedAt, startedMs, {
-        error: missingCliError.message,
+        error: error.message,
       });
-      throw missingCliError;
+      throw error;
     }
 
     await preserveFailedOutput(opts, error);
