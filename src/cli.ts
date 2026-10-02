@@ -53,6 +53,7 @@ program
   )
   .option("--product-context <text>", "optional product functionality context for generation")
   .option("--no-product-context-prompt", "do not show the optional product-context prompt")
+  .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
   .action(runGenerate);
 
 program

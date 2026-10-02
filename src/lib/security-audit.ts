@@ -43,7 +43,7 @@ const BALANCED_ACCESS_CODES = new Set([
   "backend-evidence-not-discovered",
 ]);
 
-export function resolveSecurityPolicy(policy?: string, fallback: SecurityPolicy = "strict"): SecurityPolicy {
+export function resolveSecurityPolicy(policy?: string, fallback: SecurityPolicy = "balance"): SecurityPolicy {
   const selected = policy ?? fallback;
   if ((SECURITY_POLICIES as readonly string[]).includes(selected)) return selected as SecurityPolicy;
   throw new Error(`Unknown security policy "${selected}". Choose one of: ${SECURITY_POLICIES.join(", ")}.`);
@@ -83,7 +83,7 @@ export function auditToolSecurity(
   tools: ProposedTool[],
   discovery: DiscoveryResult,
   targetProject = discovery.targetProject,
-  requestedPolicy: SecurityPolicy | string = "strict",
+  requestedPolicy: SecurityPolicy | string = "balance",
 ): SecurityReport {
   const policy = resolveSecurityPolicy(requestedPolicy);
   const strictFindings: SecurityFinding[] = [];

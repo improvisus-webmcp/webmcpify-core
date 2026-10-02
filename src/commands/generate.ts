@@ -43,7 +43,8 @@ proposed source edits in this workspace so WebMCPify can capture the exact
 working-tree diff. A text-only proposal is not a completed task. Before ending,
 verify that one or more source files are actually modified in this workspace.
 Never edit .webmcpify artifacts and never claim a diff for files you did not
-actually inspect.
+actually inspect and edit. Do not include .serena configuration, caches, or other agent-local state
+in the source changes. Existing owner agent configuration must remain untouched.
 
 Before importing any function, value, or type from an existing module, inspect
 that module and verify the symbol is actually exported. Never invent a public
@@ -227,7 +228,7 @@ async function invalidateDraftState(sitePath: string): Promise<void> {
 export async function runGenerate(opts: GenerateOptions) {
   const provider = resolveProvider(opts.provider);
   const method = resolveMethod(opts.method);
-  const securityPolicy = resolveSecurityPolicy(opts.security, "strict");
+  const securityPolicy = resolveSecurityPolicy(opts.security);
   const sitePath = path.resolve(opts.path ?? process.cwd());
 
   if (!existsSync(sitePath)) {
@@ -352,7 +353,7 @@ ${productContext}`
       sitePath,
       workspaceDiff,
       draftPath,
-      { securityPolicy },
+      { securityPolicy, provider },
     );
     console.log(`[generate] draft saved to ${draftPath}`);
     console.log(`[generate] proposed tools: ${proposalFile}`);
@@ -393,7 +394,7 @@ export async function assertGeneratedFormFeedback(workspace: string, tools: Prop
   }
 }
 
-async function assertGeneratedWebMcpWiring(
+export async function assertGeneratedWebMcpWiring(
   workspace: string,
   discovery: Awaited<ReturnType<typeof runDiscovery>>,
   diff: string,

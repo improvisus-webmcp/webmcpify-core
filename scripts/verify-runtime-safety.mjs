@@ -33,10 +33,18 @@ try {
   await mkdir(path.join(worktree, ".webmcpify"));
   await writeFile(path.join(worktree, ".webmcpify", "private.json"), "private fixture");
   await mkdir(path.join(worktree, "node_modules"));
+  await mkdir(path.join(worktree, ".serena"));
+  await writeFile(path.join(worktree, ".serena", "project.yml"), "owner configuration\n");
+  await mkdir(path.join(worktree, "nested", ".serena"), { recursive: true });
+  await writeFile(path.join(worktree, "nested", ".serena", "cache.json"), "owner cache\n");
   const workspace = await createAgentWorkspace(worktree);
   workspaces.push(workspace);
-  for (const excluded of [".git", ".webmcpify", "node_modules"]) await assert.rejects(access(path.join(workspace, excluded)));
+  for (const excluded of [".git", ".webmcpify", ".serena", "nested/.serena", "node_modules"]) await assert.rejects(access(path.join(workspace, excluded)));
   await initializeAgentWorkspace(workspace);
+  for (const directory of [".serena", "nested/.serena"]) {
+    await mkdir(path.join(workspace, directory), { recursive: true });
+    await writeFile(path.join(workspace, directory, "project.yml"), "agent configuration\n");
+  }
   const filenames = ["Component Copy.jsx", "café.jsx", "dir b/binary b/file.bin", "quote\"file.jsx"];
   if (process.platform === "win32") filenames.pop();
   for (const filename of filenames) {
@@ -44,6 +52,10 @@ try {
     await writeFile(path.join(workspace, filename), filename.endsWith(".bin") ? Buffer.from([0, 1, 2, 3]) : "export const fixture = true;\n");
   }
   const diff = await readAgentWorkspaceDiff(workspace);
+  assert.doesNotMatch(diff, /\.serena/, "Agent-generated state must not enter a pending source patch");
+  await git(workspace, ["add", "-f", "--", ".serena/project.yml", "nested/.serena/project.yml"]);
+  assert.equal(await readAgentWorkspaceDiff(workspace), diff, "Even force-staged Serena files must be excluded from patch capture");
+  assert.equal(await readFile(path.join(worktree, ".serena", "project.yml"), "utf8"), "owner configuration\n", "Existing owner configuration must remain untouched");
   const extracted = extractUnifiedDiff(diff);
   assert.deepEqual(extracted.changedFiles.sort(), filenames.sort(), "All spaced/quoted/Unicode patch paths must be represented");
   const metadata = await createPendingPatch(worktree, diff, "fixture.json");
@@ -55,7 +67,7 @@ try {
   const before = await gitSourceSnapshot(repository);
   await writeFile(path.join(repository, "untracked.js"), "second");
   assert.notEqual((await gitSourceSnapshot(repository)).workingTreeHash, before.workingTreeHash, "Untracked source content changes invalidate approval");
-  for (const unsafe of ["../outside.js", ".git/config", ".webmcpify/private.json", "C:/outside.js"]) {
+  for (const unsafe of ["../outside.js", ".git/config", ".webmcpify/private.json", ".serena/project.yml", "nested/.serena/cache.json", "C:/outside.js"]) {
     assert.throws(() => extractUnifiedDiff(`diff --git a/${unsafe} b/${unsafe}\n--- a/${unsafe}\n+++ b/${unsafe}\n@@ -1 +1 @@\n-old\n+new\n`));
   }
   const browserWorkspace = await createBrowserAgentWorkspace();

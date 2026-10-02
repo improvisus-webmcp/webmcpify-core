@@ -4,6 +4,19 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: balanced defaults and selected-tool review
+
+- Align generation, review fallback, and audit defaults with `run`'s balanced policy. Add `generate --security balance|ignore|strict`; preserve explicitly recorded draft policies.
+- Ignore local `npm pack` tarballs instead of treating test archives as source. Leave existing archives available for local installation.
+- Add 24px separation above confirmation actions and spacing between buttons.
+- Unchecking tools drafts a revised source patch through the original provider in a disposable workspace. Rejected registrations are removed; retained contracts remain fixed; tests and capability docs are regenerated for retained tools only.
+- Require fresh exact-patch review and payload-bound confirmation for the revised draft. Fail closed on retained-contract drift, rejected registrations, changed target identity, or provider failure; preserve repair/durable task-set boundaries.
+
+### Fixed: exclude agent-local Serena state
+
+- Exclude root and nested `.serena` files from disposable workspace copies and source patch capture, including force-staged files. Reject patches targeting this agent-local state while leaving existing owner configuration untouched.
+- Add regression coverage for workspace isolation, patch filtering, and blocked Serena paths.
+
 ### Fixed: rejection preparation and generation metadata recovery
 
 - Allow negative-test setup that preserves an unmet prerequisite, including choosing an absent cart item. Expected errors and independently verified unchanged state remain mandatory; unrelated failures do not pass.

@@ -62,13 +62,16 @@ webmcpify run --url http://localhost:5173 --product-context "Customers order cof
 webmcpify run --url http://localhost:5173 --no-product-context-prompt
 ```
 
-`run` uses the balanced security policy by default. You can select the policy
+`run`, `generate`, and security audits use the balanced policy by default. Review
+preserves the policy recorded for its draft; an older explicitly strict draft
+stays strict until regenerated. You can select the generation policy
 explicitly:
 
 ```bash
 webmcpify run --url http://localhost:5173 --provider agy --security balance
 webmcpify run --url http://localhost:5173 --provider agy --security ignore
 webmcpify run --url http://localhost:5173 --provider agy --security strict
+webmcpify generate --provider codex --security balance
 ```
 
 - `balance` blocks missing controls for high-impact operations such as checkout,
@@ -97,6 +100,17 @@ webmcpify run --url http://localhost:5173 --provider agy --security strict
 7. Exercise approved WebMCP tools and independently verify the resulting page state.
 
 Use `--path /path/to/project` when running outside the target directory. Supply the running app URL with `--url`, or set `WEBMCPIFY_URL`; Core does not assume an application port.
+
+To reject individual tools, uncheck them and choose **Prepare selected-tool draft**.
+Core invokes the draft's coding provider in a disposable workspace to remove
+their WebMCP registrations and regenerate tests/docs for retained tools. This
+may take several minutes. The revised source patch gets a new identity and must
+be reviewed and confirmed again; selecting a subset never approves the original
+patch. Only retained tools and their validated tasks enter the approved manifest
+and subsequent workflow. Every retained tool still needs test coverage. Existing
+application actions are preserved. Repair/durable review cannot change its fixed
+tool/task set; reject that repair and generate a new draft to change capabilities.
+Static source checks are not a substitute for reviewing the revised diff.
 
 Negative tests may prepare their failure condition, such as emptying the cart or choosing an absent item. Their setup must preserve the unmet prerequisite, not satisfy it or perform the guarded action. An unrelated error or forbidden state change still fails the test.
 
@@ -230,7 +244,7 @@ Core reduces risk; it does not guarantee that generated code or WebMCP tools are
 | --- | --- |
 | `webmcpify run [--security balance\|ignore\|strict] [--product-context <text>]` | Normal end-to-end workflow; balanced by default. Interactive terminals may add optional product context after discovery. |
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
-| `webmcpify generate` | Draft tools, tasks, form feedback, agent-readiness files, and a pending patch. |
+| `webmcpify generate [--security balance\|ignore\|strict]` | Draft tools, tasks, form feedback, agent-readiness files, and a pending patch; balanced by default. |
 | `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |
 | `webmcpify review` | Review and approve or reject the exact draft locally. |
 | `webmcpify apply` | Apply the approved patch and verify the target build. |
@@ -270,7 +284,7 @@ The server rejects paths outside its starting workspace. Generated changes remai
 
 ## Core access-control checkpoint
 
-Core asks generated tools to describe an internal security contract. This is review evidence, not a WebMCP field. It covers execution scope, user authentication, verified-agent requirements, server authorization, exact origin scope, per-tool quotas, and idempotency. The normal `run` workflow defaults to `balance`; `strict` also examines input bounds, privacy, and all applicable contract findings, while `ignore` disables automated security gating. Both active policies distinguish browser UI state from backend effects. An invalid cross-origin allowlist still blocks under either active policy.
+Core asks generated tools to describe an internal security contract. This is review evidence, not a WebMCP field. It covers execution scope, user authentication, verified-agent requirements, server authorization, exact origin scope, per-tool quotas, and idempotency. Generation, the normal `run` workflow, and audits default to `balance`; `strict` also examines input bounds, privacy, and all applicable contract findings, while `ignore` disables automated security gating. Both active policies distinguish browser UI state from backend effects. An invalid cross-origin allowlist still blocks under either active policy.
 
 ```bash
 webmcpify security --path /path/to/project
@@ -325,7 +339,12 @@ OpenCode uses `run --auto --format json` and an inline MCP overlay without repla
 
 ## Project artifacts
 
+Local `npm pack` archives (`*.tgz`) are ignored in the Core repository. They are
+installation/test artifacts, not source files; packing does not commit them.
+
 Core writes local state under `<target>/.webmcpify/`, including discovery, proposed tools, `security-report.json`, the pending patch, approvals, evaluations, rollback data, and timestamped evidence. Keep this directory out of source control. The proposed combined `AGENTS.md`, public capability documentation, crawler policy, and UI styles are ordinary target files included in the reviewed patch; they are separate from private run evidence. Core does not require GitHub access and does not upload the target repository.
+
+Serena's `.serena` configuration/cache files are agent-local state, not generated application changes. Core excludes them from workspace copies and pending patches and rejects patches targeting them. Existing owner `.serena` files remain untouched.
 
 Keep `.webmcpify` local and project-specific: approvals, resume checkpoints, and
 rollback depend on it. The leading dot hides it by convention on macOS/Linux;

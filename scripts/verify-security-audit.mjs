@@ -3,11 +3,13 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverProject } from "../dist/lib/discovery.js";
-import { auditToolSecurity } from "../dist/lib/security-audit.js";
+import { auditToolSecurity, resolveSecurityPolicy } from "../dist/lib/security-audit.js";
 import { validateProposedTools } from "../dist/lib/tool-proposals.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-security-"));
 try {
+  assert.equal(resolveSecurityPolicy(), "balance");
+  assert.equal(resolveSecurityPolicy("strict"), "strict");
   await mkdir(path.join(fixture, "src"));
   await writeFile(path.join(fixture, "package.json"), JSON.stringify({ name: "security-fixture" }));
   await writeFile(path.join(fixture, "src", "checkout.tsx"), `export async function checkout() { return fetch('/api/orders', { method: 'POST' }); }\nexport function Form(){return <form onSubmit={checkout}><button>Order</button></form>}\n`);
@@ -67,6 +69,10 @@ try {
   assert.equal(balancedCart.policy, "balance");
   assert.equal(balancedCart.status, "pass");
   assert.equal(balancedCart.findings.length, 0);
+  const defaultCart = auditToolSecurity([cart], discovery, fixture);
+  assert.equal(defaultCart.policy, "balance", "The default audit must use balanced policy");
+  assert.equal(defaultCart.status, "pass");
+  assert.deepEqual(defaultCart.findings, balancedCart.findings);
 
   const uiSecurity = { ...cart.security, executionScope: "ui-state" };
   const [click] = validateProposedTools({ tools: [{ ...cart, id: "select_tab", name: "select_tab", title: "Select tab", annotations: { ...cart.annotations, consequentialHint: false }, parameters: { type: "object", properties: {}, additionalProperties: false }, security: uiSecurity, implementation: { ...cart.implementation, action: "select tab" } }] }, discovery);

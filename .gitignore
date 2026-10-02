@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+*.tgz
 .DS_Store
 
 # Local configuration and approval state.

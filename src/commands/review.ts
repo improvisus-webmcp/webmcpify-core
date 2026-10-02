@@ -2,6 +2,7 @@ import express from "express";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   createTrajectoryArtifact,
   latestTrajectoryPath,
@@ -24,6 +25,7 @@ import { taskVerificationIssues } from "../lib/tasks.js";
 import { CHROME_WEBMCP_URL, WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
+import { reviseToolSelection } from "../lib/review-selection.js";
 
 export interface ReviewOptions {
   port?: string;
@@ -103,7 +105,7 @@ export async function runReviewPrompt(
   const draftPath = patchMetadata.generationTrajectory;
   if (!existsSync(draftPath)) throw new Error(`The pending patch references missing generation trajectory ${draftPath}.`);
   const draft = draftText(await readFile(draftPath, "utf8"));
-  const securityPolicy = resolveSecurityPolicy(patchMetadata.securityPolicy, "strict");
+  const securityPolicy = resolveSecurityPolicy(patchMetadata.securityPolicy);
   let proposedTools: ProposedTool[];
   try { proposedTools = validateProposedTools(JSON.parse(await readFile(proposalFile, "utf8")), discovery); }
   catch (error) { throw new Error(`Could not load structured tool proposals: ${error instanceof Error ? error.message : String(error)}`); }
@@ -214,25 +216,37 @@ export async function runReviewPrompt(
 <header class="hero"><div class="eyebrow">WebMCPify · Human approval required</div><h1>Review WebMCP draft</h1><p>Inspect the proposed tools, verification tasks, and source patch. Nothing is applied to the target project until you explicitly approve this exact patch.</p><p class="hint">Reference: <a href="${WEBMCP_SPEC_URL}" target="_blank" rel="noreferrer">WebMCP specification</a> · <a href="${CHROME_WEBMCP_URL}" target="_blank" rel="noreferrer">Chrome WebMCP guide</a></p></header>
 <div class="notice"><div>⚠️</div><div><strong>Action required</strong>Select only the WebMCP tools you want this project to make available to the approved browser-agent workflow. Review each tool's title, description, schema, and risk annotations, then approve the exact source patch separately.</div></div>
 <div class="grid"><section class="card"><h2>What will be approved?</h2><p><span class="count">${proposedTools.length} tools</span> <span class="count">${proposedTasks.length} tests</span> <span class="count">${patchMetadata.changedFiles.length} files</span></p><p class="hint">Approval creates a local manifest and task set. It does not deploy or apply source changes; the separate apply step does that.</p></section><section class="card"><h2>Before approving</h2><p class="hint">Confirm that every tool maps to a real user action, every task has a meaningful verification expression, and the source diff contains only expected changes.</p><p class="hint">You may edit the structured JSON, but keep each selected tool/task ID unchanged.</p></section></div>
-<form method="post" action="/approve"><section class="section"><h2>1. Approved tools <span class="count">${proposedTools.length} proposed</span></h2><p class="hint">Each checkbox is an explicit per-tool permission for this approved evaluation and manifest. Uncheck tools the agent should not use.</p>${checkboxes}<details><summary>Inspect or edit structured tool definitions</summary>${toolDetails}<p class="hint">Keep each approved tool's <code>id</code> matched to its checkbox.</p><textarea name="toolsJson" aria-label="Tools JSON">${toolJson}</textarea></details></section>
+<form id="review-form" method="post" action="/approve"><input type="hidden" name="reviewRunId" value="${htmlEscape(approvalId)}"><input type="hidden" name="reviewPatchHash" value="${patchHash}"><section class="section"><h2>1. Approved tools <span class="count">${proposedTools.length} proposed</span></h2><p class="hint">Uncheck unwanted tools. Continuing with a subset runs the coding provider to remove rejected registrations and regenerate tests/docs in a disposable workspace, then returns a revised patch for fresh review. It does not approve the original patch.</p><p id="selection-status" role="status" aria-live="polite"></p>${checkboxes}<details><summary>Inspect or edit structured tool definitions</summary>${toolDetails}<p class="hint">Keep each selected tool's <code>id</code> and <code>name</code> matched to its checkbox and registration.</p><textarea name="toolsJson" aria-label="Tools JSON">${toolJson}</textarea></details></section>
 <section class="section"><h2>2. Core security checkpoint <span class="count">${securityPolicy}</span> <span class="count">${initialSecurity.status}</span></h2><p class="hint">${securityPolicy === "ignore" ? "Automated security gating is disabled for this draft. Inspect the exact source patch carefully before approval." : securityPolicy === "balance" ? "High-impact access-control gaps and invalid cross-origin exposure block approval; ordinary reversible UI actions do not." : "Static declarations are not proof. Match execution scope and applicable controls to the actual handler; browser-only UI state needs no invented backend. Blocking findings cannot be approved."}</p><ul>${securityRows}</ul></section>
 <section class="section"><h2>3. Verification tasks <span class="count">${proposedTasks.length} proposed</span></h2><p class="hint">These are the actions the browser agent will perform and the checks used to score them.</p>${taskRows}<details><summary>Edit task definitions</summary><p class="hint">Every task must have an observable <code>verify</code> expression. Keep task IDs unchanged.</p><textarea name="tasksJson" aria-label="Tasks JSON">${taskJson}</textarea></details></section>${sourceSection.replace('<div class="section">', '<section class="section source">').replace('</div>', '</section>')}
 <div class="draft"><details><summary>Show raw generation draft</summary><pre>${htmlEscape(draft)}</pre></details></div>
-<div class="actions"><div class="actions-inner"><small>Review complete? Your click is required to continue.</small><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" name="stage" value="prepare">✓ Approve reviewed draft</button></div></div></div></form></main></body></html>`);
+<div class="actions"><div class="actions-inner"><small>Review complete? Your click is required to continue.</small><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" name="stage" value="prepare">✓ Approve reviewed draft</button></div></div></div></form></main><script>
+const reviewForm=document.getElementById('review-form');
+const toolBoxes=Array.from(reviewForm.querySelectorAll('input[name="toolIds"]'));
+const continueButton=reviewForm.querySelector('.approve');
+const selectionStatus=document.getElementById('selection-status');
+function selectionChanged(){const count=toolBoxes.filter(box=>box.checked).length;const subset=count>0&&count<toolBoxes.length;continueButton.textContent=subset?'Prepare selected-tool draft':'✓ Approve reviewed draft';selectionStatus.textContent=subset?'Rejected tools will be removed from source. A revised patch must be reviewed before approval.':'';}
+toolBoxes.forEach(box=>box.addEventListener('change',selectionChanged));
+reviewForm.addEventListener('submit',event=>{if(event.submitter&&event.submitter.classList.contains('reject'))return;if(toolBoxes.some(box=>!box.checked)&&toolBoxes.some(box=>box.checked)){selectionStatus.textContent='Drafting selected tools only; this may take several minutes. No approval or target source changes are being made.';continueButton.disabled=true;}});
+</script></body></html>`);
   });
 
   let server: ReturnType<typeof app.listen> | undefined;
   const signal = currentOperationSignal();
   signal?.throwIfAborted();
   let abortReview: (() => void) | undefined;
-  const decision = new Promise<ReviewResult>((resolve, reject) => {
+  type ReviewDecision = ReviewResult | { refresh: true };
+  let revising = false;
+  let processingApproval = false;
+  let pendingConfirmation: { token: string; input: string } | undefined;
+  const decision = new Promise<ReviewDecision>((resolve, reject) => {
     abortReview = () => {
       server?.closeAllConnections();
       server?.close();
       reject(new Error("Review was cancelled; no new approval was created."));
     };
     signal?.addEventListener("abort", abortReview, { once: true });
-    const finish = (result: ReviewResult) => {
+    const finish = (result: ReviewDecision) => {
       if (server) {
         server.close(() => resolve(result));
       } else {
@@ -240,33 +254,56 @@ export async function runReviewPrompt(
       }
     };
 
-    const approvalInput = (request: express.Request) => {
+    const selectionInput = (request: express.Request) => {
       const selectedToolIds = selectedIds({ ids: request.body.toolIds });
       const editedTools = validateProposedTools(JSON.parse(typeof request.body.toolsJson === "string" ? request.body.toolsJson : "{}"), discovery);
-      if (editedTools.length === 0 || selectedToolIds.length !== editedTools.length || editedTools.some((tool) => !selectedToolIds.includes(tool.id))) throw new Error("Every approved tool must have a matching selected checkbox; approve at least one tool.");
       if (selectedToolIds.some((id) => !proposedToolIds.has(id)) || editedTools.some((tool) => !proposedToolIds.has(tool.id))) throw new Error("Approval can only select tools from this generated draft.");
-      const security = auditToolSecurity(editedTools, discovery, sitePath, securityPolicy);
+      const tools = editedTools.filter((tool) => selectedToolIds.includes(tool.id));
+      if (!tools.length || selectedToolIds.length !== tools.length) throw new Error("Select at least one tool, with its matching structured definition; use Reject draft to reject all tools.");
+      if (tools.some((tool) => proposedTools.find((original) => original.id === tool.id)?.name !== tool.name)) throw new Error("Selected tool names must match their generated registrations.");
+      const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
       if (security.status === "block") throw new Error(`Approval blocked by ${security.summary.block} Core security finding(s). Fix the tool contract and exact source patch, then generate again.`);
+      return tools;
+    };
+
+    const approvalInput = (request: express.Request, tools: ProposedTool[]) => {
       const editedTasks = parseTasksJson(typeof request.body.tasksJson === "string" ? request.body.tasksJson : "[]");
-      validateTaskToolBindings(editedTasks, editedTools);
+      validateTaskToolBindings(editedTasks, tools);
       const selectedTaskIds = selectedIds({ ids: request.body.taskIds });
       const proposedTaskIds = new Set(proposedTasks.map((task) => task.id));
       if (editedTasks.length < 5 || editedTasks.length > 6 || selectedTaskIds.length !== editedTasks.length || editedTasks.some((task) => !selectedTaskIds.includes(task.id) || !proposedTaskIds.has(task.id))) throw new Error("Approved tasks must be 5-6 valid tasks selected from this generated draft; keep task IDs unchanged.");
       if (!hasPatch || request.body.approveSourceDiff !== "yes") throw new Error("Explicit approval of the pending source diff is required.");
-      return { tools: editedTools, tasks: editedTasks };
+      return { tools, tasks: editedTasks };
     };
 
     const confirmationPage = (response: express.Response, input: { tools: ProposedTool[]; tasks: Task[] }) => {
+      pendingConfirmation = { token: randomUUID(), input: JSON.stringify(input) };
       const hidden = (name: string, value: string) => `<input type="hidden" name="${name}" value="${htmlEscape(value)}">`;
-      response.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Confirm WebMCP approval</title><style>body{font:16px system-ui,sans-serif;max-width:800px;margin:3rem auto;padding:0 1rem}.summary{background:#fff8d8;border:1px solid #e7cf62;padding:1rem}button{padding:.7rem 1rem;margin-right:.5rem}</style></head><body><h1>Review approval</h1><div class="summary"><p>You are about to approve:</p><ul><li>${input.tools.length} tools</li><li>${input.tasks.length} verification tasks</li><li>${patchMetadata.changedFiles.length} source files: ${htmlEscape(patchMetadata.changedFiles.join(", "))}</li><li>Source changes: awaiting application after approval</li></ul></div><form method="post" action="/approve">${hidden("stage", "confirm")}${hidden("toolsJson", JSON.stringify({ tools: input.tools }))}${hidden("tasksJson", JSON.stringify(input.tasks))}${input.tools.map((tool) => hidden("toolIds", tool.id)).join("")}${input.tasks.map((task) => hidden("taskIds", task.id)).join("")}${hidden("approveSourceDiff", "yes")}<button type="submit">Confirm Approval</button><a href="/approve"><button type="button">Cancel</button></a></form></body></html>`);
+      response.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Confirm WebMCP approval</title><style>body{font:16px system-ui,sans-serif;max-width:800px;margin:3rem auto;padding:0 1rem}.summary{background:#fff8d8;border:1px solid #e7cf62;padding:1rem;border-radius:10px}.confirmation-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}button{padding:.7rem 1rem}</style></head><body><h1>Review approval</h1><div class="summary"><p>You are about to approve:</p><ul><li>${input.tools.length} tools</li><li>${input.tasks.length} verification tasks</li><li>${patchMetadata.changedFiles.length} source files: ${htmlEscape(patchMetadata.changedFiles.join(", "))}</li><li>Source changes: awaiting application after approval</li></ul></div><form class="confirmation-actions" method="post" action="/approve">${hidden("stage", "confirm")}${hidden("reviewRunId", approvalId)}${hidden("reviewPatchHash", patchHash)}${hidden("confirmationToken", pendingConfirmation.token)}${hidden("toolsJson", JSON.stringify({ tools: input.tools }))}${hidden("tasksJson", JSON.stringify(input.tasks))}${input.tools.map((tool) => hidden("toolIds", tool.id)).join("")}${input.tasks.map((task) => hidden("taskIds", task.id)).join("")}${hidden("approveSourceDiff", "yes")}<button type="submit">Confirm Approval</button><a href="/approve"><button type="button">Cancel</button></a></form></body></html>`);
     };
 
     app.post("/approve", async (request, response) => {
+      if (processingApproval || revising) { response.status(409).send("An approval request or selection revision is already running. Wait for it to finish."); return; }
+      processingApproval = true;
       try {
         const existing = existsSync(approvalPath) ? JSON.parse(await readFile(approvalPath, "utf8")) as Partial<ApprovedTaskManifest> & { sourceDiff?: { runId?: string; patchHash?: string } } : undefined;
         if (existing?.approved === true && existing.approvalId === approvalId && existing.sourceDiff?.patchHash === patchHash) { renderLocked(response); return; }
-        const input = approvalInput(request);
+        if (request.body.reviewRunId !== approvalId || request.body.reviewPatchHash !== patchHash) throw new Error("This form belongs to a different draft. Reload and review the current source patch.");
+        const selected = selectionInput(request);
+        if (selected.length !== proposedTools.length) {
+          if (trajectoryMetadata.durable === true || patchMetadata.repair) throw new Error("Repair/durable review cannot change its fixed tool or task set. Reject this repair and generate a new draft instead.");
+          if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
+          revising = true;
+          const rejected = proposedTools.filter((tool) => !selected.some((approved) => approved.id === tool.id));
+          console.log(`[review] drafting a revised patch for ${selected.length} selected tool(s); ${rejected.length} rejected tool(s) will be omitted`);
+          await reviseToolSelection(sitePath, discovery, patchMetadata, selected, rejected);
+          response.type("html").send('<!doctype html><html lang="en"><head><meta http-equiv="refresh" content="1;url=/"></head><body><h1>Selected-tool draft ready for review</h1><p>No approval has been created. Review the revised source patch and tasks before confirming.</p><a href="/">Review revised draft</a></body></html>');
+          finish({ refresh: true });
+          return;
+        }
+        const input = approvalInput(request, selected);
         if (request.body.stage !== "confirm") { confirmationPage(response, input); return; }
+        if (!pendingConfirmation || request.body.confirmationToken !== pendingConfirmation.token || JSON.stringify(input) !== pendingConfirmation.input) throw new Error("Prepare and review this exact approval before confirming; changed selections require a new confirmation.");
         if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
         const approvalManifest = { version: 1 as const, approved: true as const, approvalId, draftPath, taskSetId: taskFingerprint(input.tasks), tasks: input.tasks, tools: input.tools, toolNames: input.tools.map((tool) => tool.name), tasksPath: projectTasksPath, proposedToolsPath: proposalFile, sourceDiff: { status: "approved" as const, runId: approvalId, patchHash, timestamp: new Date().toISOString() } };
         await writeApprovedTasksAtomically(sitePath, approvalManifest);
@@ -316,10 +353,11 @@ export async function runReviewPrompt(
           .status(400)
           .type("text")
           .send(error instanceof Error ? error.message : String(error));
-      }
+      } finally { revising = false; processingApproval = false; }
     });
 
     app.post("/reject", async (_request, response) => {
+      if (processingApproval || revising) { response.status(409).send("An approval request or selection revision is running; cancel the CLI operation to stop it without approval."); return; }
       try {
         if (patchMetadata) {
           await writePatchMetadata(sitePath, {
@@ -387,8 +425,10 @@ export async function runReviewPrompt(
     startServer(port);
   });
 
-  try { return await decision; }
+  let result: ReviewDecision;
+  try { result = await decision; }
   finally { if (abortReview) signal?.removeEventListener("abort", abortReview); }
+  return "refresh" in result ? runReviewPrompt(sitePath, String(port), trajectoryMetadata) : result;
 }
 
 export async function runReview(opts: ReviewOptions): Promise<void> {

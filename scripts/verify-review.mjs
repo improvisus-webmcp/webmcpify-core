@@ -8,6 +8,7 @@ import { runReviewPrompt } from "../dist/commands/review.js";
 import { taskVerificationIssues } from "../dist/lib/tasks.js";
 import { withOperationSignal } from "../dist/lib/operation-context.js";
 import { writeProposedTools } from "../dist/lib/tool-proposals.js";
+import { readPatchMetadata, readPendingPatch, sourcePatchHash } from "../dist/lib/patches.js";
 
 const sitePath = await mkdtemp(path.join(os.tmpdir(), "webmcpify-review-"));
 const sourceFile = path.join(sitePath, "src", "App.tsx");
@@ -36,11 +37,18 @@ assert.ok(taskVerificationIssues({ id: "missing_selector", description: "Check t
 const review = runReviewPrompt(sitePath, "4387", { fixture: true });
 await new Promise((resolve) => setTimeout(resolve, 100));
 const editedTool = { ...tool, description: "Edited reviewed action description." };
-const form = (stage) => { const value = new URLSearchParams({ stage, toolIds: tool.id, toolsJson: JSON.stringify({ tools: [editedTool] }), tasksJson: JSON.stringify(tasks), approveSourceDiff: "yes" }); for (const task of tasks) value.append("taskIds", task.id); return value; };
+const metadata = await readPatchMetadata(sitePath);
+const patchHash = sourcePatchHash(await readPendingPatch(sitePath, metadata));
+let confirmationToken = "";
+const form = (stage) => { const value = new URLSearchParams({ stage, reviewRunId: runId, reviewPatchHash: patchHash, confirmationToken, toolIds: tool.id, toolsJson: JSON.stringify({ tools: [editedTool] }), tasksJson: JSON.stringify(tasks), approveSourceDiff: "yes" }); for (const task of tasks) value.append("taskIds", task.id); return value; };
+const premature = await fetch("http://127.0.0.1:4387/approve", { method: "POST", body: form("confirm") });
+assert.equal(premature.status, 400, "Direct confirmation without the prepare step is forbidden");
 const response = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("prepare") });
 const responseText = await response.text();
 assert.equal(response.status, 200, responseText);
 assert.match(responseText, /Review approval/, responseText);
+assert.match(responseText, /confirmation-actions[^}]*margin-top:24px/, "Confirmation buttons need space below the summary");
+confirmationToken = responseText.match(/name="confirmationToken" value="([^"]+)"/)[1];
 const confirmation = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("confirm") });
 assert.equal(confirmation.status, 200);
 const result = await review;

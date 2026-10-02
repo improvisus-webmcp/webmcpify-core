@@ -16,7 +16,7 @@ export async function createAgentWorkspace(sitePath: string): Promise<string> {
     await cp(sitePath, workspace, {
       recursive: true,
       filter: (source) => !path.relative(sitePath, source).split(path.sep)
-        .some((component) => [".git", ".webmcpify", "node_modules"].includes(component)),
+        .some((component) => [".git", ".webmcpify", ".serena", "node_modules"].includes(component)),
     });
     return workspace;
   } catch (error) {
@@ -43,7 +43,7 @@ export async function initializeAgentWorkspace(workspace: string): Promise<void>
   await mkdir(path.join(workspace, ".git", "info"), { recursive: true });
   await appendFile(
     path.join(workspace, ".git", "info", "exclude"),
-    ".webmcpify/\n.agents/\nnode_modules/\n",
+    ".webmcpify/\n.agents/\n.serena\nnode_modules/\n",
     "utf8",
   );
   await execFileAsync("git", ["add", "-A"], { cwd: workspace });
@@ -66,6 +66,8 @@ export async function readAgentWorkspaceDiff(workspace: string): Promise<string>
       ".",
       ":(exclude).webmcpify/**",
       ":(exclude).agents/**",
+      ":(exclude,glob)**/.serena",
+      ":(exclude,glob)**/.serena/**",
       ":(exclude).gemini/settings.json",
       ":(exclude)node_modules/**",
       ":(exclude)tasks.json",

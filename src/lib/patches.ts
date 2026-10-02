@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createTrajectoryArtifact } from "./trajectories.js";
 import type { SecurityPolicy } from "./security-audit.js";
+import type { AIProvider } from "./ai-provider.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +25,7 @@ export interface PatchMetadata {
   patchHash?: string;
   generationTrajectory: string;
   securityPolicy?: SecurityPolicy;
+  provider?: AIProvider;
   repair?: {
     sourceEvaluation: string;
     url: string;
@@ -253,7 +255,7 @@ function validatePatchPaths(files: string[]): void {
   for (const file of files) {
     const components = file.replace(/\\/g, "/").split("/");
     if (path.posix.isAbsolute(file) || path.win32.isAbsolute(file) || file.includes("\0")
-      || components.some((part) => ["..", ".git", ".webmcpify"].includes(part))) {
+      || components.some((part) => ["..", ".git", ".webmcpify", ".serena"].includes(part))) {
       throw new Error(`The diff contains an unsafe target path: ${file}`);
     }
   }
@@ -337,7 +339,7 @@ export async function createPendingPatch(
   sitePath: string,
   rawProviderOutput: string,
   generationTrajectory: string,
-  context?: Pick<PatchMetadata, "repair" | "securityPolicy">,
+  context?: Pick<PatchMetadata, "repair" | "securityPolicy" | "provider">,
 ): Promise<PatchMetadata> {
   const timestamp = new Date().toISOString();
   const runId = randomUUID();
