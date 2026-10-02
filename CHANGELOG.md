@@ -4,6 +4,13 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: selection consent and failed-revision recovery
+
+- Clear and disable exact-source consent when tools are deselected; only enable it for the currently displayed complete draft, with fresh unchecked consent after revision.
+- Preserve rejected-tool choices after revision failure so retry cannot silently restore rejected registrations. Keep source/application approval blocked until a validated revised draft is ready.
+- Identify provider-stage failures with safe recovery guidance and link private revision diagnostics to the provider trajectory. Ground revision prompts in the actual discovery-file path.
+- Add HTTP and real-browser checks for consent locking, restored selections, provider failure, and fresh-review retry.
+
 ### Fixed: independent review cards, shutdown, and rollback safety
 
 - Stop CSS grid stretching the closed summary card when its neighbor opens; verify each card's actual open state and independent height in Chrome.

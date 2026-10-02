@@ -116,7 +116,10 @@ their change types and role/placement reasons. Review the exact diff as well:
 inferred purposes do not prove a change is necessary. The larger **I approve this
 exact source patch** checkbox must be checked before **Approve reviewed draft**
 is enabled; final confirmation still follows. Preparing a reduced-tool draft
-does not require approving the old patch, and fresh drafts reset consent.
+does not require approving the old patch: changing tool selection clears consent
+and disables its checkbox until all tools in the displayed draft are selected.
+A ready revised draft starts with all retained tools selected and fresh unchecked
+consent; you must review that patch before approving it.
 
 After confirmation, the CLI shows **Closing review connections** activity before
 returning control. Incomplete browser requests are closed after a short grace
@@ -133,7 +136,11 @@ tools, not individual tests. Revision focuses on existing integration files and
 reuses valid retained-only tasks; provider latency can still take minutes.
 The page locks immediately, including other open tabs, displays progress, and
 automatically returns to review when ready. You can remove more tools and repeat
-this process. A failed revision returns a safe error and permits retry.
+this process. A failed revision returns a safe error, preserves the rejected-tool
+selection on the current review server, and permits retry. A provider failure
+cannot be bypassed by checking source consent: resolve the coding CLI issue
+(such as authentication or connectivity) and prepare the selected-tool draft
+again. Raw provider diagnostics remain private; no target source is applied.
 The revised source patch gets a new identity and must
 be reviewed and confirmed again; selecting a subset never approves the original
 patch. Only retained tools and their validated tasks enter the approved manifest

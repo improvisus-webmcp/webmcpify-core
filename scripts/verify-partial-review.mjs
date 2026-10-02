@@ -28,7 +28,7 @@ try {
 import {appendFileSync,existsSync,readFileSync,writeFileSync,writeSync} from 'node:fs';
 const selection = existsSync('.webmcpify/tool-selection.json') ? JSON.parse(readFileSync('.webmcpify/tool-selection.json','utf8')) : null;
 if(selection)appendFileSync(${JSON.stringify(path.join(root, "revision-calls"))},'call\\n');
-if(selection&&['success','repeat','tasks-only','reordered'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?3000:500));
+if(selection&&['success','repeat','tasks-only','reordered','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?3000:500));
 const makeTool = (name,handler)=>({id:name,name,title:name,description:'Changes local selection state',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Browser local state only'},implementation:{handler:'src/app.js#'+handler,action:'change selection',state:'document.body.dataset.selected'},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Loaded entry integration'},sourceFiles:['src/app.js'],behavior:{success:'Selection changes',preconditions:[],expectedFailures:[]}});
 let tools=selection?selection.selected:[makeTool('select_item','selectItem'),makeTool('dismiss_item','dismissItem')];
 if(!selection&&process.env.PARTIAL_REVIEW_MODE==='repeat')tools.push(makeTool('clear_item','clearItem'));
@@ -44,7 +44,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN = provider;
   process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
-  for (const mode of browserCheck ? ["repeat"] : ["success", "tasks-only", "reordered", "repeat", "source-drift", "contract-drift", "provider-failure"]) {
+  for (const mode of browserCheck ? ["repeat", "provider-failure"] : ["success", "tasks-only", "reordered", "repeat", "source-drift", "contract-drift", "provider-failure"]) {
     process.env.PARTIAL_REVIEW_MODE = mode;
     const site = path.join(root, mode);
     await mkdir(path.join(site, "src"), { recursive: true });
@@ -135,6 +135,13 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isEnabled(), true);
       await sourceConsent.uncheck();
       assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true);
+      await sourceConsent.check();
+      await page.locator('input[name="toolIds"][value="dismiss_item"]').uncheck();
+      assert.equal(await sourceConsent.isDisabled(), true, "A reduced selection cannot consent to the old source patch");
+      assert.equal(await sourceConsent.isChecked(), false, "Changing tools must discard existing source consent");
+      await page.locator('input[name="toolIds"][value="dismiss_item"]').check();
+      assert.equal(await sourceConsent.isEnabled(), true);
+      assert.equal(await sourceConsent.isChecked(), false, "Restoring all tools must not restore old consent");
       await page.locator('input[name="toolIds"][value="dismiss_item"]').uncheck();
       assert.equal(await page.getByRole("button", { name: "Prepare selected-tool draft" }).isEnabled(), true, "Draft preparation is not consent to the original patch");
       const response = page.waitForResponse(response => response.url().endsWith("/approve") && response.request().method() === "POST");
@@ -242,10 +249,28 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
       assert.match(await getPage(), /role="alert"/);
       assert.equal(await readPendingPatch(site, original), originalPatch, "Failed revisions preserve the old pending patch");
       if (mode === "provider-failure") {
+        assert.match(status.message, /opencode.*could not complete/i);
+        const failedPage = await getPage();
+        assert.match(failedPage, /value="select_item" checked/);
+        assert.doesNotMatch(failedPage, /value="dismiss_item" checked/);
+        assert.match(failedPage, /aria-describedby="source-approval-help" disabled/, "Failed partial selection must render consent disabled before client scripts run");
+        if (page) {
+          await page.waitForFunction(() => document.querySelector('[role="alert"]') !== null);
+          assert.equal(await page.locator('input[name="toolIds"][value="dismiss_item"]').isChecked(), false, "Rejected tools must remain unchecked after provider failure");
+          assert.equal(await page.locator('input[name="approveSourceDiff"]').isDisabled(), true);
+        }
         process.env.PARTIAL_REVIEW_MODE = "tasks-only";
-        assert.equal((await post(form("prepare"))).status, 202, "The same review server must allow retry after failure");
+        if (page) await page.getByRole("button", { name: "Prepare selected-tool draft" }).click();
+        else assert.equal((await post(form("prepare"))).status, 202, "The same review server must allow retry after failure");
         assert.equal((await waitForRevision()).state, "ready");
-        assert.notEqual((await readPatchMetadata(site)).runId, original.runId);
+        const recovered = await readPatchMetadata(site);
+        assert.notEqual(recovered.runId, original.runId);
+        if (page) {
+          await page.waitForFunction(runId => document.querySelector('[name="reviewRunId"]')?.value === runId, recovered.runId);
+          assert.equal(await page.locator('input[name="approveSourceDiff"]').isEnabled(), true);
+          assert.equal(await page.locator('input[name="approveSourceDiff"]').isChecked(), false);
+          assert.equal(await page.getByRole("button", { name: "Approve reviewed draft" }).isDisabled(), true);
+        }
         await assert.rejects(readFile(path.join(site, ".webmcpify/approved-tools.json")), { code: "ENOENT" });
       }
       controller.abort();
@@ -254,7 +279,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     assert.ok((await readdir(path.join(site, ".webmcpify/trajectories"))).some(name => name.startsWith("review-selection-")));
   }
   const calls = (await readFile(path.join(root, "revision-calls"), "utf8")).trim().split("\n").length;
-  assert.equal(calls, browserCheck ? 2 : 9, "Valid subset revisions should use one focused provider call each");
+  assert.equal(calls, browserCheck ? 4 : 9, "Each revision attempt should use one focused provider call, including explicit failure retry");
 } finally {
   for (const { controller, review } of reviews) { controller.abort(); await review.catch(() => {}); }
   await browserContext?.close();

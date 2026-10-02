@@ -27,13 +27,17 @@ function lockReview(message){
   for(const element of document.querySelectorAll('input,textarea,select,button'))element.disabled=true;
   busyLayer.hidden=false;busyLayer.style.display='grid';busyMessage.textContent=message;busyLayer.focus();
 }
-function selectionChanged(){
+function selectionChanged(event){
   if(!continueButton||!selectionStatus)return;
   const count=toolBoxes.filter(box=>box.checked).length;
   const subset=count>0&&count<toolBoxes.length;
+  if(sourceApproval){
+    if((event&&toolBoxes.includes(event.target))||count!==toolBoxes.length)sourceApproval.checked=false;
+    sourceApproval.disabled=busy||count!==toolBoxes.length;
+  }
   continueButton.textContent=subset?'Prepare selected-tool draft':'✓ Approve reviewed draft';
   continueButton.disabled=busy||count===0||(!subset&&(!sourceApproval||!sourceApproval.checked));
-  if(approvalStatus)approvalStatus.textContent=count===0?'Select at least one tool or reject the draft.':subset?'Prepare a new draft first; this does not approve the current patch.':sourceApproval&&sourceApproval.checked?'Source approval checked. Continue to final confirmation.':'Check “I approve this exact source patch” to enable approval.';
+  if(approvalStatus)approvalStatus.textContent=count===0?'Select at least one tool or reject the draft.':subset?'Source consent is locked until the selected-tool patch is ready for fresh review.':sourceApproval&&sourceApproval.checked?'Source approval checked. Continue to final confirmation.':'Check “I approve this exact source patch” to enable approval.';
   selectionStatus.textContent=subset?'Core will remove rejected registrations and regenerate corresponding tasks. You will review a new patch before approval.':'';
 }
 toolBoxes.forEach(box=>box.addEventListener('change',selectionChanged));

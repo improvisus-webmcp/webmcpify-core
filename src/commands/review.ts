@@ -159,6 +159,7 @@ export async function runReviewPrompt(
   let revisionJob: { state: "idle" | "revising" | "ready" | "error"; phase?: string; message?: string } = { state: "idle" };
   let activeRevision: Promise<void> | undefined;
   let pendingConfirmation: { token: string; input: string } | undefined;
+  let retrySelection: Set<string> | undefined;
 
   const reloadDraft = async () => {
     const metadata = await readPatchMetadata(sitePath);
@@ -213,7 +214,7 @@ export async function runReviewPrompt(
             (tool) =>
               `<label class="item"><input type="checkbox" name="toolIds" value="${htmlEscape(
                 tool.id
-              )}" checked> <strong>${htmlEscape(tool.name)}</strong> — ${htmlEscape(tool.title)} — ${htmlEscape(tool.description)}<br><small>Access: this tool only · read-only: ${String(tool.annotations.readOnlyHint)} · untrusted output: ${String(tool.annotations.untrustedContentHint)} · consequential: ${String(tool.annotations.consequentialHint)}</small></label>`
+              )}"${!retrySelection || retrySelection.has(tool.id) ? " checked" : ""}> <strong>${htmlEscape(tool.name)}</strong> — ${htmlEscape(tool.title)} — ${htmlEscape(tool.description)}<br><small>Access: this tool only · read-only: ${String(tool.annotations.readOnlyHint)} · untrusted output: ${String(tool.annotations.untrustedContentHint)} · consequential: ${String(tool.annotations.consequentialHint)}</small></label>`
           )
           .join("\n")
       : `<p>No structured tool proposals were found.</p>`;
@@ -254,7 +255,7 @@ ${panel(`2. Core security checkpoint <span class="count">${securityPolicy}</span
 ${panel(`3. Verification tasks <span class="count">${proposedTasks.length} proposed</span>`, `<p class="hint">These generated tasks are read-only. Changing tool selection automatically revises corresponding tasks; you cannot remove checks or edit their pass criteria.</p>${taskRows}`)}
 ${fileSection}${sourceSection}
 ${panel("6. Raw generation draft", `<pre>${htmlEscape(draft)}</pre>`)}
-<section class="source-approval" aria-label="Required source patch approval"><label for="approve-source-patch"><input id="approve-source-patch" type="checkbox" name="approveSourceDiff" value="yes" aria-required="true" aria-describedby="source-approval-help"><span><strong>I approve this exact source patch</strong><small id="source-approval-help">Required before “Approve reviewed draft” is enabled. Check only after reviewing every file and the exact diff above. Preparing a reduced-tool draft is not approval.</small></span></label></section>
+<section class="source-approval" aria-label="Required source patch approval"><label for="approve-source-patch"><input id="approve-source-patch" type="checkbox" name="approveSourceDiff" value="yes" aria-required="true" aria-describedby="source-approval-help"${retrySelection ? " disabled" : ""}><span><strong>I approve this exact source patch</strong><small id="source-approval-help">Required before “Approve reviewed draft” is enabled. Disabled while tools are deselected: prepare and review the revised draft first. Check only after reviewing every file and the exact diff above.</small></span></label></section>
 <div class="actions"><div class="actions-inner"><span id="approval-status" role="status" aria-live="polite">Check “I approve this exact source patch” to enable approval.</span><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><button class="reject" type="submit" formaction="/reject">Reject draft</button><button class="approve" type="submit" disabled>✓ Approve reviewed draft</button></div></div></div></form></main><script>
 ${reviewClientScript(approvalId)}
 </script></body></html>`);
@@ -334,6 +335,7 @@ ${reviewClientScript(approvalId)}
           if (trajectoryMetadata.durable === true || patchMetadata.repair) throw new Error("Repair/durable review cannot change its fixed tool or task set. Reject this repair and generate a new draft instead.");
           if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
           revising = true;
+          retrySelection = new Set(selected.map(tool => tool.id));
           const rejected = proposedTools.filter((tool) => !selected.some((approved) => approved.id === tool.id));
           console.log(`[review] drafting a revised patch for ${selected.length} selected tool(s); ${rejected.length} rejected tool(s) will be omitted`);
           pendingConfirmation = undefined;
@@ -348,6 +350,7 @@ ${reviewClientScript(approvalId)}
                 throw new Error(`The revised draft could not be loaded. Restart review; no approval was created. Private diagnostics: ${diagnostic}`);
               }
               revisionJob = { state: "ready" };
+              retrySelection = undefined;
               console.log("[review] revised draft ready; review the new patch before approval");
             } catch (error) {
               const message = error instanceof Error ? error.message : "Revision failed. Restart review."; // revision errors are already redacted

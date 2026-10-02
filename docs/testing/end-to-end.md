@@ -116,6 +116,8 @@ With all tools selected, approval must be disabled until the larger source-patch
 checkbox is checked. Uncheck it again: approval must become disabled. A direct
 HTTP request without consent is rejected too. Reduced-tool draft preparation is
 not approval of the old patch; after revision, source consent starts unchecked.
+Check source consent, then deselect a tool: consent must clear and become disabled.
+Reselect every tool: consent becomes available but stays unchecked.
 
 For a partial-approval test, uncheck one tool while keeping at least one selected.
 Continue. Expected: controls lock immediately and a progress page appears. Other
@@ -128,6 +130,10 @@ automatically. Confirm rejected registrations are actually absent, while origina
 human handlers still exist. Every remaining proposed tool still has coverage.
 If the provider fails, expect a safe error and a retryable review page, never raw
 prompt/code output or automatic approval. The original pending patch remains intact.
+Rejected tools must remain unchecked after this failure, including on refresh.
+Source consent remains disabled for that partial selection. Resolve the provider
+issue and retry preparing the draft; once ready, verify all retained tools are
+selected and source consent is available but unchecked again.
 
 Approve the revised source checkbox and proceed to confirmation. Check the space
 above Confirm Approval/Cancel. Cancel returns to review without approval. Confirm
