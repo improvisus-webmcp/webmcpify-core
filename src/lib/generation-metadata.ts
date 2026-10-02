@@ -10,6 +10,7 @@ import { normalizeProviderOutput } from "./provider-output.js";
 import { extractTasksFromText, validateTaskToolBindings } from "./tasks.js";
 import { extractAndValidateProposedTools, type ProposedTool } from "./tool-proposals.js";
 import { createTrajectoryArtifact, createTrajectoryPath } from "./trajectories.js";
+import { canonicalJson } from "./canonical-json.js";
 
 interface MetadataOptions {
   provider: AIProvider;
@@ -17,6 +18,7 @@ interface MetadataOptions {
   workspace: string;
   draftPath: string;
   discovery: DiscoveryResult;
+  fixedTools?: ProposedTool[];
 }
 
 function validateTasks(raw: string, tools: ProposedTool[]): void {
@@ -25,15 +27,31 @@ function validateTasks(raw: string, tools: ProposedTool[]): void {
   validateTaskToolBindings(tasks, tools);
 }
 
+function containsToolMetadata(raw: string): boolean {
+  return /TOOL_PROPOSALS_JSON|"tools"\s*:/.test(normalizeProviderOutput(raw));
+}
+
 /** Correct output contracts once without changing the source awaiting review. */
 export async function validateGenerationMetadata(opts: MetadataOptions): Promise<{ tools: ProposedTool[]; draftPath: string }> {
   const original = await readFile(opts.draftPath, "utf8");
+  // Selection revisions need only new tasks. Core owns the immutable selected
+  // contracts, so the provider need not reproduce a large JSON tool envelope.
+  const selectionTools = opts.fixedTools;
+  if (selectionTools && containsToolMetadata(original)) {
+    const returnedTools = extractAndValidateProposedTools(original, opts.discovery);
+    if (canonicalJson(returnedTools) !== canonicalJson(selectionTools)) throw new Error("Selection revision changed a fixed tool contract.");
+  }
+  const canonicalDraft = async (raw: string, source: string): Promise<string> => {
+    if (!selectionTools) return source;
+    const tasks = extractTasksFromText(raw)!;
+    return createTrajectoryArtifact("review-selection-validated", `TOOL_PROPOSALS_JSON\n\`\`\`json\n${JSON.stringify({ tools: selectionTools })}\n\`\`\`\nTASKS_JSON\n\`\`\`json\n${JSON.stringify(tasks)}\n\`\`\``, { sitePath: opts.sitePath, sourceTrajectory: source });
+  };
   let originalTools: ProposedTool[] | undefined;
   let validationError: unknown;
   try {
-    originalTools = extractAndValidateProposedTools(original, opts.discovery);
+    originalTools = selectionTools ?? extractAndValidateProposedTools(original, opts.discovery);
     validateTasks(original, originalTools);
-    return { tools: originalTools, draftPath: opts.draftPath };
+    return { tools: originalTools, draftPath: await canonicalDraft(original, opts.draftPath) };
   } catch (error) {
     validationError = error;
   }
@@ -82,12 +100,12 @@ ${TASK_AUTHORING_PROMPT}`,
       throw new Error("Metadata correction changed the generated source or Git identity.");
     }
     const corrected = await readFile(repairPath, "utf8");
-    const tools = extractAndValidateProposedTools(corrected, opts.discovery);
-    if (originalTools && JSON.stringify(tools) !== JSON.stringify(originalTools)) {
+    const tools = selectionTools && !containsToolMetadata(corrected) ? selectionTools : extractAndValidateProposedTools(corrected, opts.discovery);
+    if (originalTools && canonicalJson(tools) !== canonicalJson(originalTools)) {
       throw new Error("Metadata correction changed an already-valid tool contract.");
     }
     validateTasks(corrected, tools);
-    return { tools, draftPath: repairPath };
+    return { tools, draftPath: await canonicalDraft(corrected, repairPath) };
   } catch (error) {
     const failurePath = await createTrajectoryArtifact("generate-metadata-failure", {
       error: error instanceof Error ? error.message : String(error), diagnosticPath, repairPath,

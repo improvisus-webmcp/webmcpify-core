@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverProject } from "../dist/lib/discovery.js";
 import { auditToolSecurity, resolveSecurityPolicy } from "../dist/lib/security-audit.js";
 import { validateProposedTools } from "../dist/lib/tool-proposals.js";
+import { runSecurity } from "../dist/commands/security.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-security-"));
 try {
@@ -73,6 +74,16 @@ try {
   assert.equal(defaultCart.policy, "balance", "The default audit must use balanced policy");
   assert.equal(defaultCart.status, "pass");
   assert.deepEqual(defaultCart.findings, balancedCart.findings);
+  await mkdir(path.join(fixture, ".webmcpify"), { recursive: true });
+  await writeFile(path.join(fixture, ".webmcpify/discovery.json"), JSON.stringify(discovery));
+  await writeFile(path.join(fixture, ".webmcpify/proposed-tools.json"), JSON.stringify({ tools: [cart] }));
+  assert.equal((await runSecurity({ path: fixture })).policy, "balance");
+  const strictCommand = await runSecurity({ path: fixture, strict: true });
+  assert.equal(strictCommand.policy, "strict", "--strict must select the actual strict audit policy");
+  assert.ok(strictCommand.findings.some(finding => finding.code === "string-unbounded"));
+  assert.equal(JSON.parse(await readFile(path.join(fixture, ".webmcpify/security-report.json"), "utf8")).policy, "strict");
+  await writeFile(path.join(fixture, ".webmcpify/proposed-tools.json"), JSON.stringify({ tools: [anonymous] }));
+  await assert.rejects(runSecurity({ path: fixture, strict: true }), /blocking access-control gaps/);
 
   const uiSecurity = { ...cart.security, executionScope: "ui-state" };
   const [click] = validateProposedTools({ tools: [{ ...cart, id: "select_tab", name: "select_tab", title: "Select tab", annotations: { ...cart.annotations, consequentialHint: false }, parameters: { type: "object", properties: {}, additionalProperties: false }, security: uiSecurity, implementation: { ...cart.implementation, action: "select tab" } }] }, discovery);

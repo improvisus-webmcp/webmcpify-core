@@ -44,7 +44,7 @@ flowchart LR
 | `src/commands/discover.ts` | CLI wrapper for static project discovery. |
 | `src/commands/generate.ts` | Creates a disposable workspace, invokes a provider, validates its source changes, and stores a pending proposal. |
 | `src/commands/security.ts` | Audits proposed or approved tools and writes the project security report. |
-| `src/commands/review.ts` | Serves the local two-step tool, task, and patch approval UI. |
+| `src/commands/review.ts` | Serves tool-only selection with read-only contracts/tasks, asynchronous locked revision, and exact-patch two-step approval. |
 | `src/commands/apply.ts` | Validates approval/source identity, applies the patch, runs target checks, and rolls back failure. |
 | `src/commands/test.ts` | Runs approved tasks through the live browser and records independent results. |
 | `src/commands/eval.ts` | Prints the latest project-scoped WebMCP test result. |
@@ -67,6 +67,8 @@ flowchart LR
 | `src/lib/executables.ts` | Resolves provider executables from `PATH`, optional overrides, standalone/editor Codex installations, and classifies launch failures without exposing raw diagnostics. |
 | `src/lib/generation-metadata.ts` | Validates generated tools/tasks and permits one metadata-only correction with source/Git identity and valid-contract preservation checks. |
 | `src/lib/review-selection.ts` | Revises a pending patch for selected tools in a disposable workspace, checks retained contracts/source/security, updates tasks/docs, and returns a new unapproved draft. |
+| `src/lib/review-ui.ts` | Locks review controls immediately, polls revision progress, and automatically reopens a fresh draft. |
+| `src/lib/canonical-json.ts` | Compares immutable JSON contracts without treating object-key order as a change. |
 | `src/lib/prompts.ts` | Holds deterministic discovery, placement, proposal, and task-authoring instructions. |
 | `src/lib/webmcp-spec-guidance.ts` | Holds the WebMCP compatibility, lifecycle, privacy, and security rules supplied to providers. |
 | `src/lib/tool-proposals.ts` | Parses, normalizes, validates, persists, and reloads structured tool proposals. |
@@ -108,8 +110,9 @@ flowchart LR
 | `scripts/verify-generation-recovery.mjs` | Exercises generation metadata recovery and fail-closed source/contract checks using credential-free providers in disposable repositories. |
 | `scripts/verify-browser-state.mjs` | Tests real Chrome same-tab scoring, retained task state, expected-error matching, forbidden-state rejection, and personal-context preservation. |
 | `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
-| `scripts/verify-review.mjs` | Tests approval editing, confirmation, persistence, locking, and rejection. |
+| `scripts/verify-review.mjs` | Tests read-only tasks/contracts, tamper rejection, confirmation, persistence, cancellation, and rejection. |
 | `scripts/verify-partial-review.mjs` | Tests removal of rejected registrations, retained-only contracts/tasks/docs, preserved original app actions, fresh patch confirmation, and refused unsafe revisions. |
+| `scripts/verify-review-browser.mjs` | Tests real Chrome review locking across tabs/refreshes, automatic reopen, repeated removal, and final confirmation. |
 | `scripts/verify-patch-lifecycle.mjs` | Tests patch validation, approval gating, apply, and rollback. |
 | `scripts/verify-repair.mjs` | Tests failure selection, focused repair patches, review boundaries, and regression evidence. |
 | `scripts/verify-evaluation.mjs` | Tests shared task identity and project-scoped evaluation lookup. |

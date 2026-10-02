@@ -69,7 +69,7 @@ program
   .command("security")
   .description("Audit proposed or approved tools for Core access-control gaps")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
-  .option("--strict", "fail when the report contains blocking findings")
+  .option("--strict", "use strict audit policy and fail on blocking findings")
   .action(async (opts) => { await runSecurity(opts); });
 
 program

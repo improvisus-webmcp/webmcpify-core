@@ -25,7 +25,7 @@ export async function runSecurity(opts: SecurityOptions): Promise<SecurityReport
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const discovery = await loadDiscovery(sitePath);
   const tools = await loadTools(sitePath, discovery);
-  const report = auditToolSecurity(tools, discovery, sitePath);
+  const report = auditToolSecurity(tools, discovery, sitePath, opts.strict ? "strict" : "balance");
   const output = await writeSecurityReport(sitePath, report);
   console.log(`[security] ${report.status}: ${report.summary.block} blocking, ${report.summary.review} review finding(s)`);
   console.log(`[security] report: ${output}`);

@@ -48,6 +48,7 @@
     "verify:security": "node scripts/verify-security-audit.mjs",
     "verify:review": "node scripts/verify-review.mjs",
     "verify:partial-review": "node scripts/verify-partial-review.mjs",
+    "verify:review-browser": "node scripts/verify-review-browser.mjs",
     "verify:repair": "node scripts/verify-repair.mjs",
     "verify:evaluation": "node scripts/verify-evaluation.mjs",
     "verify:final-eval": "node scripts/verify-final-eval.mjs",

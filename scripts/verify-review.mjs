@@ -41,11 +41,17 @@ const reviewHtml = await (await fetch("http://127.0.0.1:4387/approve")).text();
 assert.match(reviewHtml, /Project: review-fixture &lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 assert.ok(reviewHtml.includes(sitePath));
 assert.doesNotMatch(reviewHtml, /<img src=x onerror=/);
-const editedTool = { ...tool, description: "Edited reviewed action description." };
+assert.doesNotMatch(reviewHtml, /name="(?:taskIds|tasksJson|toolsJson)"/);
 const metadata = await readPatchMetadata(sitePath);
 const patchHash = sourcePatchHash(await readPendingPatch(sitePath, metadata));
 let confirmationToken = "";
-const form = (stage) => { const value = new URLSearchParams({ stage, reviewRunId: runId, reviewPatchHash: patchHash, confirmationToken, toolIds: tool.id, toolsJson: JSON.stringify({ tools: [editedTool] }), tasksJson: JSON.stringify(tasks), approveSourceDiff: "yes" }); for (const task of tasks) value.append("taskIds", task.id); return value; };
+const form = (stage) => new URLSearchParams({ stage, reviewRunId: runId, reviewPatchHash: patchHash, confirmationToken, toolIds: tool.id, approveSourceDiff: "yes" });
+for (const [field, value] of [["tasksJson", JSON.stringify(tasks.map(task => ({ ...task, verify: "true" })))], ["taskIds", tasks[0].id], ["toolsJson", JSON.stringify({ tools: [{ ...tool, description: "Changed contract" }] })]]) {
+  const tampered = form("prepare"); tampered.set(field, value);
+  const refused = await fetch("http://127.0.0.1:4387/approve", { method: "POST", body: tampered });
+  assert.equal(refused.status, 400);
+  assert.match(await refused.text(), /read-only/);
+}
 const premature = await fetch("http://127.0.0.1:4387/approve", { method: "POST", body: form("confirm") });
 assert.equal(premature.status, 400, "Direct confirmation without the prepare step is forbidden");
 const response = await fetch("http://127.0.0.1:4387/approve", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form("prepare") });
@@ -59,7 +65,8 @@ assert.equal(confirmation.status, 200);
 const result = await review;
 assert.equal(result.approved, true);
 const manifest = JSON.parse(await readFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), "utf8"));
-assert.equal(manifest.tools[0].description, editedTool.description);
+assert.equal(manifest.tools[0].description, tool.description);
+assert.deepEqual(manifest.tasks, tasks, "Approval must preserve the server-owned generated task set");
 assert.deepEqual(manifest.toolNames, [tool.name]);
 assert.equal(manifest.sourceDiff.status, "approved");
 assert.match(manifest.sourceDiff.patchHash, /^[a-f0-9]{64}$/);
@@ -95,4 +102,4 @@ try {
   await fallbackAssertion;
 } finally { fallbackController.abort(); await new Promise((resolve) => busyPort.close(resolve)); }
 await rm(sitePath, { recursive: true, force: true });
-console.log("review verification passed: structured display/edit persistence, task approval, and rejection");
+console.log("review verification passed: read-only contracts/tasks, tamper rejection, exact-patch confirmation, cancellation, and rejection");

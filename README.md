@@ -103,8 +103,14 @@ Use `--path /path/to/project` when running outside the target directory. Supply 
 
 To reject individual tools, uncheck them and choose **Prepare selected-tool draft**.
 Core invokes the draft's coding provider in a disposable workspace to remove
-their WebMCP registrations and regenerate tests/docs for retained tools. This
-may take several minutes. The revised source patch gets a new identity and must
+their WebMCP registrations and update corresponding tests; Core regenerates docs
+for retained tools. Tool contracts and verification tasks are read-only: choose
+tools, not individual tests. Revision focuses on existing integration files and
+reuses valid retained-only tasks; provider latency can still take minutes.
+The page locks immediately, including other open tabs, displays progress, and
+automatically returns to review when ready. You can remove more tools and repeat
+this process. A failed revision returns a safe error and permits retry.
+The revised source patch gets a new identity and must
 be reviewed and confirmed again; selecting a subset never approves the original
 patch. Only retained tools and their validated tasks enter the approved manifest
 and subsequent workflow. Every retained tool still needs test coverage. Existing
@@ -307,6 +313,10 @@ Core asks generated tools to describe an internal security contract. This is rev
 webmcpify security --path /path/to/project
 webmcpify security --path /path/to/project --strict
 ```
+
+Standalone `security --strict` selects the strict audit policy **and** exits with
+a command failure on blocking findings. Without the flag, it uses the balanced
+policy. It does not change the policy recorded in an existing generation draft.
 
 The report is written to `.webmcpify/security-report.json` and shown during review. Static analysis cannot prove that a backend enforces a claim, so the exact patch must still be reviewed. Core does not yet issue or verify a universal provider-attestation token, and production policy storage remains the target backend's responsibility.
 

@@ -15,6 +15,7 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm run verify:browser-state
+pnpm run verify:review-browser
 pnpm audit --prod
 npm pack --dry-run
 git diff --check
@@ -107,13 +108,19 @@ webmcpify review --port 4173
 
 Open the exact localhost URL printed by Core. Confirm project name and repository
 folder. Inspect tools, tasks, security, and source changes.
+Tasks and tool contracts must be view-only: no task checkboxes or JSON editors.
 
 For a partial-approval test, uncheck one tool while keeping at least one selected.
-Continue. Expected: the original coding provider creates a revised patch in a
+Continue. Expected: controls lock immediately and a progress page appears. Other
+open tabs lock too; refresh during revision must show only progress, not editable
+controls. The original coding provider creates a revised patch in a
 disposable workspace; rejected registrations and retained-only docs/tests are
-reconciled; the new patch returns for fresh review. No approval/application happens
+reconciled; the page automatically reopens for fresh review. Remove another tool
+and repeat if at least one remains. No approval/application happens
 automatically. Confirm rejected registrations are actually absent, while original
 human handlers still exist. Every remaining proposed tool still has coverage.
+If the provider fails, expect a safe error and a retryable review page, never raw
+prompt/code output or automatic approval. The original pending patch remains intact.
 
 Approve the revised source checkbox and proceed to confirmation. Check the space
 above Confirm Approval/Cancel. Cancel returns to review without approval. Confirm
@@ -214,6 +221,9 @@ webmcpify generate --provider codex --security strict --method auto --no-product
 webmcpify security --strict
 webmcpify generate --provider codex --security ignore --method auto --no-product-context-prompt
 ```
+
+Check that standalone `security --strict` writes `"policy": "strict"` in the
+security report and fails on blocking findings; without the flag it uses balance.
 
 Strict reversible UI state must not require invented backend authentication,
 identity, replay, or quota enforcement; applicable backend/consequential guards must

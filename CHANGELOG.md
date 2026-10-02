@@ -4,6 +4,14 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: locked, tool-only review and strict audits
+
+- Make generated contracts and all verification tasks read-only in review; owners select tools only. Reject task/contract edits sent directly to the server.
+- Lock controls immediately during partial revision, reject concurrent submissions, and show progress across open tabs and refreshes. Keep one review server running; reopen the revised draft automatically and support repeated removals and recovery after provider failure.
+- Focus revisions on integration files and corresponding tasks, reuse retained-only tasks, and let Core supply frozen tool contracts and regenerate documentation. Compare contracts independent of JSON object-key order while still rejecting real drift.
+- Preserve fresh exact-patch confirmation, selected-tool coverage, private diagnostics, original app handlers, and repair/durable fixed-task boundaries.
+- Make standalone `security --strict` select the strict audit policy as well as failing on blocking findings. Add HTTP and real-Chrome review regressions.
+
 ### Added: project identity and grounded GEO/AEO discovery
 
 - Show the target project name and repository folder on the human review page; escape owner-provided identity safely.
