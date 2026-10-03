@@ -341,6 +341,24 @@ First run `pnpm run verify:temporal-optional` in Core. It recreates an isolated
 production package with no Temporal peers and tests CLI/MCP startup plus clear
 Temporal installation errors. Do not delete your real node_modules to test this.
 
+Core's fast `pnpm run verify:temporal` checks identities, deadlines and uncapped
+task recording. For actual local service/worker/browser coverage, build Core,
+install the Temporal CLI and compatible Chrome, then run in the Core checkout:
+
+```bash
+pnpm run verify:temporal-live
+pnpm run verify:temporal-pipeline
+```
+
+These tests own isolated development services and `/tmp` targets; they do not
+modify your coffee app or call an authenticated model. The first checks real
+heartbeats, cancellation cleanup, completed-stage restart and workflow replay.
+The second runs the actual Core CLI/worker with JS discovery/generation,
+security, human-review HTTP flows, tool deselection, pre-apply UI baseline,
+build/apply, real Chrome WebMCP calls, expected rejection, repair and reattachment.
+If the CLI is not on `PATH`, set `WEBMCPIFY_TEMPORAL_CLI` to its executable.
+Do not clean/rebuild `dist/` while these tests are running.
+
 Live durable tests require compatible optional peers, a Temporal service, provider,
 running target, and WebMCP browser. A linked Core checkout already has the SDKs as
 dev dependencies. A production install needs optional peers in its resolvable
@@ -349,7 +367,7 @@ installation. Native SDK compatibility must be checked separately on each OS.
 Install the [Temporal CLI](https://docs.temporal.io/cli) first. Terminal C:
 
 ```bash
-temporal server start-dev
+temporal server start-dev --db-filename ./temporal-dev.sqlite
 ```
 
 Terminal D:
@@ -363,6 +381,50 @@ Expected: worker connects to the same address, namespace, and queue used by the
 workflow client. Defaults are localhost:7233, default, and webmcpify. Set matching
 `WEBMCPIFY_TEMPORAL_*` variables in both terminals for custom configurations; keep
 TLS/API keys private. Local Temporal UI defaults to http://localhost:8233.
+Run the service command outside the target checkout so its database does not
+become application source. Without the database flag, a service restart loses
+development history.
+
+To test durable execution **from the beginning**, use a fresh disposable copy of
+your target (before applying an integration), keep its app server running, and
+run in Terminal B:
+
+```bash
+webmcpify run --durable --baseline --url http://127.0.0.1:5173 --provider codex --no-product-context-prompt
+```
+
+Expected order: discovery → generation/preflight → recorded security policy →
+human review → UI-only baseline on original source → exact-source apply/build →
+every approved WebMCP task → independent evaluation. `--baseline` is optional;
+its low UI comparison scores are legitimate, but a provider failure must stop
+before apply. The whole `run` needs the live server from the start; standalone
+`discover`, `generate`, `security`, `review` and `apply` do not need it.
+
+At review, deselect a tool, wait for revised source/tasks, review again and approve
+the exact patch. Repeated deselection is allowed in this initial durable review.
+Check that rejected registrations/tasks disappear, every retained tool is tested,
+and source stays unchanged until confirmation. Try rejecting a new draft: no
+patch should apply. An occupied review port should fall back and print its actual
+URL on the worker machine.
+
+On a disposable run, disconnect the client while review is open (Ctrl+C), leave
+the worker/service/app alive, then copy the printed command:
+
+```bash
+webmcpify run --durable --resume WORKFLOW_ID --execution-id RUN_ID --path /path/to/project
+```
+
+Use the real IDs/path. It must reattach without regenerating; an explicit
+execution ID keeps the original run even if that target's workflow ID is later
+reused. Reattaching a completed execution reads its saved result, not a fresh
+audit. Ctrl+C is client disconnect, not workflow cancellation. Test actual
+cancellation through Temporal UI/API only on the disposable run, then inspect
+approval/rollback state before recovery. Do not delete `.webmcpify` during it.
+
+For long operations, add `--activity-timeout 240 --review-timeout 336` (minutes
+and hours respectively). Defaults are 120 minutes per ordinary activity and
+168 hours for review; each capability task has its own activity. Matching
+explicit provider timeout environment overrides still take precedence.
 
 Terminal B, using an actual failed approved task ID from the review/task set:
 
@@ -372,10 +434,12 @@ webmcpify repair --durable --url http://127.0.0.1:5173 --task YOUR_APPROVED_TASK
 
 The uppercase ID is a placeholder; replace it before running. Observe workflow/
 activity status in Temporal UI, human review, application, retest, and attempt bound.
-Durable/repair reviews preserve their fixed tools/tasks; they cannot partially
-rewrite the task set mid-workflow. On a disposable test only, interrupt/restart a
-worker and verify recovery without duplicate consequential actions. Live crash
-recovery is not certified by the ordinary fixture tests.
+Repair reviews (including durable repair) preserve fixed approved tools/tasks;
+they cannot partially rewrite criteria mid-repair. Initial full-run review is
+different and permits selection. Completed checkpoints survive worker restart;
+abrupt loss during an in-flight side-effecting activity/review fails closed and
+does not automatically repeat it. Automatic activity retries remain disabled.
+The live fixture tests verify completed-stage recovery, not arbitrary crash safety.
 
 Advanced comparison:
 
@@ -386,6 +450,13 @@ webmcpify final-eval --url http://127.0.0.1:5173 --provider codex
 This includes UI-only baseline, WebMCP, and durable repair comparison and may require
 additional human review. It is not a Temporal-free command. If no service/SDKs are
 installed, use normal `test`, `eval`, and plain `repair` instead.
+Failed durable repair/final verification must exit nonzero, and any source-changing
+Temporal repair must retest the full final-source task set rather than keep stale
+earlier passes.
+An unusable UI baseline also leaves the advanced comparison incomplete, even if
+final WebMCP verification succeeds; legitimately low UI scores do not cause this
+failure. Keep the saved patch/test evidence and prepare a fresh original-source
+comparison after resolving that baseline problem.
 
 ## 13. After testing
 

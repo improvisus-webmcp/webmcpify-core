@@ -4,6 +4,22 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Added: optional Temporal execution from discovery to verification
+
+- Add `run --durable` with checkpoints for discovery, generation/preflight, balanced/strict/ignored security, initial review, optional pre-apply UI baseline, exact-source apply/build, every approved browser task, and independent evaluation. Normal CLI/MCP startup remains Temporal-free; the optional peer/development dependency structure is unchanged.
+- Add bounded activity/review deadlines, live phases and actual review URLs, duplicate-active-run protection, client-disconnect reattachment and explicit execution IDs. Label completed-run reattachment as saved history, not a fresh audit. Initial durable review supports revised selected tools/tasks; repair reviews still freeze approved criteria.
+- Keep generated code, task expressions and raw provider diagnostics in local artifacts rather than new activity results. Serialize worker activities, share connection configuration and close browser sessions. Use heartbeat/cancellation propagation and local deadlines; disable automatic side-effect retries and replay old repair histories with their original options.
+- Add isolated live Temporal heartbeat/cancellation/restart/replay checks and an actual Core CLI/worker/Chrome pipeline on a disposable JavaScript app with a credential-free provider. These do not certify arbitrary in-flight crash recovery, every operating system or authenticated model behavior.
+
+### Fixed: end-to-end cancellation, identity and evaluation safeguards
+
+- Apply the exact validated patch bytes through Git stdin for both check and application, preventing a changed pending file from bypassing approval/hash validation during rollback preparation. Add a deterministic tampering-race regression.
+- Run the explicit build even when a typecheck command contains `build`; reject unreadable/malformed manifest or script/dependency maps as environment failures instead of silently skipping checks or asking a provider to repair source. Add dependency-free JS, misleading-typecheck and malformed-manifest regressions.
+- Bind orchestration apply to the exact reviewed run/hash and freeze durable repair task identity. Reject source/task/policy drift between full-pipeline stages; allow all approved tasks without a six-test ceiling.
+- Derive default durable provider timeouts from remaining activity time instead of stopping a valid long run at normal five/fifteen-minute defaults; explicit overrides retain precedence. Stop owned validation subprocess trees before rollback and prevent late child writes after cancellation.
+- Run declared checks for dependency-free JavaScript targets even without `node_modules`, reject malformed package manifests, and propagate cancellation through discovery/copy/reachability checks.
+- Reject baseline source/task drift and failed provider sessions. Failed durable repairs/final evaluations exit nonzero; source-changing Temporal repair forces a full final-source retest instead of keeping stale earlier passes. An unusable UI baseline cannot complete the comparison, while legitimate low UI scores remain allowed and the approved apply/test evidence is preserved.
+
 ### Fixed: mandatory Chrome DevTools WebMCP execution and honest scoring
 
 - Connect Chrome DevTools MCP in Core before capability tests and bind each agent to its exact isolated task tab. Expose only `list_webmcp_tools` and `call_webmcp_tool`, delegating calls to upstream `execute_webmcp_tool`; reject unapproved tools, page routing and script/UI substitutes.

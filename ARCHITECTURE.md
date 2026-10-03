@@ -17,11 +17,12 @@ flowchart LR
     Verify -. failed task .-> Repair[Focused repair]
     Repair --> Review
     Temporal[Optional Temporal service] -. durable orchestration .-> Repair
+    Temporal -. optional full pipeline .-> Discover
 ```
 
 ## Runtime boundaries
 
-- The target checkout is read during discovery and changed only by `apply` after approval.
+- The target checkout is read during discovery and changed only by `apply` after approval. Git validates/applies the same in-memory approved patch bytes through stdin, never reopening the mutable pending path after hash validation.
 - Coding agents edit a disposable copy of the saved working tree, including uncommitted/untracked files, without the target's `.git`, `.webmcpify`, `.serena`, or `node_modules` contents. Copying requests optional filesystem reflinks with ordinary-copy fallback, never source hard links; no new asset/cache exclusions are inferred from Git ignore rules.
 - Selected entries from the target's installed dependencies are linked into the disposable workspace for typecheck/build validation; they are not copied into it.
 - Browser agents receive empty disposable workspaces, not copied source. Each task uses a fresh browser context and independent scoring of the exact acted-on page. Non-Claude adapters do not enforce the requested tool allowlist as an OS sandbox. See the [runtime audit](docs/audits/2026-10-01-runtime-compatibility.md).
@@ -30,7 +31,8 @@ flowchart LR
 - WebMCP scoring requires actual discovery and ordered required calls before considering postconditions. Rejection tests need one matching recorded business error and an unchanged-state postcondition, including a bounded 500 ms settle window; protocol/browser errors cannot pass. Individual verification reads have deadlines and respect cancellation. Infrastructure/evidence/verifier failures do not authorize application repair, including durable task attempts.
 - Core waits briefly for matching guard exceptions arriving on its separate CDP observer after the MCP response; it never retries the capability to recover an error. A timed-out MCP request closes the owned connection to avoid overlapping uncertain executions.
 - Failed standalone audits exit nonzero; failed baseline providers cannot pass initially-true checks. Applied repairs report awaiting-test until actual actions are replayed. Final-eval caches must match execution policy, URL/provider, the exact complete task/result set, and current local Git source identity for WebMCP; baselines must be UI-only and intentionally describe pre-apply source.
-- Temporal stores workflow progress only for optional durable repair. It does not replace approval or verification.
+- Temporal is lazily loaded only for durable run/repair or advanced final evaluation. `run --durable` checkpoints discovery, generation/preflight, security, initial human review, optional pre-apply UI baseline, exact-source apply, each approved browser task, and evaluation. Initial review permits tool deselection; repair reviews preserve already-approved criteria. It does not replace approval or verification.
+- Durable activity results carry draft/task/source identities and bounded scores, not generated source, verification expressions or raw provider output. Product-context input is recorded in history and must not contain secrets. Each activity heartbeats, has a local deadline and propagates cancellation; owned validation subprocess trees stop before rollback finishes. Side-effecting activities are not automatically retried. Completed checkpoints can resume after worker restart; arbitrary in-flight crashes remain a fail-closed recovery boundary.
 
 ## Entry points
 
@@ -44,7 +46,7 @@ flowchart LR
 
 | File | Responsibility |
 | --- | --- |
-| `src/commands/run.ts` | Runs the normal discover → draft → review → apply → test → verify path. |
+| `src/commands/run.ts` | Runs discover → draft → review → apply → test → verify, or lazily starts/reattaches the optional full Temporal pipeline. |
 | `src/commands/discover.ts` | CLI wrapper for static project discovery. |
 | `src/commands/generate.ts` | Creates a disposable workspace, invokes a provider, validates its source changes, and stores a pending proposal. |
 | `src/commands/security.ts` | Audits proposed or approved tools and writes the project security report. |
@@ -98,6 +100,9 @@ flowchart LR
 | `src/lib/trajectories.ts` | Stores project-scoped run output and evidence under `.webmcpify/trajectories`. |
 | `src/lib/config.ts` | Resolves optional feature flags such as durable repair. |
 | `src/lib/temporal.ts` | Lazily loads optional Temporal packages with a clear installation error. |
+| `src/lib/durable-run.ts` | Starts one active pipeline per canonical target; validates deadlines, pins reattachment to an execution and reports live phases/review URLs. |
+| `src/lib/operation-context.ts` | Carries cancellation and remaining durable activity deadlines without changing normal command defaults. |
+| `src/lib/operation-command.ts` | Owns validation process trees and terminates them before cancellation/rollback can return. |
 | `src/lib/load-env.ts` | Loads optional Core development settings without importing the target application's `.env` secrets. |
 | `src/lib/package-info.ts` | Reads the installed package name and version. |
 | `src/lib/paths.ts` | Resolves the installed package root independently of the current directory. |
@@ -107,9 +112,12 @@ flowchart LR
 
 | File | Responsibility |
 | --- | --- |
-| `src/temporal/workflows.ts` | Defines the retry loop: test, draft repair, wait for review, apply, and retest. |
-| `src/temporal/activities.ts` | Adapts existing Core command functions into Temporal activities. |
-| `src/temporal/worker.ts` | Connects those workflows and activities to the configured task queue. |
+| `src/temporal/contracts.ts` | Data-only full-pipeline options, draft/source identities, progress and results. |
+| `src/temporal/workflows.ts` | Defines the full pipeline and bounded repair loop; versions changed repair activity options for old-history replay. |
+| `src/temporal/activities.ts` | Adapts targeted repair commands into activities with fixed task and exact patch identities. |
+| `src/temporal/pipeline-activities.ts` | Adapts full-pipeline commands; rejects draft, policy, task or source drift between stages and records every approved task. |
+| `src/temporal/activity-context.ts` | Heartbeats, local deadlines, cancellation cleanup and actual review-URL reporting. |
+| `src/temporal/worker.ts` | Connects workflows/activities to the configured queue; serializes activity execution to protect shared browser/draft state. |
 
 ## Verification and build files
 
@@ -131,6 +139,10 @@ flowchart LR
 | `scripts/verify-partial-review.mjs` | Tests removal of rejected registrations, retained-only contracts/tasks/docs, preserved original app actions, fresh patch confirmation, and refused unsafe revisions. |
 | `scripts/verify-review-browser.mjs` | Tests real Chrome review locking across tabs/refreshes, automatic reopen, repeated removal, and final confirmation. |
 | `scripts/verify-patch-lifecycle.mjs` | Tests patch validation, approval gating, apply, and rollback. |
+| `scripts/verify-optional-temporal.mjs` | Tests isolated production CLI/MCP startup without optional peers and clear durable/worker installation messages. |
+| `scripts/verify-temporal-contracts.mjs` | Tests exact patch/policy/task/source guards, timeout bounds and uncapped ordered evaluation. |
+| `scripts/verify-temporal-live.mjs` | Opt-in isolated real Temporal test for ordered stages, heartbeats, cancellation, completed-stage restart and current/legacy history replay. |
+| `scripts/verify-temporal-pipeline.mjs` | Opt-in real Core CLI/worker/Temporal/Chrome pipeline on a disposable JS app, with credential-free provider, baseline, expected rejection, subset revision and reattachment. |
 | `scripts/verify-repair.mjs` | Tests failure selection, focused repair patches, review boundaries, and regression evidence. |
 | `scripts/verify-evaluation.mjs` | Tests shared task identity and project-scoped evaluation lookup. |
 | `scripts/verify-final-eval.mjs` | Tests orchestration order, task-set consistency, and new-file diff capture. |

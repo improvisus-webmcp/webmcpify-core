@@ -24,6 +24,24 @@ Contributions that improve compatibility, safety, verification, accessibility, p
 
 Keep pull requests small enough to review. Generated WebMCP code must remain grounded in discovered application behavior, preserve the human approval boundary, and include independent verification.
 
+For browser or Temporal changes, also run the relevant live regressions after
+building. These are opt-in because they require local Chrome/Temporal binaries:
+
+```bash
+pnpm run verify:webmcp-browser
+pnpm run verify:browser-state
+pnpm run verify:review-browser
+pnpm run verify:temporal-live
+pnpm run verify:temporal-pipeline
+```
+
+The Temporal scripts start their own development services/databases and disposable
+targets; they do not use a running owner service or a paid provider. Install the
+Temporal CLI on `PATH`, or set `WEBMCPIFY_TEMPORAL_CLI` to its executable path.
+The pipeline script also requires a compatible Chrome and the pinned Chrome MCP.
+Do not run a build/pack that cleans `dist/` concurrently with these tests. Native
+Windows/macOS and authenticated providers still require separate validation.
+
 Report security issues privately to `support@improvisus.tech`; do not open a public issue containing exploit details or sensitive data.
 
 ## Maintainer release

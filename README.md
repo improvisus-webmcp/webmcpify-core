@@ -35,15 +35,17 @@ npm install --global @improvisus/webmcpify-core
 Requirements are stage-specific:
 
 - **Every command:** Node.js 20.19+ on Node 20, Node.js 22.12+, or Node.js 23+.
-- **Generate/apply:** Git with at least one target-project commit and installed target dependencies for available build checks.
+- **Generate/apply:** Git with at least one target-project commit and installed target dependencies for dependency-based build checks. Dependency-free Node/JavaScript checks run without `node_modules`.
 - **Agent-assisted commands:** one authenticated Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity CLI.
 - **Browser test/baseline:** a running development or staging URL plus Chrome 150+ or a compatible Chromium build with WebMCP support.
-- **Durable repair/final-eval only:** the optional Temporal packages, a Temporal service, and `webmcpify-worker`.
+- **Durable run/repair and final-eval:** the optional Temporal packages, a Temporal service, and `webmcpify-worker`.
 
 Core detects an installed provider when `--provider` is omitted. Set `WEBMCPIFY_PROVIDER` when you want a fixed default. Core normalizes raw text, JSON envelopes, JSONL events, and nested assistant-content fields into one provider-neutral response before parsing tools and tasks. Antigravity generation runs in its edit-acceptance mode inside Core's disposable workspace. If it responds with a text-only diff, Core gives it one focused edit-only retry; no patch is created unless actual workspace source files were changed.
 
 Cursor Agent is not currently a Core provider. Installed-provider support and
-passing fixtures do not certify every OS or a live durable workflow. See the
+passing fixtures do not certify every OS or authenticated provider. Isolated
+live Temporal/Chrome workflows are regression-tested with credential-free
+providers. See the
 [runtime compatibility audit](docs/audits/2026-10-01-runtime-compatibility.md)
 for the original findings, implemented fixes, and remaining native-OS/live-workflow verification limits.
 
@@ -216,8 +218,9 @@ The revised source patch gets a new identity and must
 be reviewed and confirmed again; selecting a subset never approves the original
 patch. Only retained tools and their validated tasks enter the approved manifest
 and subsequent workflow. Every retained tool still needs test coverage. Existing
-application actions are preserved. Repair/durable review cannot change its fixed
-tool/task set; reject that repair and generate a new draft to change capabilities.
+application actions are preserved. Repair review (including durable repair)
+cannot change its fixed tool/task set; reject that repair and generate a new
+draft to change capabilities. Initial `run --durable` review permits tool selection.
 Static source checks are not a substitute for reviewing the revised diff.
 
 Disposable preflight builds reuse installed dependencies and disable pnpm's
@@ -318,6 +321,11 @@ build/typecheck scripts; the implicit `tsc` fallback requires both a
 alone does not make a JavaScript target a TypeScript project.
 Build checks use the target's lockfile-selected package manager (or
 `WEBMCPIFY_PACKAGE_MANAGER`), with npm as the fallback when no lockfile exists.
+When both scripts are declared, preflight runs both typecheck and build: a
+typecheck mentioning `build` or a TypeScript build is not proof of a successful
+framework bundle. Unreadable/malformed package manifests stop validation with a
+clear environment error rather than silently skipping checks. Targets without a
+package manifest retain their existing no-script behavior.
 
 Declarative integrations annotate the actual form with `toolname` and
 `tooldescription`, preserving validation and normal submission. `toolautosubmit`
@@ -371,6 +379,8 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Generation produces a pending patch; it does not apply source changes.
 - Approval is tied to the exact tool set, task set, patch, and source state.
 - Apply rejects missing, stale, altered, or unapproved patches.
+- Git check/apply consume the exact validated patch bytes through stdin, not a
+  pending file that could change after approval/hash checks.
 - Target typecheck/build failures trigger rollback.
 - Browser tests expose only approved WebMCP tools to the test agent.
 - Actual discovery/call results are recorded by Core, separately from provider reports; an initially-true postcondition without required calls cannot pass.
@@ -400,7 +410,7 @@ evidence remain in the target's `.webmcpify/` directory.
 
 | Command | Purpose |
 | --- | --- |
-| `webmcpify run [--security balance\|ignore\|strict] [--product-context <text>]` | Normal end-to-end workflow; balanced by default. Interactive terminals may add optional product context after discovery. |
+| `webmcpify run [--security balance\|ignore\|strict] [--product-context <text>] [--durable]` | End-to-end workflow; balanced by default. Optional Temporal checkpoints begin at discovery. Interactive terminals may add optional product context. |
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
 | `webmcpify generate [--security balance\|ignore\|strict]` | Draft tools, tasks, form feedback, agent-readiness files, and a pending patch; balanced by default. |
 | `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |
@@ -457,7 +467,11 @@ The report is written to `.webmcpify/security-report.json` and shown during revi
 
 ## Advanced durable workflows
 
-The normal `run` command and one-shot `repair` command do not use Temporal. Use Temporal when repair progress and retries must survive process interruption. The current three-level `final-eval` command includes that durable Temporal level, so it also requires Temporal. Install its optional packages alongside Core:
+Normal `run` and one-shot `repair` do not require Temporal. Opt into durable
+execution **from discovery onward** with `run --durable`; the advanced
+three-level `final-eval` and `repair --durable` also require it. The optional
+peer/development dependency structure is unchanged. Install the peers alongside
+Core:
 
 ```bash
 npm install --global \
@@ -471,14 +485,104 @@ Install the [Temporal CLI](https://docs.temporal.io/cli) separately to run the l
 Run the Temporal service, Core worker, and workflow command in separate terminals:
 
 ```bash
-temporal server start-dev
+temporal server start-dev --db-filename ./temporal-dev.sqlite
 webmcpify-worker
+webmcpify run --durable --url http://localhost:5173 --provider codex --baseline
+```
+
+These are **three separate terminals**. Keep the target app server running too.
+Store the development database outside the target's source/deployment files;
+the dev server is not a production deployment. Without `--db-filename`, stopping
+that service loses its history.
+
+`run --durable` checkpoints discovery → generation/preflight → the recorded
+security policy → human review → optional UI-only baseline → exact-source
+apply/build → each approved WebMCP task → independent evaluation. `--baseline`
+measures the original interface before apply; its low scores are valid comparison
+data, but provider failures stop this pipeline before application. Without the
+flag, the baseline stage is skipped. Initial durable review permits repeated tool
+deselection and revised source/tasks just like normal review. Repair reviews
+continue to freeze their already-approved criteria.
+
+The client prints live phases, task counts and the actual review URL, including
+port fallback. That localhost page is on the **worker machine**. Use a worker
+with the same target path, provider/Chrome installations and target dependencies
+as the CLI; all providers' executable overrides belong in the worker environment.
+Durable tests use the same two-method Chrome DevTools WebMCP gateway, approved
+allowlist, setup and independent scorer as ordinary tests. They do not substitute
+another browser or trust a model's completion claim.
+
+For longer operations:
+
+```bash
+webmcpify run --durable --url http://localhost:5173 --provider codex \
+  --activity-timeout 240 --review-timeout 336
+```
+
+Activity deadlines are minutes (default **120**, allowed 1–10080); review
+deadlines are hours (default **168**, allowed 1–8760). Each WebMCP task has its
+own activity; the optional baseline's total budget scales with task count.
+Durable provider defaults use the remaining activity budget, reserving cleanup
+time; explicit provider timeout overrides still take precedence. Heartbeats and
+local deadlines keep long waits bounded, including during service disruption.
+Build cancellation stops owned subprocess trees before rollback can complete.
+
+The client prints a reattach command containing the workflow and execution IDs:
+
+```bash
+webmcpify run --durable --resume WORKFLOW_ID --execution-id RUN_ID --path /path/to/project
+```
+
+Copy the real IDs from the CLI; these are placeholders. Reattach never generates
+a new draft. `--execution-id` pins the original execution if the stable target
+workflow ID was later reused. A stale `WEBMCPIFY_URL` does not override a resumed
+workflow; an explicitly supplied `--url` must match. Starting a second active
+full pipeline for the same canonical target is refused. Ctrl+C disconnects this
+client, **not** the worker workflow; use Temporal UI/API cancellation when you
+intend to cancel the operation. Completed-run reattach reports saved results,
+not a fresh browser audit.
+
+For targeted repairs/comparisons, existing commands remain available:
+
+```bash
+webmcpify repair --durable --url http://localhost:5173 --task YOUR_APPROVED_TASK_ID --provider codex --max-repairs 3
 webmcpify final-eval --url http://localhost:5173 --provider codex
 ```
 
-The CLI starts a workflow, the Temporal service keeps its state, and `webmcpify-worker` executes Core's test, repair, review, and apply activities. Durable tests use the same approved task definition, tool allowlist, prerequisite setup, and independent scorer as ordinary tests. Human approval remains mandatory. Set `WEBMCPIFY_DURABLE=true` only if ordinary `webmcpify repair` calls should use Temporal by default.
+Durable repair captures the approved task fingerprint at start, requires exact
+review/apply identity, and exits nonzero if it does not pass. `final-eval` no
+longer reports success just because a workflow finished: all final task results
+must pass, and a source-changing Temporal repair triggers a full final-source
+retest instead of retaining earlier passes. Already-passing independent WebMCP
+results can still be reused when no repair/source change is needed.
+An unusable UI baseline also leaves the comparison incomplete (nonzero exit),
+even if final WebMCP tasks pass; low baseline scores alone are valid and do not
+cause this failure. The approved patch/test flow and its evidence are preserved.
 
-Worker and clients share `WEBMCPIFY_TEMPORAL_ADDRESS`, `WEBMCPIFY_TEMPORAL_NAMESPACE`, and `WEBMCPIFY_TEMPORAL_TASK_QUEUE`. Set `WEBMCPIFY_TEMPORAL_TLS=true` for TLS and optionally `WEBMCPIFY_TEMPORAL_API_KEY` in the launching process (an API key enables TLS by default). Keep keys out of source and public documentation. Test/repair/apply activities have a 30-minute deadline; owner review has 24 hours. Activities heartbeat and propagate cancellation to providers, build checks, and the review server. Automatic activity retries are disabled for side-effecting operations; the workflow's explicit repair budget remains. Native SDK limitations still apply.
+Worker/clients share `WEBMCPIFY_TEMPORAL_ADDRESS`, `WEBMCPIFY_TEMPORAL_NAMESPACE`,
+and `WEBMCPIFY_TEMPORAL_TASK_QUEUE`. Set `WEBMCPIFY_TEMPORAL_TLS=true` for TLS and
+optionally `WEBMCPIFY_TEMPORAL_API_KEY` in their launching processes (a key enables
+TLS by default). Keep keys out of source, workflow inputs and public documentation.
+Product-context text is a workflow input: **do not put secrets in it**. Source
+patches, verification expressions and raw provider diagnostics stay in local
+artifacts, rather than being returned in the new pipeline's history.
+
+`WEBMCPIFY_DURABLE=true` opts `run` and `repair` into Temporal by default;
+`--no-durable` overrides it. The worker executes one activity at a time because
+Core shares browser/draft state within that process. Prefer a dedicated queue
+and worker per target, do not mix concurrent manual commands on one target, and
+only accept trusted workflow submissions: build/provider commands are not a
+public sandbox.
+
+Completed checkpoints survive client disconnect and worker restart. Abrupt
+worker loss **during** a side-effecting activity/review fails closed; it does not
+automatically repeat a purchase, apply or generation. Keep the worker alive while
+review is open. Inspect retained `.webmcpify` state/rollback backups before
+recovery from an in-flight crash. Automatic activity retries remain disabled;
+targeted repair uses its explicit budget. Older repair histories retain their
+original activity options and are replay-tested. Local live tests prove heartbeat
+survival, cancellation cleanup and completed-stage recovery—not arbitrary
+crash safety, every OS, production deployment, or authenticated model behavior.
 
 ## Configuration
 
@@ -505,7 +609,7 @@ Infrastructure/evidence failures are distinct from application postcondition
 failures and must be resolved before attempting application repair. The same
 execution boundary is used by durable Temporal task attempts.
 
-OpenCode uses `run --auto --format json` and an inline MCP overlay without replacing `opencode.json`. Gemini receives merged workspace MCP settings; workspace trust remains the owner's choice. All providers have Core-level deadlines (5 minutes for browser tasks, 15 for generation/repair); override with `WEBMCPIFY_<PROVIDER>_TIMEOUT`, for example `WEBMCPIFY_CODEX_TIMEOUT=20m`. Antigravity's separate print-timeout setting remains available.
+OpenCode uses `run --auto --format json` and an inline MCP overlay without replacing `opencode.json`. Gemini receives merged workspace MCP settings; workspace trust remains the owner's choice. All providers have Core-level deadlines (normal runs: 5 minutes for browser tasks, 15 for generation/repair; durable runs: remaining activity budget with cleanup time reserved); override with `WEBMCPIFY_<PROVIDER>_TIMEOUT`, for example `WEBMCPIFY_CODEX_TIMEOUT=20m`. Antigravity's separate print-timeout setting remains available.
 
 ## Project artifacts
 

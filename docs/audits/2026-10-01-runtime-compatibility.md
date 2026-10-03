@@ -2,15 +2,15 @@
 
 Initially audited the pending agent-readiness source on Linux with Node 22.23.0, Chrome 154.0.8037.92, Codex CLI 0.155.1, OpenCode 1.18.26, and the installed AGY CLI. The numbered findings below retain the **original observations**; they are historical and must be read alongside the updated status here.
 
-## Remediation status — 2026-10-02
+## Remediation status — 2026-10-03
 
 | Finding | Current implementation |
 | --- | --- |
 | 1: discarded page/cookies | Fixed: fresh per-task context, explicit same-page verification, no personal-context cookie clearing; real Chrome regression passes. Baselines execute and score per task. |
 | 2: OpenCode adapter | Fixed: supported flags, named MCP map, inline overlay preserving owner config; synthetic adapter regression. |
 | 3: Gemini MCP | Fixed: merged workspace settings receive browser MCP configuration; workspace trust is not bypassed. |
-| 4: Temporal backend mismatch | Fixed: worker/client shared address, namespace, TLS/API-key options and connection cleanup. Live backend workflow remains unverified. |
-| 5: timeout/retry overlap | Fixed timeout defaults and automatic side-effect retries; added heartbeats and activity cancellation propagation to providers, preflight/apply and review. Cancellation regressions are synthetic; signal-based durable approval and arbitrary worker-crash recovery are not implemented. |
+| 4: Temporal backend mismatch | Fixed: shared address, namespace, TLS/API-key options and connection cleanup. Isolated live development-service/worker fixtures now exercise matching configuration; production TLS/auth deployment remains unverified. |
+| 5: timeout/retry overlap | Fixed activity budgets, provider remaining-time defaults, real heartbeats, local deadlines and cancellation propagation through owned process trees. Live SDK cancellation and completed-stage restart/replay are exercised; arbitrary in-flight crash safety and signal-based durable approval remain unimplemented. |
 | 6: Git worktree copy | Fixed and regression-tested with a real disposable worktree; generation and repair share isolated workspace initialization. |
 | 7: patch paths | Fixed C/octal quoting and spaced/Unicode paths; full changed-file metadata is checked. Approval additionally binds exact patch bytes and untracked source content. |
 | 8: Codex environment TOML | Fixed escaped per-key assignments; synthetic provider adapter regression. |
@@ -21,7 +21,33 @@ Additional fixes: browser-only workspaces contain no copied source; browser MCP/
 
 The complete Linux test suite and separate real-Chrome state check have passed during remediation. Provider fixtures do not make authenticated model calls. An OS matrix is configured but has not been executed here. Temporal peers retain their existing optional peer/development dependency structure.
 
-No authenticated model requests were made. macOS and Windows findings are source/documentation checks, not native execution results. Temporal workflow bundling was exercised with SDK 1.21.1, but a live service/worker/model/human-review workflow was not exercised. Passing fixture tests must not be presented as universal end-to-end compatibility.
+No authenticated model requests were made. macOS and Windows findings are source/documentation checks, not native execution results. Passing fixture tests must not be presented as universal end-to-end compatibility.
+
+### Follow-up: complete optional durable pipeline
+
+`run --durable` now starts at discovery rather than only orchestration after a
+failed task. It checkpoints generation/preflight, security, initial tool-selection
+review, optional original-source UI baseline, exact approved apply/build, every
+approved Chrome WebMCP task and evaluation. Activities bind patch/task/source
+identities and keep generated source, verification expressions and raw provider
+output local. Normal CLI/MCP startup remains independent of optional Temporal peers.
+
+The isolated SDK 1.21.1 fixture exercises a 13-task run, security/rejection gates,
+heartbeat survival beyond the heartbeat timeout, cancellation cleanup, restart
+after a completed stage, invalid-input failure and current/legacy history replay.
+The separate full pipeline fixture uses the actual Core CLI/worker, local service,
+real Chrome MCP and a disposable JS app with a credential-free provider. It
+covers review port fallback, duplicate launches, client disconnect/reattach,
+pre-apply UI baseline, expected business rejection, subset source/task revision
+and exact-source apply. These are local development fixtures, not certification
+of arbitrary crash recovery, every OS, paid provider capacity or production setup.
+
+A further fault-injection pass reproduced a pending-patch race after approval/hash
+validation and a typecheck command containing `build` that skipped the framework
+build. Git now checks/applies the validated in-memory bytes through stdin, and
+preflight runs both declared scripts. Existing unreadable/malformed manifests or
+script/dependency maps fail clearly instead of disabling validation. Deterministic
+disposable regressions cover these paths; no real target source was changed.
 
 ## Original release-blocking findings (historical)
 
