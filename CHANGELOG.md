@@ -4,6 +4,11 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: workflow handoffs
+
+- Check final-evaluation Temporal dependencies/settings before launching Chrome or generating a proposal, and save its initial reviewed checkpoint before the baseline starts. Keep browser setup/cleanup in the comparison entry point instead of duplicating it in the CLI.
+- Print a project-specific report command after normal runs and document the manual stage sequence, including the distinction between saved `eval` results and the optional three-level `final-eval` comparison.
+
 ### Fixed: coverage report handling during generation
 
 - Read labelled coverage JSON with or without Markdown fences, exclude known unresolved inspection hints from required accounting and classify retained draft tools as proposed after checking their source mapping.

@@ -184,17 +184,7 @@ program
   .option("--provider <name>", providerHelp)
   .option("--review-port <number>", "port for the human review checkpoint", "4173")
   .action(async (opts) => {
-    const url = opts.url ?? process.env.WEBMCPIFY_URL;
-    if (!url) {
-      throw new Error('A running site URL is required. Pass --url <url> or set WEBMCPIFY_URL.');
-    }
-    await withManagedChrome(url, async () => {
-      try {
-        await runFinalEval({ path: opts.path, url, provider: opts.provider, reviewPort: opts.reviewPort });
-      } finally {
-        await closeScoringBrowser();
-      }
-    });
+    await runFinalEval(opts);
   });
 
 program.parseAsync().catch((error: unknown) => {

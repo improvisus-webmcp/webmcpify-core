@@ -83,11 +83,12 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
 
   if (evaluation.scores.passed !== evaluation.scores.total) {
     throw new Error(
-      `${evaluation.scores.total - evaluation.scores.passed} of ${evaluation.scores.total} approved tasks failed verification. Run "webmcpify eval" for details.`,
+      `${evaluation.scores.total - evaluation.scores.passed} of ${evaluation.scores.total} approved tasks failed verification. Run webmcpify eval --path ${JSON.stringify(sitePath)} for details.`,
     );
   }
 
   console.log(
     `[run] complete: ${evaluation.scores.passed}/${evaluation.scores.total} approved tasks verified`,
   );
+  console.log(`[run] report: webmcpify eval --path ${JSON.stringify(sitePath)}`);
 }

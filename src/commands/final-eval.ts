@@ -11,7 +11,8 @@ import { runTest, type StoredTestEvaluation } from "./test.js";
 import { loadApprovedTasks, taskFingerprint, type Task } from "../lib/tasks.js";
 import { gitSourceSnapshot, readPatchMetadata } from "../lib/patches.js";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../lib/trajectories.js";
-import { isNonApplicationFailure, type TaskScoreSummary, type TaskResult } from "../lib/scoring.js";
+import { closeScoringBrowser, isNonApplicationFailure, type TaskScoreSummary, type TaskResult } from "../lib/scoring.js";
+import { withManagedChrome } from "../lib/browser.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
 import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.js";
 import { resolveProvider } from "../lib/ai-provider.js";
@@ -317,9 +318,23 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
   }
   const url = normalizeTargetUrl(targetUrl);
   const provider = resolveProvider(opts.provider);
+  // This comparison always includes Temporal. Fail before launching Chrome or
+  // spending a provider run on a draft that cannot complete the chosen flow.
+  await loadTemporalClient();
+  temporalConnectionOptions();
+  await ensureTargetReachable(url);
+  return withManagedChrome(url, async () => {
+    try {
+      return await runFinalEvalWithBrowser(opts, sitePath, url, provider);
+    } finally {
+      await closeScoringBrowser();
+    }
+  });
+}
+
+async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string, url: string, provider: string): Promise<FinalEvalResult> {
   console.log(`[final-eval] target: ${sitePath}`);
   console.log(`[final-eval] URL: ${url}`);
-  await ensureTargetReachable(url);
   const evaluationContext = { url, provider };
   const resumable = await findResumableFinalEval(sitePath, evaluationContext);
   const canResume = resumable
@@ -386,6 +401,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
 
   let baselineLevel: LevelResult;
   if (stage === "baseline") {
+    // Retain the reviewed identity even if baseline execution is interrupted.
+    await saveCheckpoint(stage);
     console.log("[final-eval] Level 1 — baseline (plain, read-only)...");
     const baselineSource = await gitSourceSnapshot(sitePath);
     let baseline: Awaited<ReturnType<typeof runBaseline>> | undefined;

@@ -166,6 +166,15 @@ try {
   assert.match(plainRepair.stderr, /Invalid WEBMCPIFY_CDP_URL/);
   assert.doesNotMatch(plainRepair.stderr, /Temporal support is optional/);
 
+  const finalEval = spawnSync(process.execPath, ['dist/cli.js', 'final-eval', '--path', fixtureRoot,
+    '--url', 'http://127.0.0.1:1', '--provider', 'codex'], { cwd: packageRoot, encoding: 'utf8',
+    env: { ...process.env, WEBMCPIFY_CHROME_BIN: path.join(temporaryRoot, 'no-chrome'),
+      WEBMCPIFY_CDP_URL: 'not-a-cdp-url' } });
+  assert.equal(finalEval.status, 1);
+  assert.match(finalEval.stderr, /Temporal support is optional\..*npm install @temporalio\/client/);
+  assert.doesNotMatch(finalEval.stdout + finalEval.stderr, /Invalid WEBMCPIFY_CDP_URL|started isolated Chrome|preparing discovery/,
+    'Final evaluation must report missing Temporal before starting browser or generation work');
+
   for (const args of [["--help"], ["--durable", "--url", "http://127.0.0.1:1"], ["--resume", "fixture-workflow"]]) {
     const result = runNode(["dist/cli.js", "run", "--path", fixtureRoot, ...args]);
     if (args[0] === "--help") assertSucceeded(result, "normal run help without optional peers");

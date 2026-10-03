@@ -59,6 +59,31 @@ Start the target application, then run Core from that project's directory:
 webmcpify run --url http://localhost:5173
 ```
 
+This handles discovery → generation/security → human review → apply/build →
+browser test and independent verification. Read the saved result with
+`webmcpify eval`; it does not run the browser again.
+
+To pause between stages, use the same workflow manually:
+
+```bash
+webmcpify generate --provider codex --method auto --no-product-context-prompt
+webmcpify review
+webmcpify apply
+# Start the target application before this step if it is not already running.
+webmcpify test --url http://localhost:5173 --provider codex
+webmcpify eval
+```
+
+Generation includes discovery and security auditing, so separate `discover` and
+`security` commands are optional inspections. Stop at a failed stage and address
+its diagnostics before continuing. Rejection leaves application source unchanged;
+approval alone does not apply the patch.
+
+For Temporal checkpoints throughout this workflow, choose `run --durable` from
+the beginning. `final-eval` is an optional, separate baseline/WebMCP/Temporal
+comparison—not the required next command after `test`. Start it before applying
+the proposal so it can measure the original human interface first.
+
 Or select a provider explicitly:
 
 ```bash
@@ -411,6 +436,10 @@ results can still be reused when no repair/source change is needed.
 An unusable UI baseline also leaves the comparison incomplete (nonzero exit),
 even if final WebMCP tasks pass; low baseline scores alone are valid and do not
 cause this failure. The approved patch/test flow and its evidence are preserved.
+The comparison checks the optional Temporal client and connection settings before
+starting Chrome or generation, and saves the reviewed checkpoint before baseline
+execution. Temporal service/worker availability is still required for the durable
+level; installed packages alone do not provide a running service.
 
 Worker/clients share `WEBMCPIFY_TEMPORAL_ADDRESS`, `WEBMCPIFY_TEMPORAL_NAMESPACE`,
 and `WEBMCPIFY_TEMPORAL_TASK_QUEUE`. Set `WEBMCPIFY_TEMPORAL_TLS=true` for TLS and
