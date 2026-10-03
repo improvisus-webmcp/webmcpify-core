@@ -59,7 +59,22 @@ export interface CapabilityCoverage {
 function coverageBlock(raw: string): string | undefined {
   const text = normalizeProviderOutput(raw);
   const label = /\bCAPABILITY_COVERAGE_JSON\b\s*(?:```(?:json)?\s*)?/i.exec(text);
-  if (!label) return undefined;
+  if (!label) {
+    // The heading is presentation, not the contract. Providers sometimes
+    // return the requested object in a JSON fence without repeating its label.
+    // Accept only one report-shaped object, never arbitrary prose or code.
+    const blocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(match => match[1].trim());
+    if (text.trim().startsWith("{")) blocks.push(text.trim());
+    const reports = blocks.filter(block => {
+      try {
+        const value: unknown = JSON.parse(block);
+        return value !== null && typeof value === "object" && !Array.isArray(value)
+          && Array.isArray((value as { candidates?: unknown }).candidates);
+      } catch { return false; }
+    });
+    if (reports.length > 1) throw new Error("Capability coverage contains multiple unlabelled reports; the intended report is ambiguous.");
+    return reports[0];
+  }
   const remainder = text.slice(label.index + label[0].length).trimStart();
   if (!remainder.startsWith("{")) throw new Error("Capability coverage must contain a JSON object after its label.");
   // A Markdown fence is optional. Read one balanced JSON object, respecting
@@ -179,12 +194,12 @@ ${CAPABILITY_COVERAGE_GUIDANCE}`,
     }
   };
   try {
-    const text = /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(raw)) ? raw : original || raw;
+    const text = /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(raw)) || coverageBlock(raw) ? raw : original || raw;
     coverage = await assessReport(opts.tools, text);
   } catch (caught) { error = caught; }
   if (error) {
     const diagnostics = await createTrajectoryArtifact("generate-coverage-failure", { error: error instanceof Error ? error.message : "Invalid capability report" }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
-    throw new Error(`Generated capability report could not be safely corrected. No source patch was applied.${publicProviderFailureGuidance(error)} Private diagnostics: ${diagnostics}`);
+    throw new Error(`Generated capability report could not be safely corrected; a review draft was not created. The target application is unchanged.${publicProviderFailureGuidance(error)} Private diagnostics: ${diagnostics}`);
   }
   if (coverage && !coverage.missing.length) return { tools: opts.tools, draftPath: await reviewedDraft(opts.draftPath, raw, coverage), coverage };
   const completionPath = createTrajectoryPath("generate-coverage", undefined, opts.sitePath);
@@ -217,11 +232,11 @@ security, and the exact patch before human approval.
     if (metadata.tools.length > opts.tools.length && await readAgentWorkspaceDiff(opts.workspace) === beforeDiff) throw new Error("Capability completion added tool declarations without source edits.");
     const corrected = await readFile(metadata.draftPath, "utf8");
     const completion = metadata.draftPath === completionPath ? corrected : await readFile(completionPath, "utf8");
-    coverage = await assessReport(metadata.tools, /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(corrected)) ? corrected : completion);
+    coverage = await assessReport(metadata.tools, /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(corrected)) || coverageBlock(corrected) ? corrected : completion);
     if (coverage.missing.length) throw new Error("Source-backed capabilities remain unaccounted after completion.");
     return { tools: metadata.tools, draftPath: await reviewedDraft(metadata.draftPath, corrected, coverage), coverage };
   } catch (caught) {
     const diagnostics = await createTrajectoryArtifact("generate-coverage-failure", { error: caught instanceof Error ? caught.message : String(caught), completionPath }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
-    throw new Error(`Generated capabilities could not be fully accounted for after one completion. No source patch was applied.${publicProviderFailureGuidance(caught)} Private diagnostics: ${diagnostics}`);
+    throw new Error(`Generated capabilities could not be fully accounted for after one completion; a review draft was not created. The target application is unchanged.${publicProviderFailureGuidance(caught)} Private diagnostics: ${diagnostics}`);
   }
 }

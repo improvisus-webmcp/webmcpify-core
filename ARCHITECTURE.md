@@ -68,7 +68,7 @@ flowchart LR
 | --- | --- |
 | `src/lib/discovery.ts` | Detects stack, routes, forms, actions, APIs, auth, state, and existing WebMCP signals without silent signal-count truncation. |
 | `src/lib/action-inventory.ts` | Lazily parses JS/TS/JSX to inventory distinct event branches and named store actions; preserves unresolved references as hints and reports parse fallbacks. |
-| `src/lib/capability-coverage.ts` | Reads fenced/plain labelled JSON, normalizes source-grounded retained draft tools to proposed coverage, excludes unresolved hints, and accounts for resolved candidates through proposed/existing/skipped capabilities. Permits one report-only correction with source/tasks/tools retained and one source-capable completion for real gaps before normal validation/review. |
+| `src/lib/capability-coverage.ts` | Reads labelled JSON or an unambiguous unlabelled JSON object/fence, normalizes source-grounded retained draft tools to proposed coverage, excludes unresolved hints, and accounts for resolved candidates through proposed/existing/skipped capabilities. Permits one report-only correction with source/tasks/tools retained and one source-capable completion for real gaps before normal validation/review. |
 | `src/lib/agent-workspace.ts` | Copies a target into a temporary Git workspace, captures its real diff, and removes it. |
 | `src/lib/agent-readiness.ts` | Merges target-root agent guides and public capability/crawler documentation into the same reviewed patch. |
 | `src/lib/agent-discovery-content.ts` | Renders safe static HTML capability guidance and source-backed deployment/GEO/AEO checks without invented deployment URLs or indexing promises. |

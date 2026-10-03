@@ -140,7 +140,7 @@ After confirmation, CLI activity shows review connections closing. Standalone `r
 
 Invalid generated metadata gets one correction attempt without changing valid contracts or source. Failed correction stops generation without applying a patch. Full review and failure scenarios are in the [step-by-step test guide](docs/testing/end-to-end.md).
 
-Coverage reports accept labelled JSON with or without Markdown fences. Core distinguishes tools in the current draft from registrations found before generation and can correct report metadata once while retaining the source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
+Coverage reports accept labelled JSON with or without Markdown fences, or one unambiguous JSON report without a heading. Core distinguishes tools in the current draft from registrations found before generation and can correct report metadata once while retaining the source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
 
 ### Browser testing and verification
 
@@ -270,6 +270,9 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Verification reads the resulting application state instead of trusting the agent's report.
 - Run evidence stays in the target project's ignored `.webmcpify/` directory.
 - Provider failures withhold prompts and source output from the terminal; raw diagnostics remain in local trajectory files.
+
+“Private diagnostics” means local error/provider-output files, not a remote service.
+They can contain prompts and source code; do not publish them unredacted.
 
 Core reduces risk; it does not guarantee that generated code or WebMCP tools are safe. Review every proposal before approval.
 

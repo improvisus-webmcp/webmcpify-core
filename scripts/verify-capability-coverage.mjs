@@ -31,6 +31,11 @@ const normalized = assessCapabilityCoverage(discovery, fakeTools, report(retaine
 assert.equal(normalized.missing.length, 0);
 assert.equal(normalized.entries.find(entry=>entry.candidateId===logout.id).status,"proposed");
 assert.equal(assessCapabilityCoverage(discovery, fakeTools, `CAPABILITY_COVERAGE_JSON\n${JSON.stringify({candidates:retained})}\nOther notes`).missing.length,0,"A plain JSON report must not be ignored");
+const unlabelled = `${fence}json\n${JSON.stringify({candidates:retained})}\n${fence}`;
+assert.deepEqual(assessCapabilityCoverage(discovery, fakeTools, `I inspected the handlers.\n${unlabelled}`).entries,normalized.entries,"A JSON fence does not need a presentation heading");
+assert.deepEqual(assessCapabilityCoverage(discovery, fakeTools, JSON.stringify({candidates:retained})).entries,normalized.entries,"A standalone report object does not need a heading");
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,`${unlabelled}\n${unlabelled}`),/ambiguous/);
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,`${fence}json\n${JSON.stringify({candidates:[{...retained[0],toolNames:['invented']}]})}\n${fence}`),/actual proposed tools/);
 assert.equal(assessCapabilityCoverage(discovery, fakeTools, report([{...retained[0],reason:'Registered logout; braces { and escaped "quotes" are plain text.'}])).missing.length,0);
 assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([{...retained[0],toolNames:["invented"]}])),/actual proposed tools/);
 const unresolved = {id:"unresolved-hint",file:"src/app.js",handler:"helper",resolved:false};

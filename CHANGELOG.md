@@ -4,6 +4,11 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: valid capability reports without headings
+
+- Accept an unambiguous coverage JSON object or JSON fence without the presentation heading; keep candidate/tool/source validation and reject ambiguous reports. Cover initial generation and report-only correction without extra model retries or changing application source.
+- Clarify that failed generation cannot create a review draft, rather than implying generation was trying to apply source changes.
+
 ### Fixed: workflow handoffs
 
 - Check final-evaluation Temporal dependencies/settings before launching Chrome or generating a proposal, and save its initial reviewed checkpoint before the baseline starts. Keep browser setup/cleanup in the comparison entry point instead of duplicating it in the CLI.
