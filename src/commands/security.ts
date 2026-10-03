@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { approvedManifestPath } from "../lib/tasks.js";
 import { loadDiscovery, proposedToolsPath, validateProposedTools } from "../lib/tool-proposals.js";
-import { auditToolSecurity, writeSecurityReport, type SecurityReport } from "../lib/security-audit.js";
+import { auditToolSecurity, writeSecurityReport, resolveSecurityPolicy, type SecurityReport } from "../lib/security-audit.js";
 
 export interface SecurityOptions {
   path?: string;
   strict?: boolean;
+  /** Internal orchestration must retain the generation/review policy. */
+  policy?: string;
 }
 
 async function loadTools(sitePath: string, discovery: Awaited<ReturnType<typeof loadDiscovery>>) {
@@ -25,7 +27,7 @@ export async function runSecurity(opts: SecurityOptions): Promise<SecurityReport
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const discovery = await loadDiscovery(sitePath);
   const tools = await loadTools(sitePath, discovery);
-  const report = auditToolSecurity(tools, discovery, sitePath, opts.strict ? "strict" : "balance");
+  const report = auditToolSecurity(tools, discovery, sitePath, resolveSecurityPolicy(opts.policy, opts.strict ? "strict" : "balance"));
   const output = await writeSecurityReport(sitePath, report);
   console.log(`[security] ${report.status}: ${report.summary.block} blocking, ${report.summary.review} review finding(s)`);
   console.log(`[security] report: ${output}`);

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import "../lib/load-env.js";
 import { fileURLToPath } from "node:url";
 import * as activities from "./activities.js";
+import * as pipelineActivities from "./pipeline-activities.js";
 import { temporalConnectionOptions } from "../lib/temporal.js";
 import { coreActivityContext } from "./activity-context.js";
 
@@ -25,7 +27,12 @@ async function main(): Promise<void> {
       activity: [coreActivityContext],
     },
     workflowsPath: fileURLToPath(new URL("./workflows.js", import.meta.url)),
-    activities,
+    activities: { ...activities, ...pipelineActivities },
+    // Core shares browser connections and mutable draft/approval state inside
+    // a process. Do not execute two such activities concurrently.
+    maxConcurrentActivityTaskExecutions: 1,
+    maxHeartbeatThrottleInterval: "5 seconds",
+    shutdownGraceTime: "1 minute",
     taskQueue: process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify",
   });
 

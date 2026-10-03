@@ -102,6 +102,13 @@ try {
   ]);
   assertSucceeded(discovery, "normal CLI command");
 
+  for (const args of [[], ["--no-durable"]]) {
+    const normalRun = runNode(["dist/cli.js", "run", "--path", fixtureRoot, "--url", "http://127.0.0.1:1", ...args]);
+    assert.equal(normalRun.status, 1, "A normal run must reach its URL check without optional SDKs");
+    assert.match(normalRun.stderr, /not reachable/);
+    assert.doesNotMatch(normalRun.stderr, /Temporal support is optional|@temporalio/);
+  }
+
   const initializeRequest = `${JSON.stringify({
     jsonrpc: "2.0",
     id: 1,
@@ -138,6 +145,15 @@ try {
     worker.stderr,
     /Temporal support is optional\..*npm install @temporalio\/client @temporalio\/worker @temporalio\/workflow/,
   );
+
+  for (const args of [["--help"], ["--durable", "--url", "http://127.0.0.1:1"], ["--resume", "fixture-workflow"]]) {
+    const result = runNode(["dist/cli.js", "run", "--path", fixtureRoot, ...args]);
+    if (args[0] === "--help") assertSucceeded(result, "normal run help without optional peers");
+    else {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Temporal support is optional\..*npm install @temporalio\/client @temporalio\/worker @temporalio\/workflow/);
+    }
+  }
 
   console.log(
     "Optional Temporal verification passed: normal CLI/MCP paths run without peers and Temporal entry points explain how to install them",

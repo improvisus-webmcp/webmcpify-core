@@ -30,7 +30,7 @@ program
 
 program
   .command("run")
-  .description("Run the normal discover-to-verification workflow")
+  .description("Run discovery through verification, optionally durable from the start")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
   .option("-u, --url <url>", "running site URL (required unless WEBMCPIFY_URL is set)")
   .option("--provider <name>", providerHelp)
@@ -39,6 +39,13 @@ program
   .option("--no-product-context-prompt", "do not show the optional product-context prompt")
   .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
   .option("--review-port <number>", "port for the human review page", "4173")
+  .option("--durable", "run every stage through the optional Temporal worker")
+  .option("--no-durable", "run locally even when WEBMCPIFY_DURABLE=true")
+  .option("--resume <workflow-id>", "reattach to one existing durable run (never starts a new draft)")
+  .option("--execution-id <run-id>", "pin --resume to the original Temporal execution")
+  .option("--baseline", "include a UI-only baseline before applying the durable draft")
+  .option("--activity-timeout <minutes>", "durable per-stage/per-task deadline in minutes (default: 120)")
+  .option("--review-timeout <hours>", "durable owner-review deadline in hours (default: 168)")
   .action(runWorkflow);
 
 program
@@ -156,7 +163,8 @@ program
   .action(async (opts) => {
     await withManagedChrome(opts.url, async () => {
       try {
-        await runBaseline(opts);
+        const baseline = await runBaseline(opts);
+        if (baseline.agentError) throw new Error("Baseline browser/provider session failed. Inspect the saved private evaluation.");
       } finally {
         await closeScoringBrowser();
       }

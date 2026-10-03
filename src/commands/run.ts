@@ -7,6 +7,7 @@ import { withManagedChrome } from "../lib/browser.js";
 import { closeScoringBrowser } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
 import { resolveSecurityPolicy } from "../lib/security-audit.js";
+import { resolveDurable } from "../lib/config.js";
 
 export interface RunOptions {
   path?: string;
@@ -17,10 +18,25 @@ export interface RunOptions {
   security?: string;
   productContext?: string;
   productContextPrompt?: boolean;
+  durable?: boolean;
+  resume?: string;
+  executionId?: string;
+  baseline?: boolean;
+  activityTimeout?: string;
+  reviewTimeout?: string;
 }
 
 /** Run the normal workflow without requiring Temporal or manual stage commands. */
 export async function runWorkflow(opts: RunOptions): Promise<void> {
+  if (opts.executionId && !opts.resume) throw new Error("--execution-id requires --resume.");
+  if (opts.resume && opts.durable === false) throw new Error("--resume is a durable operation; omit --no-durable.");
+  if (await resolveDurable(opts.durable) || opts.resume) {
+    const { runDurableWorkflow } = await import("../lib/durable-run.js");
+    return runDurableWorkflow(opts);
+  }
+  if (opts.baseline || opts.activityTimeout || opts.reviewTimeout) {
+    throw new Error("--baseline, --activity-timeout and --review-timeout require run --durable.");
+  }
   const security = resolveSecurityPolicy(opts.security, "balance");
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const targetUrl = opts.url ?? process.env.WEBMCPIFY_URL;
@@ -51,8 +67,9 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
   }
 
   console.log("[run] approval received; continuing with the exact approved patch");
+  if (!review.sourceDiff.runId || !review.sourceDiff.patchHash) throw new Error("Review returned no exact source patch identity; refusing apply.");
   console.log("[run] 3/4 apply and build");
-  await runApply({ path: sitePath });
+  await runApply({ path: sitePath, expectedRunId: review.sourceDiff.runId, expectedPatchHash: review.sourceDiff.patchHash });
 
   console.log("[run] 4/4 test and independently verify");
   console.log("[run] preparing the browser; each approved task will be executed and checked independently");
