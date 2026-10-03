@@ -4,6 +4,11 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: expected-rejection metadata and correction recovery
+
+- Match concrete product errors against explicitly declared single-placeholder error templates without evaluating expressions or weakening runtime rejection evidence.
+- Retain already-valid tool contracts when correcting tasks, accept tasks-only correction responses and reconstruct the complete review draft. Require actual JSON output, preserve source/Git identity checks and reject contract drift, commentary-only responses and insufficient task coverage/counts.
+
 ### Fixed: browser binding, workspace isolation and provider failures
 
 - Parse both structured page inventories and text listings with `Title (URL)`, selection markers, and isolated-context labels. Preserve origin filtering and the exact task marker; another tab cannot substitute for the approved task context.

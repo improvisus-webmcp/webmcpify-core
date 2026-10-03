@@ -92,3 +92,4 @@ writeSync(1, ['TOOL_PROPOSALS_JSON', fence+'json', JSON.stringify({tools:[tool]}
   await rm(root, { recursive: true, force: true });
 }
 console.log("Generation recovery passed: bounded metadata correction, corrected review draft, frozen contracts/source/Git identity, no target edits, private diagnostics");
+await import("./verify-generation-metadata.mjs");

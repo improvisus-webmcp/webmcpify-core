@@ -121,6 +121,30 @@ export function validateTasks(value: unknown, minimum = 1): Task[] {
   return value.map((candidate, index) => validateTask(candidate, index, ids));
 }
 
+/** Match a concrete test error against a declared message, not executable code.
+ * Template placeholders may vary; their literal business-rule text may not.
+ * Runtime scoring still requires the task's concrete expectedError. */
+function declaredErrorMatches(declared: string, expected: string): boolean {
+  const normalize = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+  const message = normalize(declared), concrete = normalize(expected);
+  if (message.includes(concrete) || concrete.includes(message)) return true;
+  // Providers sometimes describe the template in prose and quote the actual
+  // message. Only extract explicitly quoted templates; never infer wildcards
+  // from arbitrary prose or evaluate the placeholder expression.
+  const quoted = [...declared.matchAll(/`([^`]*\$\{[^{}]+\}[^`]*)`/g)].map(match => match[1]!);
+  const templates = quoted.length ? quoted : [declared];
+  return templates.some(template => {
+    const parts = normalize(template).split(/\$\{[^{}]+\}/g);
+    // Keep this compatibility rule narrow: one varying value in an otherwise
+    // concrete error message. Complex templates need corrected metadata.
+    if (parts.length !== 2) return false;
+    // An all-variable or nearly empty template must not authorize any error.
+    if ((parts.join("").match(/[a-z]/g) ?? []).length < 8) return false;
+    const escape = (part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^${parts.map(escape).join(".{1,200}")}$`).test(concrete);
+  });
+}
+
 /**
  * A proposed task must be executable through the exact tool set that review
  * will approve. Legacy approved task manifests may omit these fields, but new
@@ -164,10 +188,7 @@ export function validateTaskToolBindings(
       }
       if (
         expectedFailures.length > 0
-        && !expectedFailures.some((failure) =>
-          failure.error.toLowerCase().includes(task.expectedError!.toLowerCase())
-          || task.expectedError!.toLowerCase().includes(failure.error.toLowerCase())
-        )
+        && !expectedFailures.some((failure) => declaredErrorMatches(failure.error, task.expectedError!))
       ) {
         throw new Error(`Rejection task "${task.id}" expectedError is not declared by tool "${contract?.name}".`);
       }

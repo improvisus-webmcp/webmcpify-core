@@ -8,7 +8,7 @@ import {
   validateProposedTools,
   writeProposedTools,
 } from "../dist/lib/tool-proposals.js";
-import { extractTasksFromText, validateTaskToolBindings } from "../dist/lib/tasks.js";
+import { extractTasksFromText, validateTaskToolBindings, validateToolScaledTasks } from "../dist/lib/tasks.js";
 import { expectedRejectionObserved, requiredToolsObserved } from "../dist/lib/scoring.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-tools-"));
@@ -219,6 +219,24 @@ ${JSON.stringify(tasks)}
   assert.deepEqual(validateTaskToolBindings([preparedRejection], [guardedTool]), [preparedRejection]);
   const absentCoffee = { ...preparedRejection, id: "remove-absent-coffee-rejected", requiredTools: ["remove_item"], setup: "Use the normal UI to empty the cart, then choose an absent coffee. Do not invoke remove_item during setup.", expectedError: "Item not found" };
   assert.deepEqual(validateTaskToolBindings([absentCoffee], [{ name: "remove_item", expectedFailures: [{ condition: "Requested coffee is absent", error: "Item not found" }] }]), [absentCoffee]);
+  const concreteCoffee = { ...absentCoffee, expectedError: "Gachatha AA is not in the cart." };
+  const templateContract = { name: "remove_item", expectedFailures: [{ condition: "Requested coffee is absent", error: "The product-specific error is `${productById[productId].name} is not in the cart.`" }] };
+  assert.deepEqual(validateTaskToolBindings([concreteCoffee], [templateContract]), [concreteCoffee], "Concrete product errors must match their declared template");
+  assert.deepEqual(validateTaskToolBindings([concreteCoffee], [{ ...templateContract, expectedFailures: [{ condition: "Absent", error: "${productName} is not in the cart." }] }]), [concreteCoffee]);
+  for (const expectedError of ["Gachatha AA was removed from the cart.", "Sign in before checkout"]) {
+    assert.throws(() => validateTaskToolBindings([{ ...concreteCoffee, expectedError }], [templateContract]), /not declared by tool/, "Templates must preserve the concrete guard");
+  }
+  assert.throws(() => validateTaskToolBindings([concreteCoffee], [{ ...templateContract, expectedFailures: [{ condition: "Unknown", error: "${arbitraryError}" }] }]), /not declared by tool/, "An all-variable template cannot authorize arbitrary errors");
+  const metacharacterTask = { ...concreteCoffee, expectedError: "Coffee [AA] is not in the cart (demo)." };
+  const literalMetacharacters = { ...templateContract, expectedFailures: [{ condition: "Absent", error: "${productName} is not in the cart (demo)." }] };
+  assert.deepEqual(validateTaskToolBindings([metacharacterTask], [literalMetacharacters]), [metacharacterTask]);
+  assert.throws(() => validateTaskToolBindings([{ ...metacharacterTask, expectedError: "Coffee [AA] is not in the cart demoX" }], [literalMetacharacters]), /not declared by tool/, "Regex metacharacters in declarations are literals");
+  assert.equal(expectedRejectionObserved(concreteCoffee, { source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [], calls: [{ toolName: "remove_item", status: "error", error: concreteCoffee.expectedError }] }), true);
+  assert.equal(expectedRejectionObserved(concreteCoffee, { source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [], calls: [{ toolName: "remove_item", status: "error", error: "Another coffee is not in the cart." }] }), false, "Runtime scoring still requires the concrete approved error");
+  const tenTools = Array.from({ length: 10 }, (_, index) => `tool_${index}`);
+  const thirteenTasks = Array.from({ length: 13 }, (_, index) => ({ id: `scaled_${index}`, description: "Verify a declared tool scenario", requiredTools: [tenTools[index % 10]], verify: "document.body !== null" }));
+  assert.throws(() => validateToolScaledTasks(thirteenTasks.slice(0, 12), tenTools), /at least 13/, "The coffee draft's 10 tools and 12 tasks still require supplementation");
+  assert.equal(validateToolScaledTasks(thirteenTasks, tenTools).length, 13);
   assert.throws(
     () => validateTaskToolBindings([{ ...preparedRejection, requiredTools: ["checkout_now", "login"] }], [guardedTool, { name: "login" }]),
     /exactly one WebMCP tool/,
