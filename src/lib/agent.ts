@@ -17,7 +17,7 @@ import {
   type TrajectoryMetadata,
 } from "./trajectories.js";
 import { resolveRecordArtifacts } from "./config.js";
-import { currentOperationSignal } from "./operation-context.js";
+import { currentOperationSignal, currentOperationDeadline } from "./operation-context.js";
 
 export interface AgentRunOptions {
   provider: AIProvider;
@@ -253,7 +253,8 @@ function antigravityPrintTimeout(opts: AgentRunOptions): string {
       : undefined;
   return roleTimeout
     ?? process.env.WEBMCPIFY_ANTIGRAVITY_TIMEOUT
-    ?? ((role === "baseline" || role === "test") ? "5m" : "15m");
+    ?? (currentOperationDeadline() === undefined ? ((role === "baseline" || role === "test") ? "5m" : "15m")
+      : `${Math.ceil(providerTimeoutMs(opts) / 1000)}s`);
 }
 
 function parseTimeoutMs(value: string, fallbackMs: number): number {
@@ -269,7 +270,11 @@ function providerTimeoutMs(opts: AgentRunOptions): number {
   const role = typeof opts.trajectoryMetadata?.role === "string"
     ? opts.trajectoryMetadata.role
     : inferredRole(opts.saveTo);
-  const fallback = role === "baseline" || role === "test" ? 5 * 60_000 : 15 * 60_000;
+  const deadline = currentOperationDeadline();
+  // A durable stage has an explicit owner-selected budget. Reserve time for
+  // cleanup; ordinary CLI/provider timeout defaults remain unchanged.
+  const fallback = deadline === undefined ? (role === "baseline" || role === "test" ? 5 * 60_000 : 15 * 60_000)
+    : Math.max(1_000, deadline - Date.now() - 30_000);
   return parseTimeoutMs(process.env[`WEBMCPIFY_${opts.provider.toUpperCase()}_TIMEOUT`] ?? "", fallback);
 }
 

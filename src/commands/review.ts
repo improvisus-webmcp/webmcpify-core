@@ -98,7 +98,8 @@ function selectedIds(requestBody: { ids?: unknown }): string[] {
 export async function runReviewPrompt(
   sitePath: string,
   requestedPort?: string,
-  trajectoryMetadata: Record<string, unknown> = {}
+  trajectoryMetadata: Record<string, unknown> = {},
+  hooks: { onReady?: (url: string) => void | Promise<void> } = {},
 ): Promise<ReviewResult> {
   const discovery = await loadDiscovery(sitePath);
   const projectName = htmlEscape(projectDisplayName(discovery));
@@ -124,10 +125,10 @@ export async function runReviewPrompt(
   // workflow started. Their generation pass may emit exploratory TASKS_JSON,
   // but it must never replace the approved criteria or change task IDs while
   // later workflow steps are still referring to them.
-  let proposedTasks = patchMetadata.repair || trajectoryMetadata.durable === true
+  let proposedTasks = patchMetadata.repair
     ? await loadApprovedTasks(sitePath)
     : extractTasksFromText(draft) ?? [];
-  if (patchMetadata.repair || trajectoryMetadata.durable === true) validateTaskToolBindings(proposedTasks, proposedTools);
+  if (patchMetadata.repair) validateTaskToolBindings(proposedTasks, proposedTools);
   else proposedTasks = validateToolScaledTasks(proposedTasks, proposedTools);
   const projectTasksPath = tasksPath(sitePath);
   const approvalPath = path.join(
@@ -272,7 +273,7 @@ ${reviewClientScript(approvalId)}
     abortReview = () => {
       server?.closeAllConnections();
       server?.close();
-      reject(new Error("Review was cancelled; no new approval was created."));
+      reject(new Error("Review was cancelled; no source patch was applied. Inspect local approval state before resuming."));
     };
     signal?.addEventListener("abort", abortReview, { once: true });
     const finish = (result: ReviewDecision, response: express.Response) => {
@@ -334,7 +335,7 @@ ${reviewClientScript(approvalId)}
         const selected = selectionInput(request);
         if (selected.length !== proposedTools.length) {
           if (request.body.stage === "confirm") throw new Error("Changed tool selection requires preparing a revised draft, not confirming the old one.");
-          if (trajectoryMetadata.durable === true || patchMetadata.repair) throw new Error("Repair/durable review cannot change its fixed tool or task set. Reject this repair and generate a new draft instead.");
+          if (patchMetadata.repair) throw new Error("Repair review cannot change its fixed tool or task set. Reject this repair and generate a new draft instead.");
           if (sourcePatchHash(await readPendingPatch(sitePath, patchMetadata)) !== patchHash) throw new Error("Pending patch changed while its review was open; review the new patch.");
           revising = true;
           retrySelection = new Set(selected.map(tool => tool.id));
@@ -471,6 +472,9 @@ ${reviewClientScript(approvalId)}
         if (signal?.aborted) { abortReview?.(); return; }
         port = candidate;
         console.log("[review] ============================================================");
+        void Promise.resolve().then(() => hooks.onReady?.(`http://127.0.0.1:${port}`)).catch(() => {
+          console.warn("[review] could not publish the review URL to durable progress; use the approval URL printed in this worker terminal");
+        });
         console.log("[review] ACTION REQUIRED: open the approval page and click the green approval button");
         console.log(`[review] APPROVAL PAGE: http://127.0.0.1:${port}`);
         console.log(`[review] approved manifest will be saved to ${approvalPath}`);

@@ -1,3 +1,5 @@
+import { currentOperationSignal } from "./operation-context.js";
+
 export function normalizeTargetUrl(value: string): string {
   const trimmed = value.trim();
   const markdownLink = trimmed.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
@@ -18,11 +20,13 @@ export function normalizeTargetUrl(value: string): string {
 
 export async function ensureTargetReachable(url: string): Promise<void> {
   const controller = new AbortController();
+  const operationSignal = currentOperationSignal();
+  operationSignal?.throwIfAborted();
   const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch(url, {
       redirect: "manual",
-      signal: controller.signal,
+      signal: operationSignal ? AbortSignal.any([controller.signal, operationSignal]) : controller.signal,
     });
     await response.body?.cancel();
   } catch (error) {

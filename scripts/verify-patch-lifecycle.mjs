@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -50,9 +51,30 @@ async function main() {
   const metadata = await createPendingPatch(valid, patch, "generation.json", { securityPolicy: "balance" });
   assert.equal(metadata.securityPolicy, "balance");
   await approve(valid, metadata);
-  await runApply({ path: valid });
+  await assert.rejects(runApply({ path: valid, expectedRunId: "another-reviewed-run" }), /changed after this workflow's review/);
+  await assert.rejects(runApply({ path: valid, expectedPatchHash: "another-reviewed-patch" }), /changed after this workflow's review/);
+  assert.equal(await readFile(path.join(valid, "source.js"), "utf8"), original);
+  await runApply({ path: valid, expectedRunId: metadata.runId, expectedPatchHash: metadata.patchHash });
   assert.equal(await readFile(path.join(valid, "source.js"), "utf8"), "export const value = 'after';\n");
   await assert.rejects(readFile(path.join(valid, ".webmcpify/rollback", metadata.runId, "manifest.json")), { code: "ENOENT" }, "Successful apply removes its temporary source backups");
+
+  const tamperedDuringSnapshot = await fixture();
+  const approvedBytes = await makePatch(tamperedDuringSnapshot);
+  const snapshotPatch = await createPendingPatch(tamperedDuringSnapshot, approvedBytes, "generation.json");
+  await approve(tamperedDuringSnapshot, snapshotPatch);
+  const originalStderrWrite = process.stderr.write;
+  let replaced = false;
+  process.stderr.write = function (...args) {
+    if (!replaced && String(args[0]).includes("Preparing rollback snapshot started")) {
+      replaced = true;
+      writeFileSync(snapshotPatch.patchPath, approvedBytes.replace("value = 'after'", "value = 'UNAPPROVED'"));
+    }
+    return originalStderrWrite.apply(this, args);
+  };
+  try { await runApply({ path: tamperedDuringSnapshot }); }
+  finally { process.stderr.write = originalStderrWrite; }
+  assert.equal(replaced, true, "Race fixture must replace pending bytes after hash validation");
+  assert.equal(await readFile(path.join(tamperedDuringSnapshot, "source.js"), "utf8"), "export const value = 'after';\n", "Git must consume the exact validated bytes, not re-read a mutable pending patch path");
 
   const missingApproval = await fixture();
   await createPendingPatch(missingApproval, await makePatch(missingApproval), "generation.json");
@@ -112,7 +134,10 @@ async function main() {
   assert.equal(await readFile(path.join(alteredManifest, "source.js"), "utf8"), original, "A damaged manifest cannot classify an original as a new file and delete it");
   await assert.rejects(readFile(path.join(alteredManifest, "created.js")), { code: "ENOENT" });
 
-  const cancelled = await fixture('node -e "require(\'node:fs\').writeFileSync(\'build-started.flag\',\'yes\');setTimeout(()=>{},10000)"');
+  const cancelled = await fixture('node owned-build.cjs', {
+    "owned-build.cjs": "require('node:child_process').spawn(process.execPath,['child-build.cjs'],{stdio:'ignore'});setInterval(()=>{},1000);\n",
+    "child-build.cjs": "require('node:fs').writeFileSync('build-started.flag','yes');setTimeout(()=>require('node:fs').writeFileSync('source.js','LATE CHILD CORRUPTION'),1200);\n",
+  });
   const cancelledPatch = await createPendingPatch(cancelled, await makePatch(cancelled), "generation.json");
   await approve(cancelled, cancelledPatch);
   const controller = new AbortController();
@@ -129,8 +154,10 @@ async function main() {
     await assert.rejects(applying, /project restored/);
     assert.equal(await readFile(path.join(cancelled, "source.js"), "utf8"), original);
     assert.equal((await readPatchMetadata(cancelled)).patchStatus, "failed");
+    await new Promise(resolve => setTimeout(resolve, 1400));
+    assert.equal(await readFile(path.join(cancelled, "source.js"), "utf8"), original, "Owned build children must stop before rollback, not overwrite restored source later");
   } finally { controller.abort(); await applying.catch(() => {}); }
-  console.log("patch lifecycle verification passed: apply, approval gate, build/typecheck/cancellation rollback, added/deleted/renamed files, and damaged-backup safety");
+  console.log("patch lifecycle verification passed: exact validated-byte apply, approval/tampering-race gates, build/typecheck/cancellation rollback, added/deleted/renamed files, and damaged-backup safety");
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {

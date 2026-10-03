@@ -1,8 +1,7 @@
-import { execa } from "execa";
 import { existsSync } from "node:fs";
 import { copyFile, lstat, mkdir, readdir, readFile, stat, symlink } from "node:fs/promises";
 import path from "node:path";
-import { currentOperationSignal } from "./operation-context.js";
+import { runOperationCommand } from "./operation-command.js";
 import { resolvePackageManager } from "./package-manager.js";
 import { createTrajectoryArtifact } from "./trajectories.js";
 
@@ -20,16 +19,30 @@ export class PreflightEnvironmentError extends Error {
 
 type PackageJson = {
   scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
 };
 
-async function readScripts(sitePath: string): Promise<Record<string, string>> {
+async function readProjectPackage(sitePath: string): Promise<PackageJson> {
   try {
     const packageJson = JSON.parse(
       await readFile(path.join(sitePath, "package.json"), "utf8")
-    ) as PackageJson;
-    return packageJson.scripts ?? {};
-  } catch {
-    return {};
+    );
+    if (!packageJson || typeof packageJson !== "object" || Array.isArray(packageJson)) {
+      throw new Error("Target package.json must contain a JSON object.");
+    }
+    for (const field of ["scripts", "dependencies", "devDependencies"] as const) {
+      const entries = packageJson[field];
+      if (entries !== undefined && (!entries || typeof entries !== "object" || Array.isArray(entries)
+        || Object.values(entries).some(value => typeof value !== "string"))) {
+        throw new Error(`Target package.json ${field} must be an object of strings.`);
+      }
+    }
+    return packageJson as PackageJson;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    const artifact = await createTrajectoryArtifact("preflight-failure", { error: outputFromError(error) }, { sitePath, status: "failed" });
+    throw new PreflightEnvironmentError(artifact, "Target package.json is unreadable or malformed. Fix its JSON object and scripts/dependency maps before retrying; validation was not skipped.");
   }
 }
 
@@ -86,7 +99,8 @@ export async function runGenerationPreflight(
   sitePath: string,
   workspace: string,
 ): Promise<void> {
-  const scripts = await readScripts(sitePath);
+  const project = await readProjectPackage(sitePath);
+  const scripts = project.scripts ?? {};
   const manager = await resolvePackageManager(sitePath);
   const tscBinary = process.platform === "win32" ? "tsc.cmd" : "tsc";
   const hasTypeScript = existsSync(path.join(sitePath, "tsconfig.json"))
@@ -100,7 +114,7 @@ export async function runGenerationPreflight(
   // A typecheck does not prove that the framework bundler can resolve imports
   // or produce the deployable client/server output. Run an explicit build too
   // when the target provides one.
-  if (scripts.build && !scripts.typecheck?.includes("build")) {
+  if (scripts.build) {
     checks.push({ label: "build", command: manager, args: ["run", "build"] });
   }
   if (checks.length === 0) {
@@ -108,7 +122,8 @@ export async function runGenerationPreflight(
     return;
   }
 
-  if (!(await linkDependencies(sitePath, workspace))) {
+  const hasDependencies = Object.keys(project.dependencies ?? {}).length + Object.keys(project.devDependencies ?? {}).length > 0;
+  if (!(await linkDependencies(sitePath, workspace)) && hasDependencies) {
     console.warn(
       `[generate] preflight skipped; ${checks.map((check) => check.label).join(" and ")} requires dependencies but target node_modules is not installed`
     );
@@ -122,14 +137,13 @@ export async function runGenerationPreflight(
   try {
     for (const check of checks) {
       activeCheck = check.label;
-      await execa(check.command, check.args, {
+      await runOperationCommand(check.command, check.args, {
         cwd: workspace,
         // We intentionally reuse installed dependency links. pnpm 11's
         // auto-install before `run` must not purge or mutate that linked tree.
         // Boolean false also works on versions predating the string-mode fix.
         env: { PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false" },
         maxBuffer: 20 * 1024 * 1024,
-        cancelSignal: currentOperationSignal(),
       });
       console.log(`[generate] preflight ${check.label} passed`);
     }

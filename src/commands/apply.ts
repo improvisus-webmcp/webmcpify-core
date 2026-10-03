@@ -1,4 +1,3 @@
-import { execa } from "execa";
 import { existsSync, lstatSync } from "node:fs";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -15,11 +14,16 @@ import {
   type PatchMetadata,
 } from "../lib/patches.js";
 import { WEBMCP_SPEC_URL } from "../lib/webmcp-spec-guidance.js";
-import { currentOperationSignal } from "../lib/operation-context.js";
+import { runOperationCommand } from "../lib/operation-command.js";
 import { resolvePackageManager } from "../lib/package-manager.js";
 import { withCliProgress } from "../lib/cli-progress.js";
 
-interface ApplyOptions { path?: string }
+interface ApplyOptions {
+  path?: string;
+  /** Bind an orchestrated apply to the decision that actually completed review. */
+  expectedRunId?: string;
+  expectedPatchHash?: string;
+}
 
 interface ApprovalManifest {
   sourceDiff?: { status?: string; runId?: string; patchHash?: string };
@@ -37,8 +41,8 @@ function safeRelative(sitePath: string, file: string): string {
   return resolved;
 }
 
-async function runGit(sitePath: string, args: string[]): Promise<void> {
-  await execa("git", args, { cwd: sitePath, cancelSignal: currentOperationSignal() });
+async function runGit(sitePath: string, args: string[], input?: string): Promise<void> {
+  await runOperationCommand("git", args, { cwd: sitePath, input });
 }
 
 async function availableScripts(sitePath: string): Promise<Record<string, string>> {
@@ -57,7 +61,7 @@ async function runBuild(sitePath: string): Promise<string[]> {
   for (const script of ["typecheck", "build"]) {
     if (!scripts[script]) continue;
     ran.push(script);
-    await withCliProgress("apply", `Running target ${script}`, () => execa(manager, ["run", script], { cwd: sitePath, cancelSignal: currentOperationSignal() }));
+    await withCliProgress("apply", `Running target ${script}`, () => runOperationCommand(manager, ["run", script], { cwd: sitePath }));
   }
   return ran;
 }
@@ -169,6 +173,9 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
   }
 
   const metadata = await readPatchMetadata(sitePath);
+  if (opts.expectedRunId && metadata.runId !== opts.expectedRunId) {
+    throw new Error("The pending draft changed after this workflow's review; refusing to apply another run.");
+  }
   let approval: ApprovalManifest;
   try {
     approval = JSON.parse(await readFile(path.join(sitePath, ".webmcpify", "approved-tools.json"), "utf8")) as ApprovalManifest;
@@ -182,6 +189,9 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     throw new Error("This pending patch has already been applied.");
   }
   const patchContent = await readPendingPatch(sitePath, metadata);
+  if (opts.expectedPatchHash && sourcePatchHash(patchContent) !== opts.expectedPatchHash) {
+    throw new Error("The pending patch changed after this workflow's review; refusing to apply it.");
+  }
   if (approval.sourceDiff.patchHash !== sourcePatchHash(patchContent)) {
     throw new Error("The pending source patch does not match the exact approved patch. Run review again.");
   }
@@ -194,17 +204,18 @@ export async function runApply(opts: ApplyOptions): Promise<void> {
     throw new Error("The target project changed after generation/review; refusing to apply the patch.");
   }
 
-  const patch = metadata.patchPath;
   if (!/^[a-zA-Z0-9_-]+$/.test(metadata.runId)) throw new Error("Invalid patch run ID.");
   const rollbackPath = path.join(sitePath, ".webmcpify", "rollback", metadata.runId);
   const originalFiles = await withCliProgress("apply", "Preparing rollback snapshot", () => snapshotFiles(sitePath, metadata.changedFiles, rollbackPath));
   let buildScripts: string[] = [];
   try {
     console.log("[apply] validating approved patch...");
-    await runGit(sitePath, ["apply", "--check", "--whitespace=nowarn", patch]);
+    // Git reads the already validated bytes from stdin. Reopening the mutable
+    // pending path after approval/hash checks could apply different source.
+    await runGit(sitePath, ["apply", "--check", "--whitespace=nowarn", "-"], patchContent);
     console.log(`[apply] WebMCP compatibility reference: ${WEBMCP_SPEC_URL}`);
     console.log("[apply] applying approved patch...");
-    await runGit(sitePath, ["apply", "--whitespace=nowarn", patch]);
+    await runGit(sitePath, ["apply", "--whitespace=nowarn", "-"], patchContent);
     buildScripts = await runBuild(sitePath);
     const repairEvaluationPath = metadata.repair
       ? await withCliProgress("apply", "Recording repair awaiting browser retest", () => recordRepairEvaluation(sitePath, metadata))

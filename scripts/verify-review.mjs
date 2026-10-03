@@ -69,9 +69,11 @@ const tasks = Array.from({ length: 5 }, (_, index) => ({ id: `task_${index + 1}`
 assert.ok(taskVerificationIssues({ id: "bad_syntax", description: "Check the result", verify: "document.querySelector(" }).some((issue) => issue.severity === "error"));
 assert.ok(taskVerificationIssues({ id: "trivial", description: "Check the result", verify: "true" }).some((issue) => issue.code === "trivial"));
 assert.ok(taskVerificationIssues({ id: "missing_selector", description: "Check the result", verify: 'document.querySelector("#missing") !== null' }, { discovery }).some((issue) => issue.severity === "warning"));
-const review = runReviewPrompt(sitePath, "4387", { fixture: true });
+let announcedReviewUrl;
+const review = runReviewPrompt(sitePath, "4387", { fixture: true, durable: true }, { onReady: url => { announcedReviewUrl = url; } });
 await new Promise((resolve) => setTimeout(resolve, 100));
 const reviewHtml = await (await fetch("http://127.0.0.1:4387/approve")).text();
+assert.equal(announcedReviewUrl, "http://127.0.0.1:4387", "Initial durable review uses new generated tasks, not nonexistent prior approval");
 assert.match(reviewHtml, /Project: review-fixture &lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 assert.ok(reviewHtml.includes(sitePath));
 assert.doesNotMatch(reviewHtml, /<img src=x onerror=/);

@@ -80,7 +80,7 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(selection&&proces
     const originalTasks = extractTasksFromText(await readFile(original.generationTrajectory, "utf8"));
     const tools = JSON.parse(await readFile(path.join(site, ".webmcpify/proposed-tools.json"), "utf8")).tools;
     const controller = new AbortController();
-    const review = withOperationSignal(controller.signal, () => runReviewPrompt(site, "4390"));
+    const review = withOperationSignal(controller.signal, () => runReviewPrompt(site, "4390", mode === "success" ? { durable: true } : {}));
     review.catch(() => {});
     reviews.push({ controller, review });
     const getPage = async () => {

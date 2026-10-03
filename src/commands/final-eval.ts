@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -73,6 +73,20 @@ export interface FinalEvalResult {
 
 export function buildFinalEvalPlan(): string[] {
   return ["prepare-and-review", "baseline", "apply-and-test", "repair-if-needed", "temporal-evaluation", "compare-and-record"];
+}
+
+/** A completed comparison is not necessarily a successful capability audit. */
+export function finalEvalVerified(level: Pick<LevelResult, "status" | "scores">): boolean {
+  return level.status === "completed" && level.scores.total > 0 && level.scores.results.length === level.scores.total
+    && level.scores.passed === level.scores.total && level.scores.results.every(result => result.passed && !isNonApplicationFailure(result));
+}
+
+/** Low UI scores are valid; broken baseline execution is not a comparison. */
+export function finalEvalComparisonComplete(baseline: Pick<LevelResult, "status" | "scores" | "agentError">,
+  final: Pick<LevelResult, "status" | "scores">): boolean {
+  return baseline.status === "completed" && !baseline.agentError && baseline.scores.total > 0
+    && baseline.scores.results.length === baseline.scores.total
+    && !baseline.scores.results.some(isNonApplicationFailure) && finalEvalVerified(final);
 }
 
 export function compareTaskSets(tasks: Task[], candidate: Task[]): void {
@@ -266,11 +280,23 @@ async function runTemporalLevel(sitePath: string, url: string, provider: string,
         continue;
       }
       console.log(`[temporal] task ${index + 1}/${tasks.length} started: ${task.id}`);
-      const workflowId = `final-eval-${runId}-${task.id}`;
-      const handle = await client.workflow.start("repairWorkflow", {
+      const source = await gitSourceSnapshot(sitePath);
+      const sourceId = createHash("sha256").update(JSON.stringify(source)).digest("hex").slice(0, 12);
+      const workflowId = `final-eval-${runId}-${task.id}-${sourceId}`;
+      const startOptions = {
         taskQueue: process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify",
         workflowId,
+        workflowIdConflictPolicy: "USE_EXISTING" as const,
+        workflowIdReusePolicy: "REJECT_DUPLICATE" as const,
         args: [{ path: sitePath, url, task: task.id, maxRepairs: 1, provider, runId, taskSetId }],
+      };
+      const handle = await client.workflow.start("repairWorkflow", startOptions).catch(error => {
+        if (error instanceof Error && error.name === "WorkflowExecutionAlreadyStartedError") {
+          // REJECT_DUPLICATE also returns this error for a closed execution.
+          // It cannot be replaced by another run using this private run ID.
+          return client.workflow.getHandle(workflowId);
+        }
+        throw error;
       });
       const result = await handle.result();
       results.push({ task: task.id, passed: result.passed, detail: result.reason ?? `durable workflow completed after ${result.attempts} repair attempt(s)` });
@@ -377,11 +403,11 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
     if (baseline) {
       compareTaskSets(tasks, baseline.tasks);
       baselineEvaluationPath = baseline.evaluationPath;
-      baselineLevel = { level: "baseline", runId: baseline.runId, targetProject: sitePath, taskSetId, tasks, scores: baseline.scores, evaluationPath: baseline.evaluationPath, status: "completed", agentError: baseline.agentError };
+      baselineLevel = { level: "baseline", runId: baseline.runId, targetProject: sitePath, taskSetId, tasks, scores: baseline.scores, evaluationPath: baseline.evaluationPath, status: baseline.agentError ? "failed" : "completed", agentError: baseline.agentError };
     } else {
       baselineEvaluationPath = await createTrajectoryArtifact(
         "baseline-eval",
-        { version: 1, executionVersion: 1, mode: "baseline", readOnly: true, provider, url, runId: randomUUID(), targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, baselineError ?? "Baseline did not complete.") },
+        { version: 1, executionVersion: 1, mode: "baseline", readOnly: true, provider, url, runId: randomUUID(), targetProject: sitePath, taskSetId, tasks, agentError: baselineError ?? "Baseline did not complete.", scores: failedSummary(tasks, baselineError ?? "Baseline did not complete.") },
         { sitePath, targetProject: sitePath, taskSetId, provider, url, status: "failed", error: baselineError },
       );
       baselineLevel = { level: "baseline", runId, targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, baselineError ?? "Baseline did not complete."), evaluationPath: baselineEvaluationPath, status: "failed", error: baselineError ?? "Baseline did not complete." };
@@ -394,16 +420,17 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
     baselineEvaluationPath = baselineArtifact.path;
     const baseline = baselineArtifact.value;
     compareTaskSets(tasks, baseline.tasks);
-    baselineLevel = { level: "baseline", runId: baseline.runId, targetProject: sitePath, taskSetId, tasks, scores: baseline.scores, evaluationPath: baselineArtifact.path, status: "completed", agentError: baseline.agentError };
+    baselineLevel = { level: "baseline", runId: baseline.runId, targetProject: sitePath, taskSetId, tasks, scores: baseline.scores, evaluationPath: baselineArtifact.path, status: baseline.agentError ? "failed" : "completed", agentError: baseline.agentError };
   }
 
   if (stage === "apply") {
     console.log("[final-eval] Level 2 — applying approved WebMCP change...");
     const patch = await readPatchMetadata(sitePath);
+    if (patch.runId !== approvalRunId) throw new Error("The pending patch changed after this final-eval run's review; refusing another run's patch.");
     if (patch.patchStatus === "applied") {
       console.log("[final-eval] approved patch is already applied; skipping duplicate application");
     } else {
-      await runApply({ path: sitePath });
+      await runApply({ path: sitePath, expectedRunId: approvalRunId });
     }
     stage = "webmcp-test";
     await saveCheckpoint(stage);
@@ -473,7 +500,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
         console.log(`[final-eval] repair review decision: ${repairReview.approved ? "APPROVED" : "REJECTED"}`);
         if (repairReview.approved) {
           approvalRunId = repairReview.sourceDiff.runId ?? approvalRunId;
-          await runApply({ path: sitePath });
+          if (!repairReview.sourceDiff.runId || !repairReview.sourceDiff.patchHash) throw new Error("Repair review returned no exact patch identity.");
+          await runApply({ path: sitePath, expectedRunId: repairReview.sourceDiff.runId, expectedPatchHash: repairReview.sourceDiff.patchHash });
           repairedEvaluation = await runTest({ path: sitePath, url, provider });
         }
         if (!repairReview.approved) {
@@ -503,7 +531,15 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
   console.log(`[final-eval] connecting to Temporal at ${process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233"}; worker task queue: ${process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify"}`);
   let temporalLevel: LevelResult;
   try {
+    const beforeTemporal = await gitSourceSnapshot(sitePath);
     temporalLevel = await runTemporalLevel(sitePath, url, provider, tasks, runId, taskSetId, webmcpLevel.scores);
+    const afterTemporal = await gitSourceSnapshot(sitePath);
+    if (beforeTemporal.sourceVersion !== afterTemporal.sourceVersion || beforeTemporal.workingTreeHash !== afterTemporal.workingTreeHash) {
+      console.log("[final-eval] Temporal changed source; retesting every approved task against the final source instead of retaining earlier passes...");
+      const verified = await runTest({ path: sitePath, url, provider });
+      compareTaskSets(tasks, verified.tasks);
+      temporalLevel = { ...temporalLevel, scores: verified.scores, agentError: verified.agentError };
+    }
   } catch (error) {
     console.error(`[final-eval] Temporal level failed: ${error instanceof Error ? error.message : String(error)}`);
     temporalLevel = { level: "temporal", runId, targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, error), status: "failed", error: error instanceof Error ? error.message : String(error) };
@@ -511,12 +547,15 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
 
   const result: FinalEvalResult = { version: 1, runId, targetProject: sitePath, taskSetId, tasks, levels: [baselineLevel, webmcpLevel, temporalLevel], repair };
   const artifact = await createTrajectoryArtifact("final-eval", result, { sitePath, targetProject: sitePath, runId, taskSetId, provider, url, levels: result.levels.map((level) => ({ level: level.level, status: level.status, passed: level.scores.passed, total: level.scores.total })), repair });
-  if (temporalLevel.status === "completed") await saveCheckpoint("complete");
+  const comparisonComplete = finalEvalComparisonComplete(baselineLevel, temporalLevel);
+  if (comparisonComplete) await saveCheckpoint("complete");
   else await saveCheckpoint("temporal");
   console.log("\n[final-eval] comparison");
   for (const level of result.levels) console.log(`  ${level.level}: ${level.scores.passed}/${level.scores.total} (${level.status})`);
   console.log(`[final-eval] trajectory: ${artifact}`);
   if (temporalLevel.status === "failed") throw new Error(`Temporal level failed: ${temporalLevel.error}`);
+  if (!finalEvalVerified(temporalLevel)) throw new Error("Final evaluation recorded, but not every approved task passed final-source verification. Inspect the comparison and task diagnostics; the run is not complete.");
+  if (!comparisonComplete) throw new Error("Final-source WebMCP tasks passed, but the UI baseline failed to execute reliably. The saved comparison is incomplete; inspect baseline diagnostics and prepare a new original-source comparison. Low UI scores alone do not cause this failure.");
   console.log("[final-eval] ✅ COMPLETE — WebMCP evaluation passed");
   console.log(`[final-eval] next: webmcpify eval --path ${sitePath}`);
   return result;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertRepairableWebMcpResults, buildFinalEvalPlan, compareTaskSets, matchesEvaluationContext } from "../dist/commands/final-eval.js";
+import { assertRepairableWebMcpResults, buildFinalEvalPlan, compareTaskSets, finalEvalComparisonComplete, finalEvalVerified, matchesEvaluationContext } from "../dist/commands/final-eval.js";
 import { taskFingerprint } from "../dist/lib/tasks.js";
 import { initializeAgentWorkspace, readAgentWorkspaceDiff } from "../dist/lib/agent-workspace.js";
 
@@ -30,6 +30,16 @@ const evaluation = {
   taskSetId: context.taskSetId, url: context.url, provider: context.provider, sourceSnapshot: context.sourceSnapshot, tasks,
   scores: { passed: 2, total: 2, results: tasks.map(task => ({ task: task.id, passed: true, detail: "recorded calls and independent postcondition passed" })) },
 };
+assert.equal(finalEvalVerified({ status: 'completed', scores: evaluation.scores }), true);
+assert.equal(finalEvalVerified({ status: 'completed', scores: { ...evaluation.scores, passed: 1 } }), false, "A finished Temporal workflow must not claim all tasks passed");
+assert.equal(finalEvalVerified({ status: 'failed', scores: evaluation.scores }), false);
+assert.equal(finalEvalVerified({ status: 'completed', scores: { passed: 0, total: 0, results: [] } }), false);
+const finalLevel = { status: 'completed', scores: evaluation.scores };
+const lowBaseline = { status: 'completed', scores: { passed: 0, total: 2, results: tasks.map(task => ({ task: task.id, passed: false, failureKind: 'postcondition', detail: 'The original UI cannot perform this capability' })) } };
+assert.equal(finalEvalComparisonComplete(lowBaseline, finalLevel), true, 'Low baseline scores remain a valid comparison');
+assert.equal(finalEvalComparisonComplete({ ...lowBaseline, status: 'failed' }, finalLevel), false, 'A failed baseline cannot complete the comparison');
+assert.equal(finalEvalComparisonComplete({ ...lowBaseline, agentError: 'Provider failed' }, finalLevel), false);
+assert.equal(finalEvalComparisonComplete({ ...lowBaseline, scores: { ...lowBaseline.scores, results: lowBaseline.scores.results.map(result => ({ ...result, failureKind: 'infrastructure' })) } }, finalLevel), false);
 assert.equal(matchesEvaluationContext(evaluation, context), true);
 assert.equal(matchesEvaluationContext({ ...evaluation, executionVersion: undefined }, context), false, "Old report-only results must be retested");
 assert.equal(matchesEvaluationContext({ ...evaluation, url: "http://localhost:3000" }, context), false);

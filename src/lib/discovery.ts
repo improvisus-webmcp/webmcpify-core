@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { agentPublicDirectory } from "./agent-readiness.js";
 import { inventoryActions, type ActionCandidate } from "./action-inventory.js";
+import { currentOperationSignal } from "./operation-context.js";
 
 export interface DiscoverySignal {
   file: string;
@@ -44,6 +45,7 @@ const EXCLUDED = new Set(["node_modules", ".git", "dist", "build", ".next", ".nu
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro", ".html", ".mjs", ".cjs", ".css", ".scss", ".go", ".py", ".rb", ".java", ".rs"]);
 
 async function walk(root: string, current = root): Promise<string[]> {
+  currentOperationSignal()?.throwIfAborted();
   const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const files: string[] = [];
   for (const entry of entries) {

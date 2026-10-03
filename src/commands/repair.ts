@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { createAgentWorkspace, initializeAgentWorkspace, readAgentWorkspaceDiff } from "../lib/agent-workspace.js";
@@ -23,6 +24,8 @@ import { loadTemporalClient, temporalConnectionOptions } from "../lib/temporal.j
 import type { TaskResult } from "../lib/scoring.js";
 import type { StoredTestEvaluation } from "./test.js";
 import { isNonApplicationFailure } from "../lib/scoring.js";
+import { loadApprovedTasks, taskFingerprint } from "../lib/tasks.js";
+import { withCliProgress } from "../lib/cli-progress.js";
 
 export interface RepairOptions {
   provider?: string;
@@ -148,6 +151,9 @@ async function runPlainRepair(opts: RepairOptions): Promise<void> {
     evaluation,
     path: evaluationPath,
   } = await readLastEvaluation(sitePath, opts.evaluationPath);
+  if (taskFingerprint(await loadApprovedTasks(sitePath)) !== evaluation.taskSetId) {
+    throw new Error("The evaluation belongs to a different approved task set. Run webmcpify test again before repairing.");
+  }
   let failedTasks: TaskResult[];
   const selectedResult = opts.task
     ? evaluation.scores.results.find((result) => result.task === opts.task)
@@ -287,11 +293,16 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
 
   const maxRepairs =
     opts.maxRepairs === undefined ? 3 : Number(opts.maxRepairs);
-  if (!Number.isInteger(maxRepairs) || maxRepairs < 0) {
+  if (!Number.isSafeInteger(maxRepairs) || maxRepairs < 0) {
     throw new Error("--max-repairs must be a non-negative integer.");
   }
 
   const { Client, Connection } = await loadTemporalClient();
+  const sitePath = path.resolve(opts.path ?? process.cwd());
+  const tasks = await loadApprovedTasks(sitePath);
+  if (!tasks.some(task => task.id === opts.task)) throw new Error(`Unknown approved task "${opts.task}".`);
+  const runId = randomUUID();
+  const taskSetId = taskFingerprint(tasks);
   const connection = await Connection.connect(temporalConnectionOptions());
 
   try {
@@ -299,14 +310,16 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
       connection,
       namespace: process.env.WEBMCPIFY_TEMPORAL_NAMESPACE ?? "default",
     });
-    const workflowId = `repair-${workflowSlug(opts.task)}-${Date.now()}`;
+    const workflowId = `repair-${workflowSlug(opts.task)}-${runId}`;
     const startedAt = new Date().toISOString();
     const workflowOptions = {
-      path: path.resolve(opts.path ?? process.cwd()),
+      path: sitePath,
       url,
       task: opts.task,
       maxRepairs,
       provider: opts.provider,
+      runId,
+      taskSetId,
     };
     const handle = await client.workflow.start("repairWorkflow", {
       taskQueue: process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify",
@@ -316,7 +329,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
 
     console.log(`[repair] durable workflow started: ${handle.workflowId}`);
     try {
-      const result = await handle.result();
+      const result = await withCliProgress("repair", "Durable test/review/repair", () => handle.result()) as { passed: boolean; attempts: number; task: string; reason?: string };
       const trajectory = await createTrajectoryArtifact(
         "temporal-repair",
         result,
@@ -333,6 +346,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
       );
       console.log(`[repair] result: ${JSON.stringify(result)}`);
       console.log(`[repair] workflow artifact saved to ${trajectory}`);
+      if (!result.passed) throw new Error("Durable repair did not pass independent verification. Inspect the saved workflow artifact.");
     } catch (error) {
       const trajectory = await createTrajectoryArtifact(
         "temporal-repair",

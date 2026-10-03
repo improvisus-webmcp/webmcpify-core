@@ -11,7 +11,7 @@ import { runApply } from "../dist/commands/apply.js";
 import { runAgent, getInvocation } from "../dist/lib/agent.js";
 import { temporalConnectionOptions } from "../dist/lib/temporal.js";
 import { coreActivityContext } from "../dist/temporal/activity-context.js";
-import { currentOperationSignal, withOperationSignal } from "../dist/lib/operation-context.js";
+import { currentOperationDeadline, currentOperationSignal, withOperationSignal, withOperationDeadline } from "../dist/lib/operation-context.js";
 import { resolvePackageManager } from "../dist/lib/package-manager.js";
 import { executableOnPath } from "../dist/lib/executables.js";
 import { PreflightEnvironmentError, runGenerationPreflight } from "../dist/lib/preflight.js";
@@ -120,15 +120,40 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
   let heartbeats = 0;
   const interceptor = coreActivityContext({ cancellationSignal: controller.signal, heartbeat() { heartbeats++; } });
   assert.equal(await interceptor.inbound.execute({ args: [] }, async () => {
-    assert.equal(currentOperationSignal(), controller.signal);
+    assert.equal(currentOperationSignal().aborted, false);
     return "activity result";
   }), "activity result");
   assert.equal(heartbeats, 1);
   assert.equal(currentOperationSignal(), undefined, "Concurrent operation signals must not leak outside their context");
+  const sdkCancellation = new Error("synthetic SDK cancellation");
+  const cancelledContext = { cancellationSignal: controller.signal, cancelled: new Promise((_, reject) => {
+    controller.signal.addEventListener("abort", () => reject(sdkCancellation), { once: true });
+  }), heartbeat() {} };
+  const cancelledActivity = coreActivityContext(cancelledContext).inbound.execute({ args: [] }, async () => {
+    await new Promise(resolve => currentOperationSignal().addEventListener("abort", resolve, { once: true }));
+    return "command swallowed cancellation";
+  });
+  controller.abort();
+  await assert.rejects(cancelledActivity, error => error === sdkCancellation, "Caught command cancellation must not become activity success");
+  const beatFailure = new Error("synthetic heartbeat failure");
+  const brokenHeartbeat = coreActivityContext({ cancellationSignal: new AbortController().signal, heartbeat() { throw beatFailure; } });
+  await assert.rejects(brokenHeartbeat.inbound.execute({ args: [] }, async () => assert.fail("No command may start after heartbeat fails")), error => error === beatFailure);
+  const deadlineContext = coreActivityContext({ info: { startToCloseTimeoutMs: 30 }, cancellationSignal: new AbortController().signal, heartbeat() {} });
+  await assert.rejects(deadlineContext.inbound.execute({ args: [] }, async () => {
+    assert.ok(currentOperationDeadline() > Date.now());
+    await new Promise(resolve => currentOperationSignal().addEventListener('abort', resolve, { once: true }));
+    return 'build swallowed its local deadline';
+  }), /activity deadline elapsed/, 'A lost service connection must not disable local operation deadlines');
+  assert.equal(currentOperationDeadline(), undefined);
+  const longContext = coreActivityContext({ info: { startToCloseTimeoutMs: 365 * 24 * 3600000 }, cancellationSignal: new AbortController().signal, heartbeat() {} });
+  assert.equal(await longContext.inbound.execute({ args: [] }, async () => 'long owner-review budget'), 'long owner-review budget', 'Long deadlines must not overflow Node timers');
+  const longAgy = await withOperationDeadline(Date.now() + 3600000, async () => getInvocation({ provider: 'antigravity', prompt: 'fixture', cwd: root, saveTo: 'test-fixture.json', trajectoryMetadata: {role:'test'} }));
+  assert.notEqual(longAgy.args[longAgy.args.indexOf('--print-timeout')+1], '5m', 'Durable provider defaults must use the owner-selected activity budget');
+  const providerController = new AbortController();
   const sleeper = await fixtureProvider(root, "cancel-provider", "setInterval(() => {}, 1000);");
   process.env.WEBMCPIFY_OPENCODE_BIN = sleeper;
-  const cancellation = withOperationSignal(controller.signal, () => runAgent({ provider: "opencode", prompt: "private fixture", cwd: browserWorkspace, saveTo: path.join(root, "cancel.json") }));
-  setTimeout(() => controller.abort(), 200);
+  const cancellation = withOperationSignal(providerController.signal, () => runAgent({ provider: "opencode", prompt: "private fixture", cwd: browserWorkspace, saveTo: path.join(root, "cancel.json") }));
+  setTimeout(() => providerController.abort(), 200);
   await assert.rejects(cancellation, /agent failed/);
   const packageManagerSite = path.join(root, "package-manager");
   await mkdir(packageManagerSite);
@@ -159,6 +184,20 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
   if (executableOnPath("pnpm")) await runGenerationPreflight(packageManagerSite, realPnpmWorkspace);
   else console.log("Real pnpm integration skipped: pnpm is not installed; subprocess configuration and no-TTY regression checks still run");
   assert.equal(await readFile(path.join(packageManagerSite, "node_modules", "owner-sentinel"), "utf8"), "owner dependency tree\n");
+  const pureJsSite = path.join(root, 'pure-js');
+  const pureJsWorkspace = path.join(root, 'pure-js-workspace');
+  await mkdir(pureJsSite); await mkdir(pureJsWorkspace);
+  for (const dir of [pureJsSite, pureJsWorkspace]) await writeFile(path.join(dir, 'package.json'), '{"scripts":{"build":"node --check source.js"}}');
+  await writeFile(path.join(pureJsWorkspace, 'source.js'), 'this is invalid JavaScript');
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = 'npm';
+  await assert.rejects(runGenerationPreflight(pureJsSite, pureJsWorkspace), /did not pass build/, 'Dependency-free JS builds must run even without node_modules');
+  for (const dir of [pureJsSite, pureJsWorkspace]) await writeFile(path.join(dir, 'package.json'), '{"scripts":{"typecheck":"node --check build.js","build":"node --check source.js"}}');
+  await writeFile(path.join(pureJsWorkspace, 'build.js'), 'const typesAreValid = true;\n');
+  await assert.rejects(runGenerationPreflight(pureJsSite, pureJsWorkspace), /did not pass build/, 'A typecheck mentioning build must not skip the actual build');
+  for (const manifest of ['null', '[]', '{broken-json', '{"scripts":{"typecheck":42}}', '{"dependencies":"invalid-map"}']) {
+    await writeFile(path.join(pureJsSite, 'package.json'), manifest);
+    await assert.rejects(runGenerationPreflight(pureJsSite, pureJsWorkspace), error => error instanceof PreflightEnvironmentError && /package.json/.test(error.message), 'Malformed target manifests must not silently disable preflight');
+  }
   const interactiveManager = await fixtureProvider(root, "interactive-manager", "process.stderr.write('[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY');process.exit(1);");
   process.env.WEBMCPIFY_PACKAGE_MANAGER = interactiveManager;
   await assert.rejects(runGenerationPreflight(packageManagerSite, preflightWorkspace), error => {

@@ -12,6 +12,7 @@ import { writeChromeDevtoolsMcpConfig } from "../lib/mcp-config.js";
 import { createBrowserAgentWorkspace, removeAgentWorkspace } from "../lib/agent-workspace.js";
 import { WEBMCP_SPEC_GUIDANCE } from "../lib/webmcp-spec-guidance.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
+import { gitSourceSnapshot } from "../lib/patches.js";
 
 export async function runBaseline(opts: {
   path?: string;
@@ -25,6 +26,7 @@ export async function runBaseline(opts: {
   const tasks = await loadApprovedTasks(sitePath);
   const runId = randomUUID();
   const taskSetId = taskFingerprint(tasks);
+  const sourceSnapshot = await gitSourceSnapshot(sitePath);
   const baselineMcpConfig = await writeChromeDevtoolsMcpConfig(sitePath);
   const trajectories: string[] = [];
   const results: TaskResult[] = [];
@@ -69,10 +71,16 @@ export async function runBaseline(opts: {
       await Promise.all([agentWorkspace ? removeAgentWorkspace(agentWorkspace) : Promise.resolve(), session?.close()]);
     }
   }
+  const afterSource = await gitSourceSnapshot(sitePath);
+  if (sourceSnapshot.sourceVersion !== afterSource.sourceVersion || sourceSnapshot.workingTreeHash !== afterSource.workingTreeHash
+    || taskFingerprint(await loadApprovedTasks(sitePath)) !== taskSetId) {
+    agentError = "Target source or approved tasks changed during the baseline. These results are not a stable comparison; review and rerun.";
+    for (const result of results) Object.assign(result, { passed: false, failureKind: "infrastructure", detail: agentError });
+  }
   const scores = { passed: results.filter((result) => result.passed).length, total: results.length, results };
   const evaluationPath = await createTrajectoryArtifact(
     "baseline-eval",
-    { version: 1, executionVersion: 1, mode: "baseline", readOnly: opts.readOnly === true, runId, targetProject: sitePath, taskSetId, provider, url, recordedAt: new Date().toISOString(), tasks, scores, agentError },
+    { version: 1, executionVersion: 1, mode: "baseline", readOnly: opts.readOnly === true, sourceSnapshot, runId, targetProject: sitePath, taskSetId, provider, url, recordedAt: new Date().toISOString(), tasks, scores, agentError },
     {
       provider,
       url,

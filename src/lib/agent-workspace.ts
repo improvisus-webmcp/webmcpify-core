@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { currentOperationSignal } from "./operation-context.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,8 +21,11 @@ export async function createAgentWorkspace(sitePath: string): Promise<string> {
       // Unlike FICLONE_FORCE, this transparently falls back to a normal copy
       // on unsupported filesystems/platforms or cross-device copies.
       mode: constants.COPYFILE_FICLONE,
-      filter: (source) => !path.relative(sitePath, source).split(path.sep)
-        .some((component) => [".git", ".webmcpify", ".serena", "node_modules"].includes(component)),
+      filter: (source) => {
+        currentOperationSignal()?.throwIfAborted();
+        return !path.relative(sitePath, source).split(path.sep)
+          .some((component) => [".git", ".webmcpify", ".serena", "node_modules"].includes(component));
+      },
     });
     return workspace;
   } catch (error) {
