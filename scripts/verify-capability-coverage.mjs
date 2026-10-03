@@ -68,6 +68,17 @@ const previousLogs = {log:console.log,warn:console.warn,error:console.error};
 try {
   const provider = await fixtureProvider(root, "provider", `
 import {readFileSync,writeFileSync,writeSync} from 'node:fs';
+if(process.argv.join(' ').includes('Correct only the capability report')){
+  const details=JSON.parse(readFileSync('.webmcpify/coverage-correction.json','utf8'));
+  const candidates=details.resolvedCandidates.flatMap(candidate=>{
+    const names=details.fixedTools.filter(tool=>tool.name===candidate.handler).map(tool=>tool.name);
+    return names.length?[{candidateId:candidate.id,status:'proposed',toolNames:names,reason:'The existing registration invokes '+candidate.handler+' from this source file.'}]:[];
+  });
+  if(process.env.FIXTURE_MODE==='report-invented')candidates[0].toolNames=['PRIVATE_INVENTED_TOOL'];
+  const fence=String.fromCharCode(96).repeat(3);
+  writeSync(1,['CAPABILITY_COVERAGE_JSON',fence+'json',JSON.stringify({candidates}),fence].join('\\n'));
+  process.exit(0);
+}
 const count=Number(readFileSync(process.env.FIXTURE_COUNTER,'utf8'))+1;writeFileSync(process.env.FIXTURE_COUNTER,String(count));
 const mode=process.env.FIXTURE_MODE;
 const handlers=${JSON.stringify(handlers)};
@@ -90,7 +101,7 @@ if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/disc
   process.env.WEBMCPIFY_OPENCODE_BIN = provider;
   process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
   for (const method of Object.keys(previousLogs)) console[method] = (...values) => terminal.push(values.join(" "));
-  for (const mode of ["complete", "already-complete", "omission", "omission-metadata-fix", "incomplete", "contract-drift", "drop-tool", "text-only", "git-drift"]) {
+  for (const mode of ["complete", "report-invented", "already-complete", "omission", "omission-metadata-fix", "incomplete", "contract-drift", "drop-tool", "text-only", "git-drift"]) {
     const site=path.join(root,mode);
     await mkdir(path.join(site,"src"),{recursive:true});
     await writeFile(path.join(site,"src/app.js"),source);
@@ -104,7 +115,7 @@ if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/disc
     // These synthetic handlers only test coverage; security policies are
     // exercised independently, including refusal of misleading checkout labels.
     const generate=()=>runGenerate({path:site,provider:"opencode",productContextPrompt:false,security:"ignore"});
-    if(["complete","already-complete","omission","omission-metadata-fix"].includes(mode)) {
+    if(["complete","report-invented","already-complete","omission","omission-metadata-fix"].includes(mode)) {
       await generate();
       const proposed=JSON.parse(await readFile(path.join(site,".webmcpify/proposed-tools.json"),"utf8"));
       assert.deepEqual(proposed.tools.map(tool=>tool.name),mode.startsWith('omission')?handlers.filter(handler=>handler!=='clearNotice'):handlers,"Source-backed actions must reach review unless explicitly omitted");
@@ -118,12 +129,12 @@ if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/disc
       await assert.rejects(generate(),/capabilities could not be fully accounted/);
       await assert.rejects(readFile(path.join(site,".webmcpify/pending-diff.meta.json")),{code:"ENOENT"});
     }
-    assert.equal(await readFile(process.env.FIXTURE_COUNTER,"utf8"),['already-complete','omission'].includes(mode)?'1':'2',"Completion must be bounded and skipped for fully accounted drafts");
+    assert.equal(await readFile(process.env.FIXTURE_COUNTER,"utf8"),['already-complete','omission'].includes(mode)?'1':'2',"Source completion must be bounded and skipped for fully accounted drafts");
     assert.equal(await readFile(path.join(site,"src/app.js"),"utf8"),source,"No target edits before approval");
     await assert.rejects(readFile(path.join(site,"src/webmcp.js")),{code:"ENOENT"});
     await assert.rejects(readFile(path.join(site,".webmcpify/approved-tools.json")),{code:"ENOENT"});
   }
-  assert.doesNotMatch(terminal.join("\n"),/PRIVATE_CONTRACT_DRIFT|PRIVATE_IDENTITY_DRIFT|PRIVATE_INVALID_METADATA/);
+  assert.doesNotMatch(terminal.join("\n"),/PRIVATE_CONTRACT_DRIFT|PRIVATE_IDENTITY_DRIFT|PRIVATE_INVALID_METADATA|PRIVATE_INVENTED_TOOL/);
 } finally {
   Object.assign(console,previousLogs);
   for(const key of Object.keys(process.env))if(!(key in previousEnv))delete process.env[key];

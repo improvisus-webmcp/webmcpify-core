@@ -75,10 +75,11 @@ file organization and runtime conventions.
 `.trim();
 
 export const TASK_AUTHORING_PROMPT = `
-Based on the actions and tools you identified during discovery, propose at least
+Based on the actions and tools you identified during discovery, target
 ceil(number of proposed tools * 1.3) realistic, distinct verification tasks.
-There is no six-task maximum. For 10 tools, provide at least 13 tasks; 14 or more
-are allowed when grounded in additional scenarios. Apply the same rule to revised
+Core accepts at least ceil(number of proposed tools * 1.2), the lower end of the
+requested 20–30% extra coverage. For 10 tools, aim for 13 tasks; 12 valid tasks
+are sufficient and more are allowed when grounded in additional scenarios. Apply the same rule to revised
 drafts using only the retained tool count. Include meaningful success, declared
 expected-rejection, boundary/input, and availability checks where applicable;
 never invent failure guards or duplicate a test merely to reach the count.
@@ -225,8 +226,14 @@ fenced json block labelled TOOL_PROPOSALS_JSON:
     "sourceFiles": ["path/to/file.tsx"]
   }]
 }
-Every sourceFiles and placement.file path must occur in discovery.sourceFiles,
-and each tool must correspond to a discovered form, button, action, API,
+Every sourceFiles and placement.file path must occur in discovery.sourceFiles.
+implementation.handler identifies the underlying application handler/state action
+that the tool actually invokes, not a shared registerTools/registerShopTools
+factory. Registration location belongs in placement.file. For example, a
+browser-only checkout calling a store action should reference that inspected
+store file's #checkout function, not its registration wrapper. This distinction
+lets coverage and security inspect the real effect without inventing a backend.
+Each tool must correspond to a discovered form, button, action, API,
 authentication, state, or existing-WebMCP signal. Do not propose tools for
 capabilities absent from discovery. Trace each behavior precondition and
 expected failure to actual source logic; use an empty expectedFailures array

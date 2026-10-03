@@ -27,7 +27,7 @@ const prompt = process.argv.join(' ');
 if (!prompt.includes('Return only a complete TASKS_JSON block')) process.exit(8);
 const details = JSON.parse(readFileSync('.webmcpify/metadata-correction.json', 'utf8'));
 const tasks = JSON.parse(readFileSync('.webmcpify/corrected-tasks.json', 'utf8'));
-if (mode === 'shortfall') tasks.length = 12;
+if (mode === 'shortfall') tasks.length = 11;
 if (mode === 'source-drift') writeFileSync('src/app.js', 'export const unauthorized = true;');
 if (mode === 'git-drift') execFileSync('git', ['commit','--allow-empty','-qm','unauthorized identity']);
 if (mode === 'commentary') { writeSync(1, 'Please correct TASKS_JSON in metadata-correction.json.'); process.exit(0); }
@@ -40,7 +40,7 @@ writeSync(1, ['TASKS_JSON', fence+'json', JSON.stringify(tasks), fence, 'Metadat
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN = provider;
   console.log = console.warn = console.error = (...args) => logs.push(args.map(String).join(" "));
-  for (const mode of ["template-valid", "prepared-rejection", "prepared-rejection-fix", "tasks-only", "count-fix", "shortfall", "commentary", "tool-drift", "source-drift", "git-drift"]) {
+  for (const mode of ["template-valid", "margin-valid", "prepared-rejection", "prepared-rejection-fix", "tasks-only", "count-fix", "shortfall", "commentary", "tool-drift", "source-drift", "git-drift"]) {
     const workspace = path.join(root, mode);
     await mkdir(path.join(workspace, "src"), { recursive: true });
     await writeFile(path.join(workspace, "package.json"), JSON.stringify({ name: "metadata-fixture", type: "module" }));
@@ -61,8 +61,9 @@ writeSync(1, ['TASKS_JSON', fence+'json', JSON.stringify(tasks), fence, 'Metadat
     tasks[0] = { ...tasks[0], expectedOutcome: "rejection", expectedError: "Gachatha AA is not in the cart." };
     if (mode.startsWith("prepared-rejection")) tasks[0] = { ...tasks[0], requiredTools: ["tool_1", "tool_0"], setup: "Prepare an unrelated item using tool_1 without adding the absent product, then attempt tool_0 once." };
     const proposed = structuredClone(tasks);
-    if (["count-fix", "prepared-rejection-fix"].includes(mode)) proposed.length = 12;
-    else if (!["template-valid", "prepared-rejection"].includes(mode)) proposed[1].requiredTools = ["PRIVATE_INVALID_TOOL"];
+    if (mode === 'margin-valid') proposed.length = 12;
+    if (["count-fix", "prepared-rejection-fix"].includes(mode)) proposed.length = 11;
+    else if (!["template-valid", "margin-valid", "prepared-rejection"].includes(mode)) proposed[1].requiredTools = ["PRIVATE_INVALID_TOOL"];
     const draftPath = path.join(workspace, ".webmcpify/original-draft.json");
     await writeFile(draftPath, `${block("TOOL_PROPOSALS_JSON", { tools })}\n${block("TASKS_JSON", proposed)}`);
     await writeFile(path.join(workspace, ".webmcpify/corrected-tasks.json"), JSON.stringify(tasks));
@@ -71,20 +72,20 @@ writeSync(1, ['TASKS_JSON', fence+'json', JSON.stringify(tasks), fence, 'Metadat
     await writeFile(process.env.FIXTURE_METADATA_COUNTER, "0");
     const expectedTools = extractAndValidateProposedTools(await readFile(draftPath, "utf8"), discovery);
     const validate = () => validateGenerationMetadata({ provider: "opencode", sitePath: workspace, workspace, draftPath, discovery });
-    if (["template-valid", "prepared-rejection", "prepared-rejection-fix", "tasks-only", "count-fix"].includes(mode)) {
+    if (["template-valid", "margin-valid", "prepared-rejection", "prepared-rejection-fix", "tasks-only", "count-fix"].includes(mode)) {
       const result = await validate();
       assert.deepEqual(result.tools, expectedTools, "Already-valid contracts must be retained exactly");
       const canonical = await readFile(result.draftPath, "utf8");
       assert.deepEqual(extractAndValidateProposedTools(canonical, discovery), expectedTools);
-      assert.equal(validateToolScaledTasks(extractTasksFromText(canonical), result.tools).length, 13);
-      if (!["template-valid", "prepared-rejection"].includes(mode)) assert.match(canonical, /Metadata corrected; source unchanged/);
+      assert.equal(validateToolScaledTasks(extractTasksFromText(canonical), result.tools).length, mode === 'margin-valid' ? 12 : 13);
+      if (!["template-valid", "margin-valid", "prepared-rejection"].includes(mode)) assert.match(canonical, /Metadata corrected; source unchanged/);
       assert.equal(await readFile(path.join(workspace, "src/app.js"), "utf8"), source);
     } else {
       await assert.rejects(validate(), /could not be safely corrected after one attempt/);
       const trajectories = path.join(workspace, ".webmcpify/trajectories");
       assert.equal((await readdir(trajectories)).filter(file => /^generate-metadata-fix-validated-.*\.json$/.test(file)).length, 0, "Failed correction must not produce a validated draft");
     }
-    assert.equal(Number(await readFile(process.env.FIXTURE_METADATA_COUNTER, "utf8")), ["template-valid", "prepared-rejection"].includes(mode) ? 0 : 1, "Valid preparation must not trigger a correction; only one focused correction is allowed");
+    assert.equal(Number(await readFile(process.env.FIXTURE_METADATA_COUNTER, "utf8")), ["template-valid", "margin-valid", "prepared-rejection"].includes(mode) ? 0 : 1, "Valid preparation and 20–30% margins must not trigger a correction; only one focused correction is allowed");
     await assert.rejects(readFile(path.join(workspace, ".webmcpify/pending-diff.meta.json")), { code: "ENOENT" });
     await assert.rejects(readFile(path.join(workspace, ".webmcpify/approved-tools.json")), { code: "ENOENT" });
   }
@@ -96,3 +97,4 @@ writeSync(1, ['TASKS_JSON', fence+'json', JSON.stringify(tasks), fence, 'Metadat
   await rm(root, { recursive: true, force: true });
 }
 console.log("Metadata-only regression passed: templates, tasks-only recovery, 10 tools/13 tests, frozen contracts/source/Git identity, incomplete-output refusal");
+await import("./verify-duplicate-imports.mjs");

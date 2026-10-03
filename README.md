@@ -134,7 +134,7 @@ The review page identifies the project and repository, lists every changed file 
 - Straightforward registrations are removed directly; entangled source or missing test coverage may require a focused provider pass. Build, wiring, feedback, security, and identity checks precede fresh review. A coverage-only pass cannot change source.
 - Review and confirm the new patch identity. You can repeat tool removal before approval. Failed revisions preserve the selection for retry, apply no target source, and keep raw diagnostics private.
 
-Initial and revised drafts require at least `ceil(tool count × 1.3)` valid tasks, covering every retained tool with meaningful scenarios rather than duplicate padding. For example, 10 tools need at least 13 tests; extra unaffected tests are preserved.
+Initial and revised drafts target 30% extra tests and accept a minimum of `ceil(tool count × 1.2)`, covering every retained tool with meaningful scenarios rather than duplicate padding. For example, 10 tools need at least 12 tests; 13 or more are welcome, and unaffected tests are preserved.
 
 After confirmation, CLI activity shows review connections closing. Standalone `review` then exits without applying or testing; run `apply` and `test`, or use `run` for the complete workflow. Repair reviews keep their previously approved tools/tests fixed; reject a repair and generate a new draft to change capabilities. Initial durable review permits tool selection.
 

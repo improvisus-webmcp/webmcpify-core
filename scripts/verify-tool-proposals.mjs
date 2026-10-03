@@ -250,7 +250,8 @@ ${JSON.stringify(tasks)}
   assert.equal(expectedRejectionObserved(concreteCoffee, { source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [], calls: [{ toolName: "remove_item", status: "error", error: "Another coffee is not in the cart." }] }), false, "Runtime scoring still requires the concrete approved error");
   const tenTools = Array.from({ length: 10 }, (_, index) => `tool_${index}`);
   const thirteenTasks = Array.from({ length: 13 }, (_, index) => ({ id: `scaled_${index}`, description: "Verify a declared tool scenario", requiredTools: [tenTools[index % 10]], verify: "document.body !== null" }));
-  assert.throws(() => validateToolScaledTasks(thirteenTasks.slice(0, 12), tenTools), /at least 13/, "The coffee draft's 10 tools and 12 tasks still require supplementation");
+  assert.throws(() => validateToolScaledTasks(thirteenTasks.slice(0, 11), tenTools), /at least 12/);
+  assert.equal(validateToolScaledTasks(thirteenTasks.slice(0, 12), tenTools).length, 12, "Valid 20% extra coverage must not trigger a model rewrite");
   assert.equal(validateToolScaledTasks(thirteenTasks, tenTools).length, 13);
   assert.throws(
     () => validateTaskToolBindings([{ ...preparedRejection, requiredTools: ["checkout_now", "login"] }], [guardedTool, { name: "login" }]),

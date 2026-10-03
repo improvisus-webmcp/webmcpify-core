@@ -88,7 +88,8 @@ flowchart LR
 | `src/lib/tool-proposals.ts` | Parses, normalizes, validates, persists, and reloads structured tool proposals. |
 | `src/lib/security-audit.ts` | Checks declared user/agent binding, backend authorization, origins, quotas, replay protection, sensitive inputs, and schema bounds. |
 | `src/lib/task-verification.ts` | Checks task verification expressions for unsafe or invalid patterns. |
-| `src/lib/tasks.ts` | Validates uncapped task sets with a rounded-up 30% margin over initial/retained tool count, enforces coverage, fingerprints them, and binds them to approval. Legacy approved task sets remain readable. |
+| `src/lib/tasks.ts` | Validates uncapped task sets with a rounded-up 20% minimum margin (30% authoring target) over initial/retained tool count, enforces coverage, fingerprints them, and binds them to approval. Legacy approved task sets remain readable. |
+| `src/lib/duplicate-imports.ts` | Removes identical repeated named imports only in changed disposable-workspace files before generation preflight; preserves conflicting bindings, type/value distinctions, comments and external source. |
 | `src/lib/patches.ts` | Extracts safe Git patches, validates paths and source state, and stores patch metadata. |
 | `src/lib/preflight.ts` | Runs target typecheck/build inside the disposable workspace before review. |
 | `src/lib/package-manager.ts` | Chooses the target package manager and anchors its executable before changing workspace; environment launch failures do not trigger LLM source repair. |

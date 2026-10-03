@@ -172,7 +172,15 @@ export async function completeCapabilityCoverage(opts: {
     return createTrajectoryArtifact("generate-coverage-validated", `CAPABILITY_COVERAGE_JSON\n\`\`\`json\n${JSON.stringify({ candidates: report.entries })}\n\`\`\`\n\n${normalizeProviderOutput(text)}`, { sitePath: opts.sitePath, sourceTrajectory: draftPath });
   };
   const assessReport = async (tools: ProposedTool[], text: string): Promise<CapabilityCoverage> => {
-    try { return assessCapabilityCoverage(opts.discovery, tools, text); } catch (caught) {
+    let hadReport = /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(text));
+    try {
+      hadReport ||= Boolean(coverageBlock(text));
+      const report = assessCapabilityCoverage(opts.discovery, tools, text);
+      if (report.missing.length && !hadReport && !correctedReport) {
+        throw new Error("Capability report is absent; check current registrations before requesting source edits.");
+      }
+      return report;
+    } catch (caught) {
       if (correctedReport) throw caught;
       correctedReport = true;
       const correctionPath = createTrajectoryPath("generate-coverage-report-fix", undefined, opts.sitePath);
@@ -196,6 +204,9 @@ fixedTools registration is proposed, even if a previous draft already created
 it. Map only to actual tool names grounded in the candidate's source file;
 otherwise explain a real source-grounded omission. Do not invent missing
 registrations or omit actions merely to satisfy this report.
+If an action has no actual fixedTools registration, leave its candidate out of
+the report; Core will separately complete that missing capability. Never name
+a tool that is not in fixedTools, even if you think it should be generated.
 ${CAPABILITY_COVERAGE_GUIDANCE}`,
       });
       const afterDiff = await readAgentWorkspaceDiff(opts.workspace);
@@ -203,8 +214,17 @@ ${CAPABILITY_COVERAGE_GUIDANCE}`,
       if (beforeDiff !== afterDiff || beforeIdentity.sourceVersion !== afterIdentity.sourceVersion
         || beforeIdentity.workingTreeHash !== afterIdentity.workingTreeHash) throw new Error("Capability report correction changed source or Git identity.");
       const correction = await readFile(correctionPath, "utf8");
-      if (!coverageBlock(correction)) throw new Error("Capability report correction did not return its JSON report.");
-      return assessCapabilityCoverage(opts.discovery, tools, correction);
+      try {
+        if (!coverageBlock(correction)) throw new Error("Capability report correction did not return its JSON report.");
+        return assessCapabilityCoverage(opts.discovery, tools, correction);
+      } catch (reportError) {
+        // A missing report is not proof of a missing implementation. We tried
+        // read-only accounting first. If that fails, retain the original strict
+        // assessment's uncovered actions for the existing bounded source pass.
+        // This never approves invalid report data or recovers source/Git drift.
+        if (!hadReport) return assessCapabilityCoverage(opts.discovery, tools, text);
+        throw reportError;
+      }
     }
   };
   try {

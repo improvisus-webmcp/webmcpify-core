@@ -26,6 +26,8 @@ export interface AgentRunOptions {
   allowedTools?: string;
   mcpConfig?: string;
   saveTo: string;
+  /** Core-owned final-response schema; used only by Codex generation. */
+  outputSchema?: string;
   trajectoryMetadata?: Record<string, unknown>;
 }
 
@@ -58,6 +60,7 @@ export function getInvocation(opts: AgentRunOptions): ProviderInvocation {
           "--approve-for-me",
           "--cd",
           opts.cwd,
+          ...(opts.outputSchema ? ["--output-schema", opts.outputSchema] : []),
           opts.prompt,
         ],
         output: "json-lines",
@@ -545,7 +548,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
           } else if (event.type === "turn.completed") {
             console.log("[codex] turn completed");
           } else if (event.type === "error" || event.item?.type === "error") {
-            console.error("[codex] agent reported an error");
+            console.error("[codex] provider diagnostic received; waiting for turn outcome");
           }
         } catch {
           // Keep the raw output for the trajectory; progress logging is best effort.

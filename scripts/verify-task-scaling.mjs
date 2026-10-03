@@ -15,13 +15,14 @@ import { withOperationSignal } from "../dist/lib/operation-context.js";
 
 const contracts = Array.from({ length: 10 }, (_, i) => ({ name: `action_${i}` }));
 const makeTasks = count => Array.from({ length: count }, (_, i) => ({ id: `scenario_${i}`, description: `Run distinct action scenario ${i}`, requiredTools: [contracts[i % 10].name], verify: `document.body.dataset.scenario${i} === 'done'` }));
-assert.equal(minimumTaskCount(10), 13);
-assert.equal(minimumTaskCount(5), 7);
+assert.equal(minimumTaskCount(10), 12);
+assert.equal(minimumTaskCount(5), 6);
+assert.equal(minimumTaskCount(11), 14, "The live coffee draft's 27% margin must be accepted");
 assert.equal(minimumTaskCount(1), 2);
 assert.throws(() => minimumTaskCount(0), /at least one/);
 assert.throws(() => validateTasks([], 0), /positive integer/);
-for (const count of [13, 14, 30]) assert.equal(validateToolScaledTasks(makeTasks(count), contracts).length, count, "Meaningful extra scenarios must not hit a fixed cap");
-assert.throws(() => validateToolScaledTasks(makeTasks(12), contracts), /at least 13/);
+for (const count of [12, 13, 14, 30]) assert.equal(validateToolScaledTasks(makeTasks(count), contracts).length, count, "Meaningful extra scenarios must not hit a fixed cap");
+assert.throws(() => validateToolScaledTasks(makeTasks(11), contracts), /at least 12/);
 assert.throws(() => validateToolScaledTasks(makeTasks(13).map(task => ({ ...task, requiredTools: ["action_0"] })), contracts), /missing task coverage/);
 assert.throws(() => validateTasks([...makeTasks(13), makeTasks(1)[0]]), /duplicated/);
 const label = tasks => `TASKS_JSON\n\`\`\`json\n${JSON.stringify(tasks)}\n\`\`\``;
@@ -30,14 +31,15 @@ assert.equal(extractTasksFromText(example + label(makeTasks(14))).length, 14, "E
 assert.equal(extractTasksFromText(example + label([])), undefined, "Invalid labelled tasks must not fall back to a stray example");
 const malformed = [...makeTasks(13), { id: "malformed", description: "Bad expression", verify: "const broken: string = 'bad'" }];
 assert.equal(validateToolScaledTasks(extractTasksFromText(label(malformed)), contracts).length, 13);
-assert.throws(() => validateToolScaledTasks(extractTasksFromText(label(malformed.slice(1))), contracts), /missing task coverage|at least 13/);
+assert.equal(validateToolScaledTasks(extractTasksFromText(label(malformed.slice(1))), contracts).length, 12);
+assert.throws(() => validateToolScaledTasks(extractTasksFromText(label(malformed.slice(2))), contracts), /missing task coverage|at least 12/);
 const five = contracts.slice(0, 5);
 const retained = makeTasks(5);
 const supplements = [{ ...retained[0], id: "boundary", description: "Run boundary scenario", verify: "document.body.dataset.boundary === 'done'" }, { ...retained[1], id: "availability", description: "Verify another supported scenario", verify: "document.body.dataset.available === 'done'" }];
 const combined = completeSelectionTasks(retained, supplements, five);
-assert.equal(combined.length, 7, "Count shortfall must be filled even when all tools already have coverage");
+assert.equal(combined.length, 6, "Count shortfall must be filled without padding past the minimum");
 assert.deepEqual(combined.slice(0, 5), retained);
-assert.throws(() => completeSelectionTasks(retained, [], five), /at least 7/);
+assert.throws(() => completeSelectionTasks(retained, [], five), /at least 6/);
 
 const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-task-scaling-"));
 const env = { ...process.env };
@@ -110,9 +112,9 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(!selection?['TOOL
   await reviseToolSelection(supplementSite, discovery, metadata, tools.slice(5), tools.slice(0, 5));
   const revised = await readPatchMetadata(supplementSite);
   const revisedTasks = extractTasksFromText(await readFile(revised.generationTrajectory, "utf8"));
-  assert.equal(revisedTasks.length, 7);
+  assert.equal(revisedTasks.length, 6);
   assert.deepEqual(revisedTasks.slice(0, 5), initialTasks.filter(task => task.requiredTools.every(name => Number(name.slice(7)) >= 5)), "Coverage-complete retained tests must survive count-only supplementation exactly");
-  assert.deepEqual(revisedTasks.slice(5).map(task => task.id), ["supplement_0", "supplement_1"]);
+  assert.deepEqual(revisedTasks.slice(5).map(task => task.id), ["supplement_0"]);
   assert.equal(await readFile(path.join(root, "calls"), "utf8"), "supplement\n", "Count-only supplementation should use one source-frozen pass without a metadata retry");
   assert.doesNotMatch(await readPendingPatch(supplementSite, revised), /name:"action_[0-4]"/);
   assert.equal(await readFile(path.join(supplementSite, "src/app.js"), "utf8"), originalSource);
@@ -123,4 +125,4 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(!selection?['TOOL
   Object.assign(process.env, env);
   await rm(root, { recursive: true, force: true });
 }
-console.log("Task scaling passed: uncapped 13/14/30-task proposals, rounded counts, explicit extraction, 11-task revised approval/apply, and source-frozen count-only supplements");
+console.log("Task scaling passed: uncapped 12/13/14/30-task proposals, 20–30% margins, explicit extraction, revised approval/apply, and source-frozen count-only supplements");

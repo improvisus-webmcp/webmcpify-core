@@ -16,6 +16,10 @@ const invocation = getInvocation({
 });
 
 const modeIndex = invocation.args.indexOf("--mode");
+const codexOptions = {provider:'codex',prompt:'fixture',cwd:'/tmp/webmcpify-agent-fixture',saveTo:'/tmp/generate-fixture.json'};
+assert.equal(getInvocation(codexOptions).args.includes('--output-schema'),false,'Other Codex runs retain their existing invocation');
+const structuredInvocation = getInvocation({...codexOptions,outputSchema:'/tmp/webmcpify-agent-fixture/.webmcpify/generation-output.schema.json'});
+assert.equal(structuredInvocation.args[structuredInvocation.args.indexOf('--output-schema')+1],'/tmp/webmcpify-agent-fixture/.webmcpify/generation-output.schema.json');
 assert.notEqual(modeIndex, -1, "Antigravity generation must select an execution mode");
 assert.equal(invocation.args[modeIndex + 1], "accept-edits");
 assert.match(GENERATE_ONLY_PROMPT, /Do not output a unified diff/);

@@ -59,7 +59,9 @@ writeSync(1, ['TOOL_PROPOSALS_JSON', fence+'json', JSON.stringify({tools:[tool]}
       await generate();
       const metadata = await readPatchMetadata(site);
       assert.equal(metadata.patchStatus, "awaiting-review");
-      assert.match(path.basename(metadata.generationTrajectory), mode === "valid" ? /^generate-\d/ : /^generate-metadata-fix-/);
+      assert.match(path.basename(metadata.generationTrajectory), /^generate-coverage-validated-/);
+      const provenance = JSON.parse(await readFile(metadata.generationTrajectory.replace(/\.json$/, '.meta.json'), 'utf8'));
+      assert.match(path.basename(provenance.sourceTrajectory), mode === "valid" ? /^generate-\d/ : /^generate-metadata-fix-/,'Normalized review evidence must retain the actual original/corrected source trajectory');
       const raw = await readFile(metadata.generationTrajectory, "utf8");
       const tools = JSON.parse(await readFile(path.join(site, ".webmcpify/proposed-tools.json"), "utf8")).tools;
       assert.equal(validateTaskToolBindings(extractTasksFromText(raw), tools).length, 5, "Review must use corrected complete tasks");

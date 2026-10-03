@@ -31,8 +31,8 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
 } else {
   if(!prompt.includes('Correct only the capability report'))process.exit(9);
   const details=JSON.parse(readFileSync('.webmcpify/coverage-correction.json','utf8'));
-  if(mode==='source-drift')writeFileSync('src/app.js','export const unauthorized=true;');
-  if(mode==='git-drift')execFileSync('git',['commit','--allow-empty','-qm','unauthorized']);
+  if(mode.endsWith('source-drift'))writeFileSync('src/app.js','export const unauthorized=true;');
+  if(mode.endsWith('git-drift'))execFileSync('git',['commit','--allow-empty','-qm','unauthorized']);
   if(mode==='commentary'){writeSync(1,'The coverage report should now be complete.');process.exit(0);}
   const candidates=details.resolvedCandidates.map(candidate=>({candidateId:candidate.id,status:'existing',toolNames:[mode==='invented'?'PRIVATE_INVENTED_TOOL':'login'],reason:'The draft registers login from this same source handler.'}));
   if(mode==='unlabelled-repair'){
@@ -43,7 +43,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN=provider;
   console.log=console.warn=console.error=(...args)=>logs.push(args.map(String).join(" "));
-  for(const mode of ["plain-report","unlabelled-report","typo-report","metadata-handoff","report-repair","unlabelled-repair","commentary","invented","source-drift","git-drift"]){
+  for(const mode of ["plain-report","unlabelled-report","typo-report","metadata-handoff","missing-report","missing-source-drift","missing-git-drift","report-repair","unlabelled-repair","commentary","invented","source-drift","git-drift"]){
     const workspace=path.join(root,mode);
     await mkdir(path.join(workspace,"src"),{recursive:true});
     await writeFile(path.join(workspace,"src/app.js"),source);
@@ -53,6 +53,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
     await mkdir(path.join(workspace,".webmcpify"),{recursive:true});
     await writeFile(path.join(workspace,".webmcpify/discovery.json"),JSON.stringify(discovery));
     const tool={id:"login",name:"login",title:"Log in",description:"Log into the local fixture",parameters:{type:"object",properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},implementation:{handler:"src/app.js#login",action:"login"},behavior:{success:"Logged in",preconditions:[],expectedFailures:[]},placement:{strategy:"imperative",file:"src/app.js",rationale:"Alongside fixture handler"},sourceFiles:["src/app.js"]};
+    if(mode.startsWith('missing-'))tool.implementation.handler='src/app.js#registerTools';
     const tasks=[{id:"login-success",description:"Log in and verify session",requiredTools:["login"],verify:"document.body.dataset.loggedIn === 'true'"},{id:"availability",description:"Verify WebMCP is available",requiredTools:[],verify:"Boolean(document.modelContext)"}];
     const reports=discovery.actionCandidates.map(candidate=>({candidateId:candidate.id,status:"existing",toolNames:["login"],reason:'The draft registers login from this source handler; {braces} and "quotes" are text.'}));
     const originalTasks=structuredClone(tasks);
@@ -61,7 +62,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
     const report=validReport?{candidates:reports}:{candidates:[{candidateId:"PRIVATE_STALE_ID",status:"existing",toolNames:["login"],reason:"A stale report ID needs correction to the actual inventory."}]};
     if(mode==="typo-report")report.candidates[0]={...reports[0],candidateId:reports[0].candidateId.slice(0,-1)+(reports[0].candidateId.endsWith('0')?'1':'0'),status:'proposed',reason:'The proposed tool invokes the login handler in its declared source file.'};
     const draftPath=path.join(workspace,".webmcpify/original.json");
-    const coverageText=mode==="unlabelled-report"?block("",report):`CAPABILITY_COVERAGE_JSON\n${JSON.stringify(report)}`;
+    const coverageText=mode.startsWith('missing-')?'':mode==="unlabelled-report"?block("",report):`CAPABILITY_COVERAGE_JSON\n${JSON.stringify(report)}`;
     await writeFile(draftPath,`${block("TOOL_PROPOSALS_JSON",{tools:[tool]})}\n${block("TASKS_JSON",originalTasks)}\n${coverageText}\nOther draft notes`);
     await writeFile(path.join(workspace,".webmcpify/valid-tasks.json"),JSON.stringify(tasks));
     process.env.FIXTURE_REPORT_MODE=mode;
@@ -69,7 +70,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
     await writeFile(process.env.FIXTURE_REPORT_COUNTER,"0");
     const metadata=await validateGenerationMetadata({provider:"opencode",sitePath:workspace,workspace,draftPath,discovery});
     const complete=()=>completeCapabilityCoverage({provider:"opencode",sitePath:workspace,workspace,discovery,...metadata,originalDraftPath:draftPath});
-    if(["plain-report","unlabelled-report","typo-report","metadata-handoff","report-repair","unlabelled-repair"].includes(mode)){
+    if(["plain-report","unlabelled-report","typo-report","metadata-handoff","missing-report","report-repair","unlabelled-repair"].includes(mode)){
       const result=await complete();
       assert.equal(result.coverage.missing.length,0);
       assert.ok(result.coverage.entries.every(entry=>entry.status==="proposed"));

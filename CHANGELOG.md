@@ -4,6 +4,16 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: repeated generation metadata failures
+
+- Accept the requested 20–30% extra verification coverage (20% minimum, 30% authoring target), instead of rejecting valid drafts such as 11 tools with 14 tests. Preserve complete tool coverage, grounded rejection checks and independent verification.
+- Request a schema-constrained final response for Codex generation and normalize its tool/task/coverage envelope through the existing validators, preventing a prose-only summary from replacing required metadata. Other providers and Codex command roles keep their existing invocation.
+- Constrain the coverage report as a native JSON object with candidate IDs restricted to the resolved discovery inventory, not JSON embedded in a string, so missing inner delimiters or invented IDs cannot invalidate an otherwise complete report. Preserve the actual correction error rather than masking it by reparsing a malformed original report.
+- Distinguish the underlying application handler from its registration location in proposal instructions, so source-backed UI-only actions can be audited correctly. Require generated JSX form attributes to compile against the target's installed typings without replacing WebMCP attributes or disabling type checks.
+- Try read-only accounting before editing source when a capability report is absent. An unsuccessful report-only attempt returns to the bounded missing-capability completion without approving invalid metadata or recovering source/Git drift.
+- Label interim Codex diagnostic events as pending turn outcome; only a failed turn makes generation fail. Prompt and source output remain private.
+- Remove identical duplicate named imports in changed disposable-workspace source before compilation, instead of asking a model to remove them. Keep type/value distinctions, conflicting bindings, comments, unusual imports and external/unchanged files intact; the resulting source still undergoes build/security and exact human review.
+
 ### Fixed: rejection tests with preparatory tools
 
 - Allow successful setup tools before the final primary rejection action, such as adding an item while remaining logged out before checkout. Match the declared guard against the final tool consistently in metadata validation, task instructions and recorded browser evidence.

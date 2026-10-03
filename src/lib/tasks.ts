@@ -96,10 +96,10 @@ export function taskVerificationIssues(task: Task, context: VerificationContext 
   return validateVerifyExpression(task.verify, task.description, context);
 }
 
-/** Round up the requested 30% verification margin; there is no six-task cap. */
+/** Accept the lower end of the requested 20–30% verification margin. */
 export function minimumTaskCount(toolCount: number): number {
   if (!Number.isSafeInteger(toolCount) || toolCount < 1) throw new Error("A task proposal requires at least one WebMCP tool.");
-  return Math.ceil(toolCount * 1.3);
+  return Math.ceil(toolCount * 1.2);
 }
 
 export function tasksPath(sitePath: string): string {
@@ -210,7 +210,7 @@ export function validateToolScaledTasks(tasks: Task[], tools: Iterable<string | 
   }
   const toolCount = new Set(contracts.map(tool => (typeof tool === "string" ? tool : tool.name).trim()).filter(Boolean)).size;
   const minimum = minimumTaskCount(toolCount);
-  if (validated.length < minimum) throw new Error(`Proposed ${toolCount} tool(s) require at least ${minimum} valid verification tasks (30% extra, rounded up); received ${validated.length}.`);
+  if (validated.length < minimum) throw new Error(`Proposed ${toolCount} tool(s) require at least ${minimum} valid verification tasks (20% extra, rounded up); received ${validated.length}.`);
   return validated;
 }
 

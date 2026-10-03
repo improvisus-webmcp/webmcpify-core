@@ -22,6 +22,8 @@ import { collectProductContext } from "../lib/product-context.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
 import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
 import type { ProposedTool } from "../lib/tool-proposals.js";
+import { generationOutputSchema } from "../lib/provider-output.js";
+import { removeDuplicateImports } from "../lib/duplicate-imports.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -57,6 +59,12 @@ reporting the proposal.
 
 The current working directory is the only project you may access. Do not use
 absolute paths, inspect parent directories, or access any checkout outside it.
+
+In TypeScript JSX projects, inspect the installed form attribute types before
+adding WebMCP attributes. If those types do not yet recognize the new attributes,
+use a narrow local typing extension or typed attribute spread that preserves
+the actual toolname/tooldescription HTML attributes. Do not disable typechecking
+or substitute data-* attributes. Include any necessary typing file in the draft.
 
 Every imperative integration must be wired into code that runs once on app load
 or the relevant route, and must safely access document.modelContext. Use one
@@ -292,9 +300,14 @@ ${productContext}`
   let readinessFiles: string[] = [];
   let security: SecurityReport;
   try {
+    const outputSchema = provider === "codex" ? path.join(agentWorkspace, ".webmcpify", "generation-output.schema.json") : undefined;
+    if (outputSchema) await writeFile(outputSchema, JSON.stringify(generationOutputSchema(
+      (discovery.actionCandidates ?? []).filter(candidate => candidate.resolved).map(candidate => candidate.id),
+    )), "utf8");
     await runAgent({
       provider,
-      prompt,
+      prompt: outputSchema ? `${prompt}\nYour final response must follow the supplied output schema. Put the complete TOOL_PROPOSALS_JSON object and TASKS_JSON array as JSON strings in tool_proposals_json and tasks_json. Put CAPABILITY_COVERAGE_JSON as an actual JSON object (not a string) in capability_coverage_json. Do not include Markdown fences or summaries in these fields. Source edits alone are not a completed response.` : prompt,
+      outputSchema,
       cwd: agentWorkspace,
       // Providers may ignore permission hints. The disposable workspace is
       // the actual safety boundary keeping the target checkout untouched.
@@ -336,6 +349,11 @@ ${productContext}`
     readinessFiles = readiness.files;
     if (!readiness.publicDirectory) console.log("[generate] public asset serving could not be established; deployment guidance is included in the reviewed patch");
     workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+    const cleanedImports = await removeDuplicateImports(agentWorkspace, extractUnifiedDiff(workspaceDiff).changedFiles);
+    if (cleanedImports) {
+      console.log(`[generate] removed identical duplicate imports in ${cleanedImports} changed source file(s)`);
+      workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+    }
     try {
       await runGenerationPreflight(sitePath, agentWorkspace);
       await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
