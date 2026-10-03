@@ -17,7 +17,7 @@ import { discoveryPath, runDiscovery } from "../lib/discovery.js";
 import { writeProposedTools } from "../lib/tool-proposals.js";
 import { validateGenerationMetadata } from "../lib/generation-metadata.js";
 import { CAPABILITY_COVERAGE_GUIDANCE, completeCapabilityCoverage } from "../lib/capability-coverage.js";
-import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport } from "../lib/security-audit.js";
+import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport, type SecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
 import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
@@ -252,7 +252,7 @@ export async function runGenerate(opts: GenerateOptions) {
   const securityInstruction = securityPolicy === "strict"
     ? `Use Core's strict security posture based on actual effects. Browser-only clicks, navigation, form filling, filters, local cart edits, and reversible user-interface state do not need backend authorization, authenticated user/agent binding, backend quotas, or replay protection. Declare executionScope "ui-state" only when source proves the action stays in local UI state. Backend mutations require real server authorization; consequential or high-impact actions require real user and agent binding, quotas, and replay protection. Never invent backend services to satisfy metadata. Keep consequentialHint false for harmless UI changes and true for purchases, destructive effects, or external communication. Strict also reviews input bounds, privacy, origin scope, and missing contracts.`
     : securityPolicy === "balance"
-      ? `Use Core's balanced security posture. Require real backend authorization, user and agent binding, quotas, and replay protection only for genuinely high-impact actions such as checkout, payment, order submission, financial transfers, destructive account changes, or external publication/communication. Ordinary reversible UI state such as filtering, adding or removing cart items, and login/logout must reuse the site's existing behavior and must not gain invented backend services, identity systems, quotas, idempotency keys, or artificial string limits solely to satisfy the audit. Keep every security declaration honest.`
+      ? `Use Core's balanced security posture. Require real backend authorization, user and agent binding, quotas, and replay protection only for genuinely high-impact actions such as real checkout, payment, order submission, financial transfers, destructive account changes, or external publication/communication. A simulated checkout that only updates local cart/notice state is not a purchase: inspect its actual handler, declare executionScope "ui-state" and consequentialHint false, and identify that exact source file and handler. Never use this declaration for a real payment or backend call. Ordinary reversible UI state such as filtering, adding or removing cart items, and login/logout must reuse the site's existing behavior and must not gain invented backend services, identity systems, quotas, idempotency keys, or artificial string limits solely to satisfy the audit. Keep every security declaration honest.`
       : `Core security gating is ignored for this run. Do not invent or add backend services, identity systems, quotas, idempotency keys, or artificial string limits solely for Core metadata. Keep any security declaration honest and preserve the site's existing behavior; the exact patch still requires human approval.`;
   const failureContext = opts.context
     ? `A previous independent test reported this failure. Use it to focus the
@@ -290,6 +290,7 @@ ${productContext}`
   let draftPath = saveTo;
   let tools: ProposedTool[];
   let readinessFiles: string[] = [];
+  let security: SecurityReport;
   try {
     await runAgent({
       provider,
@@ -349,13 +350,13 @@ ${productContext}`
       await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
       await assertGeneratedFormFeedback(agentWorkspace, tools);
     }
+    security = auditToolSecurity(tools, discovery, sitePath, securityPolicy, { root: agentWorkspace });
   } finally {
     await removeAgentWorkspace(agentWorkspace);
   }
 
   try {
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), draftPath);
-    const security = auditToolSecurity(tools, discovery, sitePath, securityPolicy);
     const securityFile = await writeSecurityReport(sitePath, security);
     if (security.status === "block") {
       throw new Error(`Security review blocked this proposal (${security.summary.block} blocking finding(s)). Inspect ${securityFile}; no pending patch was created.`);

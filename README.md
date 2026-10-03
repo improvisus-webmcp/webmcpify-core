@@ -39,11 +39,13 @@ Requirements are stage-specific:
 
 - **Every command:** Node.js 20.19+ on Node 20, Node.js 22.12+, or Node.js 23+.
 - **Generate/apply:** Git with at least one target-project commit and installed target dependencies for dependency-based build checks. Dependency-free Node/JavaScript checks run without `node_modules`.
-- **Agent-assisted commands:** one authenticated Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity CLI.
+- **Agent-assisted commands:** one authenticated Codex, Claude Code, Gemini CLI, OpenCode, or Antigravity CLI, with a model available to that CLI/account. Core keeps your provider settings; it does not silently switch models when access fails.
 - **Browser test/baseline:** a running development or staging URL plus Chrome 150+ or a compatible Chromium build with WebMCP support.
 - **Durable run/repair and final-eval:** the optional Temporal packages, a Temporal service, and `webmcpify-worker`.
 
 Core detects an installed provider when `--provider` is omitted; set `WEBMCPIFY_PROVIDER` for a fixed default. Antigravity accepts edits only inside the disposable workspace. Text-only suggestions do not become a source patch.
+
+Disposable source copies keep internal symlinks inside the snapshot. If a source link points outside the selected project, choose a common project root containing that source; Core refuses an unsafe copy rather than exposing the original file to edits.
 
 Cursor Agent is not currently a Core provider. Passing fixtures do not certify every OS or authenticated provider; see the [runtime compatibility audit](docs/audits/2026-10-01-runtime-compatibility.md) for tested behavior and remaining limits.
 
@@ -302,6 +304,8 @@ Generated tools declare a security contract covering execution scope, authentica
 
 Both active policies distinguish reversible browser UI state from backend effects and block invalid cross-origin allowlists. Navigation, form filling, filters, local cart edits, and simulated UI-only checkout do not need invented backend controls. Declare `executionScope: "ui-state"` with source evidence for UI actions, or `backend` for server mutations; a UI label cannot disguise a real high-impact effect.
 
+A simple, source-backed local store checkout can reach review with a scope notice. Real network effects, unknown helpers or unsafe persistence retain the consequential checks; the notice is not proof of deployed behavior.
+
 ```bash
 webmcpify security --path /path/to/project
 webmcpify security --path /path/to/project --strict
@@ -352,6 +356,9 @@ The client prints live phases, task counts and the actual review URL, including
 port fallback. That localhost page is on the **worker machine**. Use a worker
 with the same target path, provider/Chrome installations and target dependencies
 as the CLI; all providers' executable overrides belong in the worker environment.
+Durable repair records the initiating CLI's selected/configured provider, rather
+than adopting a different worker default.
+Its browser runs on the worker; the durable-repair client need not have Chrome.
 Durable tests use the same two-method Chrome DevTools WebMCP gateway, approved
 allowlist, setup and independent scorer as ordinary tests. They do not substitute
 another browser or trust a model's completion claim.

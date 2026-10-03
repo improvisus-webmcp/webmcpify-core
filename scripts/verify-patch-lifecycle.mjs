@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import { createPendingPatch, readPatchMetadata } from "../dist/lib/patches.js";
 import { runApply } from "../dist/commands/apply.js";
 import { withOperationSignal } from "../dist/lib/operation-context.js";
+import { fixtureProvider } from "./fixture-provider.mjs";
+import { executableOnPath } from "../dist/lib/executables.js";
 
 const exec = promisify(execFile);
 const git = (cwd, args) => exec("git", args, { cwd });
@@ -46,6 +48,17 @@ async function approve(dir, metadata) {
 async function main() {
   process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
 
+  const pnpm = executableOnPath("pnpm");
+  if (pnpm) {
+    const lockfile = "lockfileVersion: '9.0'\nimporters:\n  .: {}\n";
+    const nativePnpm = await fixture("node --check source.js", { "pnpm-lock.yaml": lockfile });
+    await approve(nativePnpm, await createPendingPatch(nativePnpm, await makePatch(nativePnpm), "generation.json"));
+    process.env.WEBMCPIFY_PACKAGE_MANAGER = pnpm;
+    await runApply({ path: nativePnpm });
+    assert.equal(await readFile(path.join(nativePnpm, "pnpm-lock.yaml"), "utf8"), lockfile, "Real pnpm validation must not trigger an install or rewrite the lockfile");
+    process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
+  }
+
   const valid = await fixture();
   const patch = await makePatch(valid);
   const metadata = await createPendingPatch(valid, patch, "generation.json", { securityPolicy: "balance" });
@@ -57,6 +70,14 @@ async function main() {
   await runApply({ path: valid, expectedRunId: metadata.runId, expectedPatchHash: metadata.patchHash });
   assert.equal(await readFile(path.join(valid, "source.js"), "utf8"), "export const value = 'after';\n");
   await assert.rejects(readFile(path.join(valid, ".webmcpify/rollback", metadata.runId, "manifest.json")), { code: "ENOENT" }, "Successful apply removes its temporary source backups");
+
+  const dependencyGuard = await fixture({ typecheck: "fixture-check", build: "fixture-check" }, { "dependency-sentinel": "installed dependencies unchanged\n" });
+  const guardedManager = await fixtureProvider(valid, "guarded-package-manager", "if(process.env.PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN!=='false')process.exit(1);");
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = guardedManager;
+  await approve(dependencyGuard, await createPendingPatch(dependencyGuard, await makePatch(dependencyGuard), "generation.json"));
+  await runApply({ path: dependencyGuard });
+  assert.equal(await readFile(path.join(dependencyGuard, "dependency-sentinel"), "utf8"), "installed dependencies unchanged\n", "Apply validation must not implicitly reinstall an installed dependency tree");
+  process.env.WEBMCPIFY_PACKAGE_MANAGER = "npm";
 
   const tamperedDuringSnapshot = await fixture();
   const approvedBytes = await makePatch(tamperedDuringSnapshot);

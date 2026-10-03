@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIProvider } from "./ai-provider.js";
-import { runAgent } from "./agent.js";
+import { publicProviderFailureGuidance, runAgent } from "./agent.js";
 import type { DiscoveryResult } from "./discovery.js";
 import { readAgentWorkspaceDiff } from "./agent-workspace.js";
 import { gitSourceSnapshot } from "./patches.js";
@@ -113,6 +113,6 @@ ${TASK_AUTHORING_PROMPT}`,
     const failurePath = await createTrajectoryArtifact("generate-metadata-failure", {
       error: error instanceof Error ? error.message : String(error), diagnosticPath, repairPath,
     }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
-    throw new Error(`Generated tool/task metadata could not be safely corrected after one attempt. No source patch was applied. Private diagnostics: ${failurePath}`);
+    throw new Error(`Generated tool/task metadata could not be safely corrected after one attempt. No source patch was applied.${publicProviderFailureGuidance(error)} Private diagnostics: ${failurePath}`);
   }
 }

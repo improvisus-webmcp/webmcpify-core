@@ -125,6 +125,26 @@ function parseOutput(stdout: string, output: ProviderInvocation["output"]): unkn
   return events.length ? events : stdout;
 }
 
+function assertProviderCompletion(provider: AIProvider, result: unknown, stdout?: string): void {
+  let failed = false;
+  if (provider === "codex" && Array.isArray(result)) {
+    // Retrying/warning/tool events are not a terminal failure. Honor the last
+    // completed/failed turn, so recovered executions keep working.
+    const terminal = [...result].reverse().find(event => event?.type === "turn.failed" || event?.type === "turn.completed");
+    failed = terminal?.type === "turn.failed";
+  } else if (provider === "claude" && result && typeof result === "object") {
+    const envelope = result as { type?: unknown; is_error?: unknown; subtype?: unknown };
+    failed = envelope.type === "result" && (envelope.is_error === true || (typeof envelope.subtype === "string" && envelope.subtype.startsWith("error_")));
+  }
+  if (failed) {
+    // Preserve the private transcript even with exit code zero; never attach
+    // provider response text as a public Error.message or cause.
+    const error = new Error("The provider reported a terminal failure despite a zero process exit.") as Error & { stdout?: string };
+    if (stdout) error.stdout = stdout;
+    throw error;
+  }
+}
+
 async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
   if (!mcpConfig || !existsSync(mcpConfig)) return [];
 
@@ -225,6 +245,56 @@ function errorProperty(error: unknown, property: string): unknown {
   return property in error ? error[property as keyof typeof error] : undefined;
 }
 
+function providerFailureHint(opts: AgentRunOptions, error: unknown): string {
+  // Do not classify the subprocess Error.message: it contains argv, including
+  // the private prompt. Only examine provider error events, never echo them.
+  if (opts.provider !== "codex") return "";
+  const stdout = errorProperty(error, "stdout");
+  if (typeof stdout !== "string") return "";
+  const messages: string[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    try {
+      const event = JSON.parse(line) as { type?: string; message?: unknown; error?: { message?: unknown } };
+      const message = event?.type === "error" ? event.message
+        : event?.type === "turn.failed" ? event.error?.message ?? event.message : undefined;
+      if (typeof message === "string") messages.push(message);
+    } catch { /* Raw output and non-error events are not public diagnostics. */ }
+  }
+  const diagnostic = messages.join("\n");
+  if (/model[^\n]{0,300}(?:not supported|does not exist|not available)/i.test(diagnostic)) {
+    return " Codex rejected the configured model. Choose a model available to this CLI and account in Codex settings; Core did not change your configuration.";
+  }
+  if (/usage limit|quota exceeded|rate limit|too many requests|at capacity/i.test(diagnostic)) {
+    return " Codex reported a usage or capacity limit. Retry after the limit resets or choose another configured provider.";
+  }
+  if (/unauthorized|authentication failed|not authenticated|sign in|log in|invalid api key/i.test(diagnostic)) {
+    return " Codex authentication failed. Sign in to the CLI, then retry.";
+  }
+  if (/stream disconnected|connection (?:reset|refused)|network error|ENOTFOUND|ECONNRESET|ECONNREFUSED/i.test(diagnostic)) {
+    return " Codex could not maintain its provider connection. Check connectivity and retry.";
+  }
+  return "";
+}
+
+/** Reuse only fixed Core guidance when wrapping a sanitized provider failure. */
+export function publicProviderFailureGuidance(error: unknown): string {
+  if (!(error instanceof Error)) return "";
+  const message = error.message;
+  if (!/^(?:The (?:codex|claude|gemini|opencode|antigravity) [\w-]+ agent (?:failed|timed out)\.|Generated tool\/task metadata could not be safely corrected after one attempt\.|Generated capabilities could not be fully accounted for after one completion\.)/.test(message)) return "";
+  const timeoutGuidance = "The coding provider exceeded its configured time limit. Retry or adjust its Core timeout setting.";
+  if (/^The (?:codex|claude|gemini|opencode|antigravity) [\w-]+ agent timed out\./.test(message)) return ` ${timeoutGuidance}`;
+  for (const guidance of [
+    timeoutGuidance,
+    "Codex rejected the configured model. Choose a model available to this CLI and account in Codex settings; Core did not change your configuration.",
+    "Codex reported a usage or capacity limit. Retry after the limit resets or choose another configured provider.",
+    "Codex authentication failed. Sign in to the CLI, then retry.",
+    "Codex could not maintain its provider connection. Check connectivity and retry.",
+  ]) {
+    if (message.includes(guidance)) return ` ${guidance}`;
+  }
+  return "";
+}
+
 function sanitizedAgentFailure(opts: AgentRunOptions, error: unknown): Error {
   const role = typeof opts.trajectoryMetadata?.role === "string"
     ? opts.trajectoryMetadata.role
@@ -232,7 +302,7 @@ function sanitizedAgentFailure(opts: AgentRunOptions, error: unknown): Error {
   const timedOut = errorProperty(error, "timedOut") === true
     || errorProperty(error, "code") === "ETIMEDOUT";
   return new Error(
-    `The ${opts.provider} ${role} agent ${timedOut ? "timed out" : "failed"}. Raw provider diagnostics were saved to ${opts.saveTo}; prompt and code output were withheld from the terminal.`,
+    `The ${opts.provider} ${role} agent ${timedOut ? "timed out" : "failed"}.${timedOut ? "" : providerFailureHint(opts, error)} Raw provider diagnostics were saved to ${opts.saveTo}; prompt and code output were withheld from the terminal.`,
   );
 }
 
@@ -399,6 +469,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
         saveTo: opts.saveTo,
         timeout: providerTimeoutMs(opts),
       });
+      assertProviderCompletion(opts.provider, result);
       await recordAgentMetadata(opts, "completed", startedAt, startedMs);
       return result;
     }
@@ -502,6 +573,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     await writeFile(opts.saveTo, stdout, "utf8");
 
     const result = parseOutput(stdout, invocation.output);
+    assertProviderCompletion(opts.provider, result, stdout);
     await recordAgentMetadata(opts, "completed", startedAt, startedMs);
     return result;
   } catch (error) {

@@ -15,6 +15,29 @@ function text(result: McpToolResult): string {
   return (result.content ?? []).filter(item => item.type === "text").map(item => item.text ?? "").join("\n");
 }
 
+function listedPages(result: McpToolResult): Array<{ id: number; url: string }> {
+  const structured = result.structuredContent?.pages;
+  // The pinned server can return only text, including a title before the URL.
+  // Prefer an actual structured array (even when empty); never trust a URL in
+  // the title instead of the final parenthesized URL emitted by upstream.
+  const entries: unknown[] = Array.isArray(structured) ? structured
+    : [...text(result).matchAll(/^\s*(\d+):\s+(.+)$/gm)].map(match => {
+      const label = match[2]!.trim();
+      const titled = label.match(/ \(([a-z][\w+.-]*:[^\s]*)\)(?:\s+\[selected\])?(?:\s+isolatedContext=.*)?$/i);
+      const bare = label.match(/^([a-z][\w+.-]*:[^\s]+)(?:\s+\[selected\])?(?:\s+isolatedContext=.*)?$/i);
+      return { id: Number(match[1]), url: titled?.[1] ?? bare?.[1] };
+    });
+  const pages: Array<{ id: number; url: string }> = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const { id, url } = entry as { id?: unknown; url?: unknown };
+    if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0 || typeof url !== "string") continue;
+    try { pages.push({ id, url: new URL(url).href }); }
+    catch { /* A malformed inventory entry cannot identify a task tab. */ }
+  }
+  return pages;
+}
+
 export function webMcpExecutionResult(result: McpToolResult, observedError?: string): { status: "success" | "error"; error?: string } | undefined {
   if (result.isError) return undefined; // Protocol/connection/missing-tool errors are not business rejections.
   let value: unknown = result.structuredContent;
@@ -110,20 +133,23 @@ async function bindWebMcpTask(
 ): Promise<WebMcpTaskBridge> {
   const inventory = await client.call("list_pages");
   if (inventory.isError) throw new Error("Chrome DevTools MCP cannot list the existing task tab.", { cause: inventory });
-  const structured = inventory.structuredContent?.pages as Array<{ id: number; url: string }> | undefined;
-  const candidates = structured ?? [...text(inventory).matchAll(/^(\d+): (.+)$/gm)].map(match => ({ id: Number(match[1]), url: match[2] }));
+  const candidates = listedPages(inventory);
   const targetOrigin = new URL(options.url).origin;
+  const bindingAttempts: Array<{ pageId: number; stage: string; response: McpToolResult }> = [];
   let pageId: number | undefined;
   for (const candidate of candidates) {
-    if (!Number.isInteger(candidate.id) || !candidate.url) continue;
-    try { if (new URL(candidate.url.split(" ")[0]!).origin !== targetOrigin) continue; }
-    catch { continue; }
+    if (new URL(candidate.url).origin !== targetOrigin) continue;
     const selected = await client.call("select_page", { pageId: candidate.id });
-    if (selected.isError) continue;
-    const identity = await client.call("evaluate_script", { function: "() => window.name" });
+    if (selected.isError) { bindingAttempts.push({ pageId: candidate.id, stage: "select", response: selected }); continue; }
+    const identity = await client.call("evaluate_script", {
+      function: "() => window.name", ...(routedMethods.has("evaluate_script") ? { pageId: candidate.id } : {}),
+    });
     if (!identity.isError && text(identity).includes(JSON.stringify(options.marker))) { pageId = candidate.id; break; }
+    bindingAttempts.push({ pageId: candidate.id, stage: "identity", response: identity });
   }
-  if (pageId === undefined) throw new Error("Chrome DevTools MCP cannot bind the exact isolated task tab. No tools were called; another browser or tab must not be substituted.");
+  if (pageId === undefined) throw new Error("Chrome DevTools MCP cannot bind the exact isolated task tab. No tools were called; another browser or tab must not be substituted.", {
+    cause: { pages: candidates, attempts: bindingAttempts },
+  });
   const selectedPageId = pageId;
   const fallbackPageId = candidates.find(candidate => Number.isInteger(candidate.id) && candidate.id !== selectedPageId)?.id;
   const probe = await client.call("list_webmcp_tools", routedMethods.has("list_webmcp_tools") ? { pageId } : {});

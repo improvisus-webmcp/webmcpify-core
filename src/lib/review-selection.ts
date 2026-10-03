@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
-import { runAgent } from "./agent.js";
+import { publicProviderFailureGuidance, runAgent } from "./agent.js";
 import { resolveProvider } from "./ai-provider.js";
 import { createAgentWorkspace, initializeAgentWorkspace, readAgentWorkspaceDiff, removeAgentWorkspace } from "./agent-workspace.js";
 import { writeAgentReadiness } from "./agent-readiness.js";
@@ -165,7 +165,7 @@ ${WEBMCP_SPEC_GUIDANCE}\n${TASK_AUTHORING_PROMPT}`,
     await assertGeneratedWebMcpWiring(workspace, discovery, diff);
     await assertGeneratedFormFeedback(workspace, selected);
     progress("Auditing retained-tool security");
-    const security = auditToolSecurity(selected, discovery, sitePath, securityPolicy);
+    const security = auditToolSecurity(selected, discovery, sitePath, securityPolicy, { root: workspace });
     if (security.status === "block") throw new Error("Selected tools still have blocking security findings.");
     const afterIdentity = await gitSourceSnapshot(sitePath);
     if (JSON.stringify(identity) !== JSON.stringify(afterIdentity)
@@ -185,7 +185,7 @@ ${WEBMCP_SPEC_GUIDANCE}\n${TASK_AUTHORING_PROMPT}`,
       : error instanceof PreflightEnvironmentError || error instanceof GenerationPreflightError
         ? ` ${error.message}`
       : providerFailed
-        ? ` The ${provider} coding provider could not complete the revision. ${error instanceof ProviderLaunchError ? error.message : "Check that provider's authentication, availability, and connectivity."} Your tool selection is retained on this review server; retry preparing the selected-tool draft after resolving the provider issue.`
+        ? ` The ${provider} coding provider could not complete the revision. ${error instanceof ProviderLaunchError ? error.message : publicProviderFailureGuidance(error).trim() || "Check that provider's authentication, availability, and connectivity."} Your tool selection is retained on this review server; retry preparing the selected-tool draft after resolving the provider issue.`
         : "";
     throw new Error(`Could not revise the selected tools during: ${phase}. No approval or application source changes were made.${recovery} Private diagnostics: ${diagnostics}`);
   } finally { await removeAgentWorkspace(workspace); }

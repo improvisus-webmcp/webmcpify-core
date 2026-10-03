@@ -43,7 +43,8 @@ try {
   workspaces.push(workspace);
   for (const excluded of [".git", ".webmcpify", ".serena", "nested/.serena", "node_modules"]) await assert.rejects(access(path.join(workspace, excluded)));
   await initializeAgentWorkspace(workspace);
-  for (const directory of [".serena", "nested/.serena"]) {
+  const generatedState = [".serena", "nested/.serena", "node_modules", "nested/node_modules", ".pnpm-store", "nested/.pnpm-store"];
+  for (const directory of generatedState) {
     await mkdir(path.join(workspace, directory), { recursive: true });
     await writeFile(path.join(workspace, directory, "project.yml"), "agent configuration\n");
   }
@@ -54,9 +55,9 @@ try {
     await writeFile(path.join(workspace, filename), filename.endsWith(".bin") ? Buffer.from([0, 1, 2, 3]) : "export const fixture = true;\n");
   }
   const diff = await readAgentWorkspaceDiff(workspace);
-  assert.doesNotMatch(diff, /\.serena/, "Agent-generated state must not enter a pending source patch");
-  await git(workspace, ["add", "-f", "--", ".serena/project.yml", "nested/.serena/project.yml"]);
-  assert.equal(await readAgentWorkspaceDiff(workspace), diff, "Even force-staged Serena files must be excluded from patch capture");
+  assert.doesNotMatch(diff, /\.serena|node_modules|\.pnpm-store/, "Agent-generated state must not enter a pending source patch");
+  await git(workspace, ["add", "-f", "--", ...generatedState.map(directory => `${directory}/project.yml`)]);
+  assert.equal(await readAgentWorkspaceDiff(workspace), diff, "Even force-staged agent/dependency state must be excluded from patch capture");
   assert.equal(await readFile(path.join(worktree, ".serena", "project.yml"), "utf8"), "owner configuration\n", "Existing owner configuration must remain untouched");
   const extracted = extractUnifiedDiff(diff);
   assert.deepEqual(extracted.changedFiles.sort(), filenames.sort(), "All spaced/quoted/Unicode patch paths must be represented");
@@ -69,7 +70,7 @@ try {
   const before = await gitSourceSnapshot(repository);
   await writeFile(path.join(repository, "untracked.js"), "second");
   assert.notEqual((await gitSourceSnapshot(repository)).workingTreeHash, before.workingTreeHash, "Untracked source content changes invalidate approval");
-  for (const unsafe of ["../outside.js", ".git/config", ".webmcpify/private.json", ".serena/project.yml", "nested/.serena/cache.json", "C:/outside.js"]) {
+  for (const unsafe of ["../outside.js", ".git/config", ".webmcpify/private.json", ".serena/project.yml", "nested/.serena/cache.json", "node_modules/dependency.js", "nested/node_modules/dependency.js", ".pnpm-store/cache.json", "nested/.pnpm-store/cache.json", "C:/outside.js"]) {
     assert.throws(() => extractUnifiedDiff(`diff --git a/${unsafe} b/${unsafe}\n--- a/${unsafe}\n+++ b/${unsafe}\n@@ -1 +1 @@\n-old\n+new\n`));
   }
   const browserWorkspace = await createBrowserAgentWorkspace();

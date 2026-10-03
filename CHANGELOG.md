@@ -4,6 +4,24 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: browser binding, workspace isolation and provider failures
+
+- Parse both structured page inventories and text listings with `Title (URL)`, selection markers, and isolated-context labels. Preserve origin filtering and the exact task marker; another tab cannot substitute for the approved task context.
+- Validate inventory entries and route identity probes with `pageId` only when the upstream schema supports it. Save failed selection/identity details privately rather than hiding them behind an undifferentiated binding error.
+- Do not claim provider trajectories were saved when an infrastructure failure happened before the provider ran; direct users to the saved evaluation and actual diagnostics instead.
+- Cover titled/untitled pages, parentheses, Unicode, misleading URL titles, malformed inventory entries, wrong-tab refusal, and routed/default schemas; give the real Chrome/WebMCP regression a page title so it exercises the failing format.
+- Wait for the review server's readiness callback in regression fixtures instead of assuming it starts within 100 ms, preventing false connection failures on slower or busy machines.
+- Give fixed-text guidance for Codex model-access, usage/capacity, authentication and connection failures from terminal error events. Never print raw messages, model identifiers, prompts, code or echoed command arguments, and never change the user's provider configuration automatically.
+- Exclude root/nested `.pnpm-store` caches and dependency directories from workspace copying and captured source patches, including force-staged artifacts; reject manually supplied patches targeting those paths. Preserve application source, lockfiles and relevant saved/untracked files.
+- Confine copied internal relative/absolute file and directory symlinks to the disposable snapshot instead of resolving them back into the owner checkout. Support canonical symlinked target roots and safe dangling links; reject external source links with guidance to select a common root. This is snapshot isolation, not a universal provider sandbox.
+- Show the failed durable stage and safe nested provider guidance instead of only `Workflow execution failed`, including reattachment to a failed execution. Do not print raw Temporal causes or retry side-effecting stages automatically.
+- Treat explicit terminal Codex/Claude failure envelopes as failed executions even when their CLI exits zero. Preserve raw transcripts privately and do not count failed agents as successful; ordinary warnings and recovered turns remain supported.
+- Preserve fixed-text timeout guidance through generation/coverage wrappers instead of hiding a provider timeout behind a generic incomplete-draft error.
+- Disable pnpm's before-run dependency installation during approved apply/typecheck/build, matching generation preflight. Validation must not silently purge installed dependencies or rewrite a lockfile outside the source rollback scope; cover the subprocess setting and real pnpm execution.
+- Pin durable repair to the initiating CLI's canonical provider, including `WEBMCPIFY_PROVIDER` when `--provider` is omitted; verify a live worker with a deliberately different default cannot substitute its provider.
+- Resolve durable repair before browser setup: explicit and environment-selected Temporal repairs no longer require or start client-side Chrome. Plain repair retains its browser path, and missing optional SDKs surface the installation message first.
+- Let a narrowly source-backed local store demo checkout reach human scope review instead of requiring an invented payment backend. Inspect actual generation/revision workspaces and reconstruct supported pending text changes in memory; network calls, unknown helpers, unsafe persistence, shadowed bindings, external paths and pending backend changes retain consequential checks. Static source evidence does not attest runtime subscribers or deployed behavior.
+
 ### Added: optional Temporal execution from discovery to verification
 
 - Add `run --durable` with checkpoints for discovery, generation/preflight, balanced/strict/ignored security, initial review, optional pre-apply UI baseline, exact-source apply/build, every approved browser task, and independent evaluation. Normal CLI/MCP startup remains Temporal-free; the optional peer/development dependency structure is unchanged.

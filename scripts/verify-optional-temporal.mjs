@@ -146,6 +146,26 @@ try {
     /Temporal support is optional\..*npm install @temporalio\/client @temporalio\/worker @temporalio\/workflow/,
   );
 
+  for (const flags of [['--durable'], []]) {
+    const result = spawnSync(process.execPath, ['dist/cli.js', 'repair', '--path', fixtureRoot,
+      '--url', 'http://127.0.0.1:1', '--task', 'fixture-task', ...flags], {
+      cwd: packageRoot, encoding: 'utf8', env: { ...process.env,
+        WEBMCPIFY_DURABLE: 'true', WEBMCPIFY_CHROME_BIN: path.join(temporaryRoot, 'no-chrome'),
+        WEBMCPIFY_CDP_URL: 'not-a-cdp-url',
+      },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Temporal support is optional\..*npm install @temporalio\/client/,
+      'Explicit/environment durable repair must reach the optional SDK check without launching local Chrome');
+    assert.doesNotMatch(result.stdout + result.stderr, /started isolated Chrome|Invalid CDP|Could not start Chrome/);
+  }
+  const plainRepair = spawnSync(process.execPath, ['dist/cli.js', 'repair', '--no-durable', '--path', fixtureRoot,
+    '--url', 'http://127.0.0.1:1'], { cwd: packageRoot, encoding: 'utf8',
+    env: { ...process.env, WEBMCPIFY_DURABLE: 'true', WEBMCPIFY_CDP_URL: 'not-a-cdp-url' } });
+  assert.equal(plainRepair.status, 1);
+  assert.match(plainRepair.stderr, /Invalid WEBMCPIFY_CDP_URL/);
+  assert.doesNotMatch(plainRepair.stderr, /Temporal support is optional/);
+
   for (const args of [["--help"], ["--durable", "--url", "http://127.0.0.1:1"], ["--resume", "fixture-workflow"]]) {
     const result = runNode(["dist/cli.js", "run", "--path", fixtureRoot, ...args]);
     if (args[0] === "--help") assertSucceeded(result, "normal run help without optional peers");

@@ -14,6 +14,24 @@ import { readPatchMetadata, readPendingPatch, sourcePatchHash } from "../dist/li
 import { describeReviewFiles } from "../dist/lib/review-files.js";
 import { withCliProgress } from "../dist/lib/cli-progress.js";
 
+function reviewReadiness() {
+  let onReady;
+  const ready = new Promise(resolve => { onReady = resolve; });
+  return {
+    onReady,
+    wait: async review => {
+      let timer;
+      try {
+        return await Promise.race([
+          ready,
+          review.then(() => { throw new Error("Review finished before its server became ready."); }),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Review server readiness timed out.")), 10_000); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    },
+  };
+}
+
 for (const isTTY of [false, true]) {
   let output = "";
   const options = { stream: { isTTY, write: text => { output += text; return true; } }, intervalMs: 10 };
@@ -70,8 +88,9 @@ assert.ok(taskVerificationIssues({ id: "bad_syntax", description: "Check the res
 assert.ok(taskVerificationIssues({ id: "trivial", description: "Check the result", verify: "true" }).some((issue) => issue.code === "trivial"));
 assert.ok(taskVerificationIssues({ id: "missing_selector", description: "Check the result", verify: 'document.querySelector("#missing") !== null' }, { discovery }).some((issue) => issue.severity === "warning"));
 let announcedReviewUrl;
-const review = runReviewPrompt(sitePath, "4387", { fixture: true, durable: true }, { onReady: url => { announcedReviewUrl = url; } });
-await new Promise((resolve) => setTimeout(resolve, 100));
+const approvalReady = reviewReadiness();
+const review = runReviewPrompt(sitePath, "4387", { fixture: true, durable: true }, { onReady: url => { announcedReviewUrl = url; approvalReady.onReady(url); } });
+await approvalReady.wait(review);
 const reviewHtml = await (await fetch("http://127.0.0.1:4387/approve")).text();
 assert.equal(announcedReviewUrl, "http://127.0.0.1:4387", "Initial durable review uses new generated tasks, not nonexistent prior approval");
 assert.match(reviewHtml, /Project: review-fixture &lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
@@ -154,17 +173,19 @@ assert.equal(reopened.approved, true);
 assert.equal(reopened.tasks.length, 5);
 
 await writeFile(path.join(sitePath, ".webmcpify", "pending-diff.meta.json"), `${JSON.stringify({ version: 1, runId: "review-fixture-reject", timestamp: new Date().toISOString(), targetProject: sitePath, changedFiles, patchStatus: "awaiting-review", patchPath: path.join(sitePath, ".webmcpify", "pending-diff.patch"), generationTrajectory: generation }, null, 2)}\n`);
-const rejection = runReviewPrompt(sitePath, "4388", { fixture: true });
-await new Promise((resolve) => setTimeout(resolve, 100));
+const rejectionReady = reviewReadiness();
+const rejection = runReviewPrompt(sitePath, "4388", { fixture: true }, { onReady: rejectionReady.onReady });
+await rejectionReady.wait(rejection);
 const rejectResponse = await fetch("http://127.0.0.1:4388/reject", { method: "POST" });
 assert.equal(rejectResponse.status, 200);
 const rejected = await rejection;
 assert.equal(rejected.approved, false);
 assert.ok(existsSync(path.join(sitePath, ".webmcpify", "approved-tools.json")));
 const abortController = new AbortController();
-const cancelled = withOperationSignal(abortController.signal, () => runReviewPrompt(sitePath, "4388", { fixture: true }));
+const cancellationReady = reviewReadiness();
+const cancelled = withOperationSignal(abortController.signal, () => runReviewPrompt(sitePath, "4388", { fixture: true }, { onReady: cancellationReady.onReady }));
 const cancelledAssertion = assert.rejects(cancelled, /Review was cancelled/);
-await new Promise((resolve) => setTimeout(resolve, 100));
+await cancellationReady.wait(cancelled);
 abortController.abort();
 await cancelledAssertion;
 await assert.rejects(fetch("http://127.0.0.1:4388"), undefined, "Cancelled review must release its localhost server");
@@ -172,9 +193,10 @@ const busyPort = createServer();
 await new Promise((resolve, reject) => { busyPort.once("error", reject); busyPort.listen(4390, "127.0.0.1", resolve); });
 const fallbackController = new AbortController();
 try {
-  const fallback = withOperationSignal(fallbackController.signal, () => runReviewPrompt(sitePath, "4390", { fixture: true }));
+  const fallbackReady = reviewReadiness();
+  const fallback = withOperationSignal(fallbackController.signal, () => runReviewPrompt(sitePath, "4390", { fixture: true }, { onReady: fallbackReady.onReady }));
   const fallbackAssertion = assert.rejects(fallback, /Review was cancelled/);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await fallbackReady.wait(fallback);
   assert.equal((await fetch("http://127.0.0.1:4391/approve")).status, 200, "Occupied review port must fall back");
   fallbackController.abort();
   await fallbackAssertion;

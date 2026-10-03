@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIProvider } from "./ai-provider.js";
-import { runAgent } from "./agent.js";
+import { publicProviderFailureGuidance, runAgent } from "./agent.js";
 import { readAgentWorkspaceDiff } from "./agent-workspace.js";
 import { canonicalJson } from "./canonical-json.js";
 import type { DiscoveryResult } from "./discovery.js";
@@ -152,6 +152,6 @@ security, and the exact patch before human approval.
     return { tools: metadata.tools, draftPath: await reviewedDraft(metadata.draftPath, corrected, coverage), coverage };
   } catch (caught) {
     const diagnostics = await createTrajectoryArtifact("generate-coverage-failure", { error: caught instanceof Error ? caught.message : String(caught), completionPath }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
-    throw new Error(`Generated capabilities could not be fully accounted for after one completion. No source patch was applied. Private diagnostics: ${diagnostics}`);
+    throw new Error(`Generated capabilities could not be fully accounted for after one completion. No source patch was applied.${publicProviderFailureGuidance(caught)} Private diagnostics: ${diagnostics}`);
   }
 }

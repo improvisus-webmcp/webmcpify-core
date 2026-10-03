@@ -171,8 +171,8 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
       const label = `task ${index + 1}/${tasks.length}`;
       console.log(`[test] ${label} started: ${task.id}`);
       const trajectory = createTrajectoryPath("test", task.id, sitePath);
-      trajectories.push(trajectory);
       const attempted = await attemptTask({ connection, sitePath, provider, url, task, approval, runId, taskSetId, trajectory, label });
+      if (existsSync(trajectory)) trajectories.push(trajectory);
       if (attempted.agentError) agentError = agentError ? `${agentError}; ${attempted.agentError}` : attempted.agentError;
       results.push(attempted.result);
       console.log(`[test] ${label} ${attempted.result.passed ? "passed" : "failed"}: ${task.id}${attempted.result.failureKind ? ` (${attempted.result.failureKind})` : ""}`);
@@ -193,7 +193,8 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
   const evaluation: StoredTestEvaluation = { version: TEST_EVALUATION_VERSION, executionVersion: 1, sourceSnapshot, mode: "webmcp", runId, targetProject: sitePath, taskSetId, provider, url, recordedAt: new Date().toISOString(), tasks, scores, agentError };
   const evaluationPath = await createTrajectoryArtifact("test-eval", evaluation, { provider, url, sitePath, taskCount: scores.total, sourceTrajectories: trajectories, approvalPath });
   console.log(`[test] result: ${scores.passed}/${scores.total} tasks passed`);
-  console.log(`[test] raw trajectories saved to ${trajectories.join(", ")}`);
+  if (trajectories.length) console.log(`[test] raw trajectories saved to ${trajectories.join(", ")}`);
+  else console.log("[test] no raw provider trajectory was written; inspect the task failure diagnostics in the saved evaluation");
   console.log(`[test] evaluation saved to ${evaluationPath}`);
   return evaluation;
 }

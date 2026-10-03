@@ -61,7 +61,12 @@ async function runBuild(sitePath: string): Promise<string[]> {
   for (const script of ["typecheck", "build"]) {
     if (!scripts[script]) continue;
     ran.push(script);
-    await withCliProgress("apply", `Running target ${script}`, () => runOperationCommand(manager, ["run", script], { cwd: sitePath }));
+    await withCliProgress("apply", `Running target ${script}`, () => runOperationCommand(manager, ["run", script], {
+      cwd: sitePath,
+      // Validation uses the owner's installed dependencies. A pnpm before-run
+      // install could otherwise replace them outside the source rollback scope.
+      env: { PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false" },
+    }));
   }
   return ran;
 }

@@ -97,6 +97,47 @@ try {
   assert.equal(disguisedReport.status, "block");
   assert.ok(disguisedReport.findings.some((item) => item.code === "backend-authorization-missing"));
   assert.ok(disguisedReport.findings.some((item) => item.code === "agent-binding-missing"));
+  const storeFile = 'src/demo-store.ts';
+  const localStore = `import {create} from 'zustand'; import {persist} from 'zustand/middleware';
+export const useStore=create<State>()(persist((set,get)=>({loggedIn:false,cart:{},checkout:()=>{if(!get().loggedIn)throw new Error('Log in first.');set({cart:{},notice:'Demo checkout complete'});}}),{name:'demo'}));\n`;
+  await writeFile(path.join(fixture, storeFile), localStore);
+  const localCheckout = { ...disguisedPurchase, implementation: { handler: `${storeFile}#checkout`, action: 'checkout' }, sourceFiles: [storeFile] };
+  for (const policy of ['balance', 'strict']) {
+    const report = auditToolSecurity([localCheckout], noApis, fixture, policy);
+    assert.equal(report.status, 'review', 'A simple local demo checkout must reach human review, not require an invented backend');
+    assert.equal(report.summary.block, 0);
+    assert.ok(report.findings.some(item => item.code === 'local-effect-review'));
+  }
+  await writeFile(path.join(fixture, storeFile), localStore.replace("name:'demo'", "name:'demo',partialize:({cart,loggedIn})=>({cart,loggedIn})"));
+  assert.equal(auditToolSecurity([localCheckout], noApis, fixture, 'balance').status, 'review');
+  for (const dangerous of [
+    localStore.replace("set({cart:{},notice:'Demo checkout complete'})", "fetch('/orders',{method:'POST'})"),
+    localStore.replace("set({cart:{},notice:'Demo checkout complete'})", "submitOrder();set({cart:{}})"),
+    localStore.replace("name:'demo'", "name:'demo',storage:remoteStorage"),
+    localStore.replace("name:'demo'", "name:'demo',partialize:state=>{fetch('/orders');return state}"),
+    localStore.replace('export const useStore=', 'const Error=RemoteEffect; export const useStore='),
+    localStore.replace("loggedIn:false", "get loggedIn(){return fetch('/orders')}"),
+    localStore.replace('checkout:()=>', 'checkout:(set)=>'),
+    localStore.replace('export const useStore=', 'function f(create){ return ')+ '\n}',
+  ]) {
+    await writeFile(path.join(fixture, storeFile), dangerous);
+    assert.equal(auditToolSecurity([localCheckout], noApis, fixture, 'balance').status, 'block', 'Unknown/backend/getter/shadowed effects must remain blocked');
+  }
+  await writeFile(path.join(fixture, storeFile), localStore);
+  const changedPatch = `diff --git a/${storeFile} b/${storeFile}\n--- a/${storeFile}\n+++ b/${storeFile}\n@@ -1 +1 @@\n-import {create} from 'zustand'; import {persist} from 'zustand/middleware';\n+import {create} from 'zustand'; import {persist} from 'zustand/middleware'; // changed\n`;
+  const {createHash} = await import('node:crypto');
+  await writeFile(path.join(fixture, '.webmcpify/pending-diff.patch'), changedPatch);
+  await writeFile(path.join(fixture, '.webmcpify/pending-diff.meta.json'), JSON.stringify({patchStatus:'awaiting-review',patchHash:createHash('sha256').update(changedPatch).digest('hex')}));
+  assert.equal(auditToolSecurity([localCheckout], noApis, fixture, 'balance').status, 'review', 'Inspect exact pending text changes in memory without applying source');
+  const networkStore = localStore.replace("set({cart:{},notice:'Demo checkout complete'})", "fetch('/orders',{method:'POST'})");
+  const networkPatch = `diff --git a/${storeFile} b/${storeFile}\n--- a/${storeFile}\n+++ b/${storeFile}\n@@ -1,2 +1,2 @@\n${localStore.trimEnd().split('\n').map(line=>'-'+line).join('\n')}\n${networkStore.trimEnd().split('\n').map(line=>'+'+line).join('\n')}\n`;
+  await writeFile(path.join(fixture, '.webmcpify/pending-diff.patch'), networkPatch);
+  await writeFile(path.join(fixture, '.webmcpify/pending-diff.meta.json'), JSON.stringify({patchStatus:'awaiting-review',patchHash:createHash('sha256').update(networkPatch).digest('hex')}));
+  assert.equal(auditToolSecurity([localCheckout], noApis, fixture, 'balance').status, 'block', 'A pending backend change must not borrow the old local handler classification');
+  assert.equal(await readFile(path.join(fixture, storeFile), 'utf8'), localStore, 'Security inspection never applies the source patch');
+  assert.equal(auditToolSecurity([localCheckout], noApis, fixture, 'balance', {root:fixture}).status, 'review', 'Generation can inspect its actual validated workspace');
+  await rm(path.join(fixture, '.webmcpify/pending-diff.patch'));
+  await rm(path.join(fixture, '.webmcpify/pending-diff.meta.json'));
   const crossOriginUi = { ...click, security: { ...uiSecurity, originScope: "restricted-cross-origin", allowedOrigins: ["*"] } };
   assert.equal(auditToolSecurity([crossOriginUi], noApis, fixture, "strict").status, "block");
   assert.throws(() => validateProposedTools({ tools: [{ ...click, security: { ...uiSecurity, executionScope: "anything" } }] }, discovery), /executionScope/);

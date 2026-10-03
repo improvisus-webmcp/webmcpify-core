@@ -3,7 +3,7 @@ import { execa } from 'execa';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { coreWorkflowId, durableTimeout } from '../dist/lib/durable-run.js';
+import { coreWorkflowId, durableFailureMessage, durableTimeout } from '../dist/lib/durable-run.js';
 import { pipelineApplyActivity, pipelineRecordActivity, pipelineTestActivity } from '../dist/temporal/pipeline-activities.js';
 import { createPendingPatch, readPatchMetadata, writePatchMetadata } from '../dist/lib/patches.js';
 import { taskFingerprint, validateTasks, writeApprovedTasksAtomically } from '../dist/lib/tasks.js';
@@ -13,6 +13,22 @@ for (const value of ['0', '-1', '0.5', 'NaN', 'Infinity', '10081']) assert.throw
 assert.equal(durableTimeout('8760', 168, 8760, '--review-timeout'), 8760);
 assert.equal(coreWorkflowId('/fixture/repo'), coreWorkflowId('/fixture/repo'));
 assert.notEqual(coreWorkflowId('/fixture/repo'), coreWorkflowId('/fixture/other'));
+for (const [message, expected] of [
+  ['Codex reported a usage or capacity limit.', /usage or capacity limit/],
+  ['Codex rejected the configured model.', /configured model/],
+  ['Codex authentication failed.', /authentication failed/],
+  ['Codex could not maintain its provider connection.', /provider connection/],
+]) {
+  const nested = new Error('Workflow execution failed', {cause:new Error('Activity task failed', {cause:new Error(`The codex generate agent failed. ${message} PRIVATE_PROMPT_WITH_CODE`)})});
+  const publicMessage = durableFailureMessage(nested, 'generation');
+  assert.match(publicMessage, /during generation/); assert.match(publicMessage, expected);
+  assert.doesNotMatch(publicMessage, /PRIVATE_PROMPT_WITH_CODE/);
+}
+const raw = new Error('Command failed: PRIVATE_PROMPT Codex reported a usage or capacity limit.');
+assert.doesNotMatch(durableFailureMessage(raw, 'PRIVATE_PHASE'), /PRIVATE|capacity limit/);
+const cycle = new Error('private'); cycle.cause = cycle;
+assert.match(durableFailureMessage(cycle), /Durable pipeline failed/);
+assert.match(durableFailureMessage({name:'TimeoutFailure'}, 'review'), /deadline/);
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'webmcpify-temporal-contracts-'));
 const previousManager = process.env.WEBMCPIFY_PACKAGE_MANAGER;

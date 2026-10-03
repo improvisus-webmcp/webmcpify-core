@@ -257,7 +257,7 @@ function validatePatchPaths(files: string[]): void {
   for (const file of files) {
     const components = file.replace(/\\/g, "/").split("/");
     if (path.posix.isAbsolute(file) || path.win32.isAbsolute(file) || file.includes("\0")
-      || components.some((part) => ["..", ".git", ".webmcpify", ".serena"].includes(part))) {
+      || components.some((part) => ["..", ".git", ".webmcpify", ".serena", "node_modules", ".pnpm-store"].includes(part))) {
       throw new Error(`The diff contains an unsafe target path: ${file}`);
     }
   }

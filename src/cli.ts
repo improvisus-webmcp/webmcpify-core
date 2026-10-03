@@ -16,6 +16,7 @@ import { withManagedChrome } from "./lib/browser.js";
 import { packageMetadata } from "./lib/package-info.js";
 import { closeScoringBrowser } from "./lib/scoring.js";
 import { SECURITY_POLICIES } from "./lib/security-audit.js";
+import { resolveDurable } from "./lib/config.js";
 
 const providerHelp =
   "AI provider to use: gemini, antigravity, claude, codex, or opencode";
@@ -137,12 +138,16 @@ program
   .option("--no-durable", "force the plain repair loop for this run")
   .option("--provider <name>", providerHelp)
   .action(async (opts) => {
-    if (!opts.url) {
-      await runRepair(opts);
+    const durable = await resolveDurable(opts.durable, opts.path);
+    const repairOptions = { ...opts, durable };
+    // Durable browser work belongs to the worker. Launching local Chrome here
+    // needlessly requires a client-side browser and can occupy its CDP port.
+    if (durable || !opts.url) {
+      await runRepair(repairOptions);
       return;
     }
     await withManagedChrome(opts.url, async () => {
-      await runRepair(opts);
+      await runRepair(repairOptions);
     });
   });
 

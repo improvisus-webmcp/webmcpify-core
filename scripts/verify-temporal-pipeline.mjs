@@ -137,7 +137,9 @@ try {
   service.catch(() => {});
   connection = await until(async () => Connection.connect({ address, connectTimeout: '1 second' }), 'isolated Temporal service', 45_000);
   const env = { ...process.env, WEBMCPIFY_URL: 'http://127.0.0.1:1', WEBMCPIFY_TEMPORAL_ADDRESS: address, WEBMCPIFY_TEMPORAL_NAMESPACE: 'default', WEBMCPIFY_TEMPORAL_TLS: 'false', WEBMCPIFY_TEMPORAL_API_KEY: '', WEBMCPIFY_TEMPORAL_TASK_QUEUE: `pipeline-${path.basename(root)}`, WEBMCPIFY_OPENCODE_BIN: provider, WEBMCPIFY_PACKAGE_MANAGER: 'npm', WEBMCPIFY_CDP_URL: `http://127.0.0.1:${await port()}` };
-  worker = execa(process.execPath, [workerEntry], { cwd: site, env, all: true }); worker.catch(() => {});
+  const wrongProvider = await fixtureProvider(root, 'wrong-worker-provider', `process.exit(1);`);
+  worker = execa(process.execPath, [workerEntry], { cwd: site,
+    env: { ...env, WEBMCPIFY_PROVIDER: 'codex', WEBMCPIFY_CODEX_BIN: wrongProvider }, all: true }); worker.catch(() => {});
   worker.all.on('data', chunk => { workerOutput += chunk.toString(); });
   const workflowId = coreWorkflowId(site);
   clientProcess = execa(process.execPath, [cli, 'run', '--durable', '--baseline', '--path', site, '--url', url, '--provider', 'opencode', '--review-port', reviewPort, '--no-product-context-prompt'], { cwd: site, env, all: true }); clientProcess.catch(() => {});
@@ -168,7 +170,12 @@ try {
   assert.equal(baseline.mode, 'baseline'); assert.equal(baseline.readOnly, true); assert.equal(baseline.scores.total, 4);
   assert.equal(baseline.agentError, undefined, 'Real native UI baseline provider must execute without infrastructure errors');
   assert.ok(baseline.scores.passed < 4, 'WebMCP availability is correctly absent before apply');
-  const repair = await execa(process.execPath, [cli, 'repair', '--durable', '--path', site, '--url', url, '--task', 'dismiss-absent', '--max-repairs', '0', '--provider', 'opencode'], { cwd: site, env });
+  // Omitted --provider must retain the initiating client's configured provider,
+  // rather than selecting the intentionally different worker default.
+  const repair = await execa(process.execPath, [cli, 'repair', '--durable', '--path', site, '--url', url, '--task', 'dismiss-absent', '--max-repairs', '0'], {
+    cwd: site, env: { ...env, WEBMCPIFY_PROVIDER: 'opencode',
+      WEBMCPIFY_CHROME_BIN: path.join(root, 'no-client-chrome'), WEBMCPIFY_CDP_URL: 'not-a-cdp-url' },
+  });
   assert.match(repair.stdout, /"passed":true/);
   const resumed = await execa(process.execPath, [cli, 'run', '--durable', '--resume', workflowId, '--path', site], { cwd: site, env });
   assert.match(resumed.stdout, /4\/4 approved tasks verified/);

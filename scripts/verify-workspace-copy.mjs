@@ -29,7 +29,14 @@ try {
   await fs.writeFile(path.join(source, "assets/data.bin"), Buffer.alloc(1024 * 1024, 0x7b));
   await fs.mkdir(path.join(source, "node_modules-helper"));
   await fs.writeFile(path.join(source, "node_modules-helper/required.js"), "export const keep = true;\n");
-  for (const name of [".webmcpify", ".serena", "node_modules", "nested/.webmcpify", "nested/.serena", "nested/node_modules", "nested/.git"]) {
+  if (process.platform !== "win32") {
+    await fs.symlink("app.js", path.join(source, "src/relative-link.js"));
+    await fs.symlink(path.join(source, "src/app.js"), path.join(source, "src/absolute-link.js"));
+    await fs.symlink(path.join(source, "assets"), path.join(source, "linked-assets"), "dir");
+    await fs.symlink("missing.js", path.join(source, "src/dangling-link.js"));
+  }
+  const excludedNames = [".webmcpify", ".serena", "node_modules", ".pnpm-store", "nested/.webmcpify", "nested/.serena", "nested/node_modules", "nested/.pnpm-store", "nested/.git"];
+  for (const name of excludedNames) {
     await fs.mkdir(path.join(source, name), {recursive:true});
     await fs.writeFile(path.join(source, name, "omitted.txt"), "temporary fixture data\n");
   }
@@ -55,17 +62,42 @@ try {
     assert.equal(copyCalls, 1);
     assert.equal(workspace, destination);
     for (const [file, content] of contents) assert.deepEqual(await fs.readFile(path.join(workspace, file)), content, `${file} must survive ${ordinaryCopy?'ordinary':'optional reflink'} copying byte-for-byte`);
-    for (const name of [".git", ".webmcpify", ".serena", "node_modules", "nested/.webmcpify", "nested/.serena", "nested/node_modules", "nested/.git"]) await assert.rejects(fs.access(path.join(workspace, name)), {code:"ENOENT"});
+    for (const name of [".git", ...excludedNames]) await assert.rejects(fs.access(path.join(workspace, name)), {code:"ENOENT"});
+    if (process.platform !== "win32") {
+      assert.equal(await fs.realpath(path.join(workspace, "src/relative-link.js")), path.join(workspace, "src/app.js"), "Relative source links must not point back to the owner checkout");
+      assert.equal(await fs.realpath(path.join(workspace, "src/absolute-link.js")), path.join(workspace, "src/app.js"), "Absolute internal links must be rebased into the snapshot");
+      assert.equal(await fs.realpath(path.join(workspace, "linked-assets")), path.join(workspace, "assets"));
+      assert.equal(await fs.readlink(path.join(workspace, "src/dangling-link.js")), "missing.js", "Safe dangling relative links remain unchanged");
+    }
     await initializeAgentWorkspace(workspace);
     assert.equal(await readAgentWorkspaceDiff(workspace), "", "Saved dirty/untracked files belong to the baseline, not a proposed patch");
     await fs.writeFile(path.join(workspace, "src/app.js"), "export const value = 'agent edit';\n");
     await fs.writeFile(path.join(workspace, "assets/data.bin"), Buffer.from([0,1,2,3]));
     await fs.writeFile(path.join(workspace, "src/New Component café.jsx"), "export const untracked = false;\n");
+    if (process.platform !== "win32") {
+      await fs.writeFile(path.join(workspace, "src/absolute-link.js"), "export const value = 'copied link edit';\n");
+      await fs.writeFile(path.join(workspace, "linked-assets/data.bin"), Buffer.from([5,6,7]));
+    }
     await fs.rm(path.join(workspace, "src/staged.js"));
     for (const [file, content] of contents) assert.deepEqual(await fs.readFile(path.join(source, file)), content, "Editing/deleting copied files must never modify source files");
-    assert.match(await readAgentWorkspaceDiff(workspace), /agent edit/);
+    assert.match(await readAgentWorkspaceDiff(workspace), process.platform === "win32" ? /agent edit/ : /copied link edit/);
     await removeAgentWorkspace(workspace);
     await assert.rejects(fs.access(workspace), {code:"ENOENT"});
+  }
+  if (process.platform !== "win32") {
+    await fs.symlink(source, path.join(root, "source-alias"), "dir");
+    const aliasWorkspace = await createAgentWorkspace(path.join(root, "source-alias"));
+    workspaces.push(aliasWorkspace);
+    assert.deepEqual(await fs.readFile(path.join(aliasWorkspace, "src/app.js")), contents.get("src/app.js"), "A symlinked target root is copied as its canonical directory");
+    await fs.writeFile(path.join(root, "external-source.js"), "outside the selected target\n");
+    await fs.symlink(path.join(root, "external-source.js"), path.join(source, "src/external-link.js"));
+    let rejectedDestination;
+    fs.cp = async (from, to, options) => { rejectedDestination = to; return originalCp(from, to, options); };
+    syncBuiltinESMExports();
+    await assert.rejects(createAgentWorkspace(source), /symbolic link outside the selected target/);
+    await assert.rejects(fs.access(rejectedDestination), {code:"ENOENT"}, "External-link rejection must remove the partial workspace");
+    assert.equal(await fs.readFile(path.join(root, "external-source.js"), "utf8"), "outside the selected target\n");
+    await fs.unlink(path.join(source, "src/external-link.js"));
   }
   fs.cp = async (_from, to) => {
     workspaces.push(to);

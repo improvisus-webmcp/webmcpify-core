@@ -15,12 +15,16 @@ import { runBaseline } from "../dist/commands/baseline.js";
 // Real Chrome + the real pinned Chrome DevTools MCP, but no paid/authenticated
 // model. A fixture provider uses exactly the MCP methods a test agent receives.
 const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-webmcp-browser-"));
-const environmentKeys = ["WEBMCPIFY_CDP_URL", "WEBMCPIFY_OPENCODE_BIN", "WEBMCPIFY_FIXTURE_CLAIM_ONLY", "WEBMCPIFY_FIXTURE_PROVIDER_FAIL", "WEBMCPIFY_FIXTURE_LATE_MUTATION", "WEBMCPIFY_FIXTURE_SOURCE_DRIFT"];
+const environmentKeys = ["WEBMCPIFY_CDP_URL", "WEBMCPIFY_OPENCODE_BIN", "WEBMCPIFY_CODEX_BIN", "WEBMCPIFY_FIXTURE_CLAIM_ONLY", "WEBMCPIFY_FIXTURE_PROVIDER_FAIL", "WEBMCPIFY_FIXTURE_LATE_MUTATION", "WEBMCPIFY_FIXTURE_SOURCE_DRIFT"];
 const previous = Object.fromEntries(environmentKeys.map(key => [key, process.env[key]]));
 let completed = false;
 const server = createServer((_request, response) => {
   response.setHeader("Content-Type", "text/html");
-  response.end(`<!doctype html><html><body><h1>WebMCP coffee fixture</h1><script>
+  if (_request.url === "/no-webmcp") {
+    response.end('<!doctype html><html><head><title>Unavailable WebMCP</title></head><body><h1>WebMCP unavailable</h1><script>Object.defineProperty(document, "modelContext", {value:undefined});</script></body></html>');
+    return;
+  }
+  response.end(`<!doctype html><html><head><title>Coffee Store (WebMCP fixture)</title></head><body><h1>WebMCP coffee fixture</h1><script>
     const selected = [];
     const register = (name, execute) => document.modelContext.registerTool({
       name, description: name + ' fixture action',
@@ -133,6 +137,19 @@ try {
       assert.match(cli.stdout + cli.stderr, /WebMCP audit failed/);
       delete process.env.WEBMCPIFY_FIXTURE_CLAIM_ONLY;
 
+      const messages = [];
+      const originalLog = console.log;
+      let beforeAgent;
+      try {
+        console.log = (...args) => { messages.push(args.join(" ")); };
+        beforeAgent = await runTest({ path: root, url: `${url}/no-webmcp`, provider: "opencode" });
+      } finally { console.log = originalLog; }
+      assert.equal(beforeAgent.scores.passed, 0);
+      assert.match(beforeAgent.scores.results[0].detail, /does not expose document.modelContext/);
+      assert.match(beforeAgent.scores.results[1].detail, /Not executed/);
+      assert.ok(messages.some(message => /no raw provider trajectory was written/.test(message)), "Do not link a nonexistent provider trajectory after pre-agent failure");
+      assert.ok(!messages.some(message => /raw trajectories saved to/.test(message)));
+
       const baselineTasks = [tasks.find(task => task.id === "availability"), tasks[0]];
       await writeApprovedTasksAtomically(root, { version: 1, approved: true, approvalId: "baseline-fixture", draftPath: "fixture", tools: ["add_item"], tasks: baselineTasks, taskSetId: taskFingerprint(baselineTasks) });
       process.env.WEBMCPIFY_FIXTURE_PROVIDER_FAIL = "1";
@@ -142,6 +159,12 @@ try {
       assert.ok(baseline.scores.results.every(result => result.failureKind === "infrastructure"));
       assert.match(baseline.scores.results[1].detail, /Not executed/);
       delete process.env.WEBMCPIFY_FIXTURE_PROVIDER_FAIL;
+      process.env.WEBMCPIFY_CODEX_BIN = await fixtureProvider(root, "zero-exit-failure", `console.log(JSON.stringify({type:'turn.failed',error:{message:'Fixture provider failed'}}));`);
+      const zeroExitBaseline = await runBaseline({ path: root, url, provider: "codex", readOnly: true });
+      assert.equal(zeroExitBaseline.scores.passed, 0, "An explicit failure envelope with exit zero cannot pass an initially-true real browser check");
+      assert.ok(zeroExitBaseline.scores.results.every(result => result.failureKind === "infrastructure"));
+      assert.match(zeroExitBaseline.scores.results[0].detail, /Baseline browser\/provider session failed/);
+      assert.match(zeroExitBaseline.scores.results[1].detail, /Not executed/);
 
       const delayed = validateTasks([{ id: "late-guard", description: "Reject without delayed mutations", requiredTools: ["late_guard"], expectedOutcome: "rejection", expectedError: "Guard rejected.", verify: "!document.body.dataset.forbidden" }]);
       await writeApprovedTasksAtomically(root, { version: 1, approved: true, approvalId: "late-fixture", draftPath: "fixture", tools: ["late_guard"], tasks: delayed, taskSetId: taskFingerprint(delayed) });

@@ -301,6 +301,9 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
   const sitePath = path.resolve(opts.path ?? process.cwd());
   const tasks = await loadApprovedTasks(sitePath);
   if (!tasks.some(task => task.id === opts.task)) throw new Error(`Unknown approved task "${opts.task}".`);
+  // Resolve on the initiating CLI, not on a worker whose environment/default
+  // provider may differ. Persist the canonical provider in workflow history.
+  const provider = resolveProvider(opts.provider);
   const runId = randomUUID();
   const taskSetId = taskFingerprint(tasks);
   const connection = await Connection.connect(temporalConnectionOptions());
@@ -317,7 +320,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
       url,
       task: opts.task,
       maxRepairs,
-      provider: opts.provider,
+      provider,
       runId,
       taskSetId,
     };
@@ -338,7 +341,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
           task: opts.task,
           url: opts.url,
           sitePath: workflowOptions.path,
-          provider: opts.provider,
+          provider,
           maxRepairs,
           startedAt,
           finishedAt: new Date().toISOString(),
@@ -360,7 +363,7 @@ async function runDurableRepair(opts: RepairOptions): Promise<void> {
           task: opts.task,
           url: opts.url,
           sitePath: workflowOptions.path,
-          provider: opts.provider,
+          provider,
           maxRepairs,
           startedAt,
           finishedAt: new Date().toISOString(),

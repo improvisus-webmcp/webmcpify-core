@@ -110,21 +110,63 @@ try {
 
   const fakeMcp = await fixtureProvider(root, "chrome-mcp", `
 import {createInterface} from 'node:readline';
+import {appendFileSync} from 'node:fs';
+const binding=JSON.parse(process.env.WEBMCPIFY_FIXTURE_BINDING ?? '{}');
+let selected=7;
 const methods=['list_pages','select_page','evaluate_script','list_webmcp_tools','execute_webmcp_tool'];
 for await (const line of createInterface({input:process.stdin})) {
   const r=JSON.parse(line);if(r.id===undefined)continue;let result;
   if(r.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fake-chrome',version:'1'}};
-  else if(r.method==='tools/list')result={tools:methods.map(name=>({name,inputSchema:{type:'object',properties:{}}}))};
+  else if(r.method==='tools/list')result={tools:methods.map(name=>({name,inputSchema:{type:'object',properties:binding.routed && ['evaluate_script','list_webmcp_tools','execute_webmcp_tool'].includes(name)?{pageId:{type:'number'}}:{}}}))};
   else if(r.method==='tools/call') {
     const n=r.params.name,a=r.params.arguments;
-    if(n==='list_pages')result={structuredContent:{pages:[{id:7,url:'http://localhost:5173/'}]},content:[]};
-    else if(n==='evaluate_script')result={content:[{type:'text',text:JSON.stringify('test-marker')}]};
+    if(binding.log)appendFileSync(binding.log,JSON.stringify({name:n,args:a})+'\\n');
+    if(n==='list_pages')result=binding.inventory ?? {structuredContent:{pages:[{id:7,url:'http://localhost:5173/'}]},content:[]};
+    else if(n==='select_page'){selected=a.pageId;result={content:[]};}
+    else if(binding.routed && ['evaluate_script','list_webmcp_tools','execute_webmcp_tool'].includes(n) && a.pageId!==selected)result={isError:true,content:[{type:'text',text:'pageId is required'}]};
+    else if(n==='evaluate_script')result={content:[{type:'text',text:'Script ran on page and returned:\\n'+JSON.stringify(binding.identities?.[selected] ?? 'test-marker')}]};
     else if(n==='execute_webmcp_tool')result={content:[{type:'text',text:JSON.stringify(a.toolName==='remove'?{status:'error',errorText:'Item is not in the cart.'}:{status:'success',output:{}})}]};
     else result={content:[{type:'text',text:'live tools'}]};
   }
   process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\\n');
 }`);
   const configPath = path.join(root, "chrome.json");
+  const pageText = value => ({ content: [{ type: "text", text: value }] });
+  const pageCases = [
+    { name: "titled-text", inventory: pageText("## Pages\n5: about:blank\n8: Coffee Store (http://localhost:5173/) [selected]\n7: Coffee Store (http://localhost:5173/) isolatedContext=isolated-context-1"), identities: { 8: "wrong-tab" } },
+    { name: "bare-text", inventory: pageText("## Pages\n5: about:blank\n7: http://localhost:5173/ [selected] isolatedContext=isolated-context-1") },
+    { name: "parentheses-and-unicode", inventory: pageText("## Pages\n7: Café (dark roast) (http://localhost:5173/catalog/(seasonal)?note=(warm)) [selected]") },
+    { name: "url-in-title", inventory: pageText("## Pages\n7: https://not-the-task.invalid/ (http://localhost:5173/)") },
+    { name: "routed-identity", routed: true, inventory: pageText("## Pages\n7: Coffee Store (http://localhost:5173/)") },
+    { name: "structured", inventory: { structuredContent: { pages: [{ id: 7, url: "http://localhost:5173/" }] }, ...pageText("## Pages\n9: Contradictory title (https://not-the-task.invalid/)") } },
+    { name: "invalid-structured-entries", inventory: { structuredContent: { pages: [null, { id: "7", url: "http://localhost:5173/" }, { id: -1, url: "http://localhost:5173/" }, { id: 9, url: null }, { id: 7, url: "http://localhost:5173/" }] }, content: [] } },
+    { name: "malformed-structured-fallback", inventory: { structuredContent: { pages: {} }, ...pageText("## Pages\n7: Coffee Store (http://localhost:5173/)") } },
+    { name: "wrong-marker", rejected: true, inventory: pageText("## Pages\n7: Coffee Store (http://localhost:5173/) [selected]"), identities: { 7: "wrong-tab" } },
+    { name: "foreign-url-with-target-title", rejected: true, inventory: pageText("## Pages\n7: http://localhost:5173/ (https://not-the-task.invalid/)") },
+    { name: "empty-structured-authority", rejected: true, inventory: { structuredContent: { pages: [] }, ...pageText("## Pages\n7: Coffee Store (http://localhost:5173/)") } },
+    { name: "foreign-structured-authority", rejected: true, inventory: { structuredContent: { pages: [{ id: 7, url: "https://not-the-task.invalid/" }] }, ...pageText("## Pages\n7: Coffee Store (http://localhost:5173/)") } },
+  ];
+  for (const fixture of pageCases) {
+    const log = path.join(root, `binding-${fixture.name}.jsonl`);
+    await writeFile(configPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: fakeMcp, env: { WEBMCPIFY_FIXTURE_BINDING: JSON.stringify({ ...fixture, log }) } } } }));
+    connection = await connectChromeWebMcp(configPath, root);
+    try {
+      const bind = () => connection.bindTask({ url: "http://localhost:5173/redirected-entry", marker: "test-marker", toolNames: ["select"], workspace: root });
+      if (fixture.rejected) await assert.rejects(bind, /No capability was called/, fixture.name);
+      else {
+        bridge = await bind();
+        assert.equal(bridge.evidence.pageId, 7, fixture.name);
+      }
+      const calls = (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+      assert.ok(!calls.some(call => call.name === "execute_webmcp_tool"), "Binding never executes capabilities");
+      if (fixture.rejected) assert.ok(!calls.some(call => call.name === "list_webmcp_tools"), "A different tab cannot substitute for the exact marker");
+      if (fixture.routed) assert.equal(calls.find(call => call.name === "evaluate_script").args.pageId, 7);
+      else assert.ok(calls.filter(call => call.name === "evaluate_script").every(call => !Object.hasOwn(call.args, "pageId")), "Default upstream schemas must not receive unsupported routing");
+    } finally {
+      await bridge?.close(); bridge = undefined;
+      await connection.close(); connection = undefined;
+    }
+  }
   await writeFile(configPath, JSON.stringify({ mcpServers: { "chrome-devtools": { command: fakeMcp } } }));
   connection = await connectChromeWebMcp(configPath, root);
   bridge = await connection.bindTask({ url: "http://localhost:5173/redirected-entry", marker: "test-marker", toolNames: ["select", "clear", "remove"], workspace: root });

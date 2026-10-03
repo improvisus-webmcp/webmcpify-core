@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveryResult } from "./discovery.js";
 import type { ProposedTool } from "./tool-proposals.js";
+import { hasLocalStoreEffect } from "./local-ui-effect.js";
 
 export type SecuritySeverity = "block" | "review" | "info";
 export const SECURITY_POLICIES = ["balance", "ignore", "strict"] as const;
@@ -55,9 +56,9 @@ function isHighImpactTool(tool: ProposedTool): boolean {
   return HIGH_IMPACT_ACTION.test(action);
 }
 
-function isUiStateTool(tool: ProposedTool): boolean {
-  if (isHighImpactTool(tool)) return false;
+function isUiStateTool(tool: ProposedTool, localStoreEffect = false): boolean {
   if (tool.security?.executionScope === "backend") return false;
+  if (isHighImpactTool(tool) && !localStoreEffect) return false;
   if (tool.security?.executionScope === "ui-state") return !tool.annotations.consequentialHint;
   const action = `${tool.name} ${tool.title} ${tool.implementation.action}`.replace(/[_-]+/g, " ");
   return !["backend", "server-action"].includes(tool.security?.authorization ?? "")
@@ -84,6 +85,7 @@ export function auditToolSecurity(
   discovery: DiscoveryResult,
   targetProject = discovery.targetProject,
   requestedPolicy: SecurityPolicy | string = "balance",
+  source?: { root: string },
 ): SecurityReport {
   const policy = resolveSecurityPolicy(requestedPolicy);
   const strictFindings: SecurityFinding[] = [];
@@ -92,7 +94,12 @@ export function auditToolSecurity(
     const mutates = !tool.annotations.readOnlyHint;
     const consequential = tool.annotations.consequentialHint;
     const highImpact = isHighImpactTool(tool);
-    const uiState = isUiStateTool(tool);
+    const localStoreEffect = highImpact && tool.security?.executionScope === "ui-state"
+      && !consequential && hasLocalStoreEffect(tool, source?.root ?? targetProject, !source);
+    const uiState = isUiStateTool(tool, localStoreEffect);
+    if (localStoreEffect) strictFindings.push(finding(tool, "review", "local-effect-review",
+      "The named high-impact action has a simple browser-local store handler, not a discovered backend purchase.",
+      "Review the exact registration and any store subscribers/middleware. Static source evidence does not prove deployed runtime effects."));
     const backendMutation = mutates && !uiState;
     const requiresConsequentialControls = !uiState && (consequential || highImpact);
     const replayProne = REPLAY_PRONE.test(`${tool.name} ${tool.description} ${tool.implementation.action}`);
@@ -167,7 +174,7 @@ export function auditToolSecurity(
     : policy === "ignore"
       ? []
       : strictFindings.filter((item) => {
-          if (item.code === "origin-allowlist-invalid") return true;
+          if (item.code === "origin-allowlist-invalid" || item.code === "local-effect-review") return true;
           const tool = toolsById.get(item.toolId);
           if (!tool || !isHighImpactTool(tool)) return false;
           return BALANCED_ACCESS_CODES.has(item.code);
