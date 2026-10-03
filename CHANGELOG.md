@@ -4,6 +4,11 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: coverage report handling during generation
+
+- Read labelled coverage JSON with or without Markdown fences, exclude known unresolved inspection hints from required accounting and classify retained draft tools as proposed after checking their source mapping.
+- Correct invalid coverage metadata once with generated source, tools and tasks retained. Show the normalized report in the reviewed draft; preserve candidate IDs, source/Git identity, task validation, build/security checks and human approval.
+
 ### Fixed: expected-rejection metadata and correction recovery
 
 - Match concrete product errors against explicitly declared single-placeholder error templates without evaluating expressions or weakening runtime rejection evidence.

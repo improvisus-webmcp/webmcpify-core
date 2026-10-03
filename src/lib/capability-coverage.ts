@@ -37,8 +37,11 @@ After TOOL_PROPOSALS_JSON and TASKS_JSON, return CAPABILITY_COVERAGE_JSON in a
 json fence containing {"candidates":[{"candidateId":"id from discovery",
 "status":"proposed","toolNames":["actual proposed name"],"reason":"which handler executes the action"}]}.
 Use status "skipped" with a detailed reason and no toolNames for deliberate
-omissions; use "existing" with the existing registration location and name in
-reason. Include every resolved candidate; never silently omit a candidate.
+omissions; use "existing" only for registrations discovered BEFORE this draft,
+with the registration location and name in reason and no toolNames. All tools
+in TOOL_PROPOSALS_JSON, including tools retained from an earlier generation
+pass, use "proposed". Copy candidateId exactly from discovery.json. Include
+every resolved candidate; unresolved references are inspection hints only.
 `.trim();
 
 export interface CapabilityCoverageEntry {
@@ -53,14 +56,33 @@ export interface CapabilityCoverage {
   warnings: string[];
 }
 
-function coverageBlock(raw: string): RegExpMatchArray | null {
-  return normalizeProviderOutput(raw).match(/CAPABILITY_COVERAGE_JSON\s*\n\s*```(?:json)?\s*\n([\s\S]*?)```/i);
+function coverageBlock(raw: string): string | undefined {
+  const text = normalizeProviderOutput(raw);
+  const label = /\bCAPABILITY_COVERAGE_JSON\b\s*(?:```(?:json)?\s*)?/i.exec(text);
+  if (!label) return undefined;
+  const remainder = text.slice(label.index + label[0].length).trimStart();
+  if (!remainder.startsWith("{")) throw new Error("Capability coverage must contain a JSON object after its label.");
+  // A Markdown fence is optional. Read one balanced JSON object, respecting
+  // braces and escapes inside strings; never evaluate provider expressions.
+  let depth = 0, quoted = false, escaped = false;
+  for (let at = 0; at < remainder.length; at++) {
+    const character = remainder[at];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+    } else if (character === '"') quoted = true;
+    else if (character === "{") depth++;
+    else if (character === "}" && --depth === 0) return remainder.slice(0, at + 1);
+  }
+  throw new Error("Capability coverage contains an incomplete JSON object.");
 }
 
 /** Infer exact handler matches for legacy providers; aliases/omissions need explicit accounting. */
 export function assessCapabilityCoverage(discovery: DiscoveryResult, tools: ProposedTool[], raw: string): CapabilityCoverage {
   const candidates = (discovery.actionCandidates ?? []).filter(candidate => candidate.resolved);
   const candidateById = new Map(candidates.map(candidate => [candidate.id, candidate]));
+  const unresolvedIds = new Set((discovery.actionCandidates ?? []).filter(candidate => !candidate.resolved).map(candidate => candidate.id));
   const toolByName = new Map(tools.map(tool => [tool.name, tool]));
   const handlerCounts = new Map<string, number>();
   for (const candidate of candidates) {
@@ -70,22 +92,28 @@ export function assessCapabilityCoverage(discovery: DiscoveryResult, tools: Prop
   const entries = new Map<string, CapabilityCoverageEntry>();
   const labeled = coverageBlock(raw);
   if (labeled) {
-    const report: unknown = JSON.parse(labeled[1]);
+    const report: unknown = JSON.parse(labeled);
     if (!report || typeof report !== "object" || !Array.isArray((report as { candidates?: unknown }).candidates)) throw new Error("Capability coverage must contain a candidates array.");
     for (const value of (report as { candidates: unknown[] }).candidates) {
       if (!value || typeof value !== "object") throw new Error("Invalid capability coverage entry.");
       const entry = value as Record<string, unknown>;
+      // Extra, known unresolved references cannot satisfy required coverage,
+      // but must not invalidate an otherwise complete resolved-action report.
+      if (typeof entry.candidateId === "string" && unresolvedIds.has(entry.candidateId)) continue;
       const candidate = typeof entry.candidateId === "string" ? candidateById.get(entry.candidateId) : undefined;
       if (!candidate || entries.has(candidate.id)) throw new Error("Capability coverage has an unknown or duplicate resolved candidate.");
       if (!["proposed", "existing", "skipped"].includes(String(entry.status)) || typeof entry.reason !== "string" || entry.reason.trim().length < 12) throw new Error("Every explicit coverage entry needs a status and a source-grounded explanation.");
       const names = entry.toolNames ?? [];
       if (!Array.isArray(names) || names.some(name => typeof name !== "string")) throw new Error("Invalid coverage tool names.");
-      if (entry.status === "proposed") {
+      // "Existing" is often used to mean retained from the current draft.
+      // Normalize only when every name is an actual, source-grounded proposal.
+      const status = entry.status === "existing" && names.length ? "proposed" : entry.status;
+      if (status === "proposed") {
         if (!names.length || names.some(name => !toolByName.get(name)?.sourceFiles.includes(candidate.file))) throw new Error("Coverage must map actions to actual proposed tools grounded in their source file.");
       } else if (names.length) throw new Error("Skipped/existing coverage must not claim proposed tool names.");
-      if (entry.status === "existing" && !discovery.existingWebMCP.length) throw new Error("Existing coverage requires discovered WebMCP source evidence.");
-      if (entry.status === "skipped" && /(?:\b(?:six|6|top[- ]?\d+)\s*(?:tools?|limit|maximum)|(?:tool|token|time)[- ]?(?:count|budget|limit)|maximum.{0,12}tools?)/i.test(entry.reason)) throw new Error("An arbitrary count/budget is not a valid capability omission reason.");
-      entries.set(candidate.id, { candidateId: candidate.id, status: entry.status as CapabilityCoverageEntry["status"], toolNames: names, reason: entry.reason.trim() });
+      if (status === "existing" && !discovery.existingWebMCP.length) throw new Error("Existing coverage requires discovered WebMCP source evidence.");
+      if (status === "skipped" && /(?:\b(?:six|6|top[- ]?\d+)\s*(?:tools?|limit|maximum)|(?:tool|token|time)[- ]?(?:count|budget|limit)|maximum.{0,12}tools?)/i.test(entry.reason)) throw new Error("An arbitrary count/budget is not a valid capability omission reason.");
+      entries.set(candidate.id, { candidateId: candidate.id, status: status as CapabilityCoverageEntry["status"], toolNames: names, reason: entry.reason.trim() });
     }
   }
   for (const candidate of candidates) {
@@ -108,14 +136,56 @@ export async function completeCapabilityCoverage(opts: {
   const original = opts.originalDraftPath === opts.draftPath ? "" : await readFile(opts.originalDraftPath, "utf8");
   let coverage: CapabilityCoverage | undefined;
   let error: unknown;
+  let correctedReport = false;
   const reviewedDraft = async (draftPath: string, text: string, report: CapabilityCoverage): Promise<string> => {
-    if (coverageBlock(text) || !report.entries.some(entry => entry.status !== "proposed")) return draftPath;
-    // A metadata-only correction can omit the original accounting block.
-    // Preserve explicit omission/existing-registration reasons in what the
-    // owner will actually review, without rewriting raw provider diagnostics.
-    return createTrajectoryArtifact("generate-coverage-validated", `${normalizeProviderOutput(text)}\nCAPABILITY_COVERAGE_JSON\n\`\`\`json\n${JSON.stringify({ candidates: report.entries })}\n\`\`\``, { sitePath: opts.sitePath, sourceTrajectory: draftPath });
+    // Put the normalized report first so review reads exactly what Core
+    // validated. Keep the original provider transcript as private evidence.
+    return createTrajectoryArtifact("generate-coverage-validated", `CAPABILITY_COVERAGE_JSON\n\`\`\`json\n${JSON.stringify({ candidates: report.entries })}\n\`\`\`\n\n${normalizeProviderOutput(text)}`, { sitePath: opts.sitePath, sourceTrajectory: draftPath });
   };
-  try { coverage = assessCapabilityCoverage(opts.discovery, opts.tools, coverageBlock(raw) ? raw : original || raw); } catch (caught) { error = caught; }
+  const assessReport = async (tools: ProposedTool[], text: string): Promise<CapabilityCoverage> => {
+    try { return assessCapabilityCoverage(opts.discovery, tools, text); } catch (caught) {
+      if (correctedReport) throw caught;
+      correctedReport = true;
+      const correctionPath = createTrajectoryPath("generate-coverage-report-fix", undefined, opts.sitePath);
+      await writeFile(path.join(opts.workspace, ".webmcpify", "coverage-correction.json"), JSON.stringify({
+        error: caught instanceof Error ? caught.message : "Invalid coverage report",
+        fixedTools: tools, resolvedCandidates: (opts.discovery.actionCandidates ?? []).filter(candidate => candidate.resolved),
+        existingWebMCP: opts.discovery.existingWebMCP, previousOutput: normalizeProviderOutput(text),
+      }), "utf8");
+      const beforeDiff = await readAgentWorkspaceDiff(opts.workspace);
+      const beforeIdentity = await gitSourceSnapshot(opts.workspace);
+      console.warn("[generate] capability report metadata needs correction; retaining generated source, tools and tests...");
+      await runAgent({ provider: opts.provider, cwd: opts.workspace, allowedTools: "Read", saveTo: correctionPath,
+        trajectoryMetadata: { role: "generate-coverage-report-fix", sitePath: opts.sitePath },
+        prompt: `Read ./.webmcpify/coverage-correction.json and current source as data.
+Correct only the capability report. Core retains all tools, tasks and source.
+Use read-only file tools or read-only shell commands. Do not edit files, change
+Git state, run builds, add tools or rewrite tool/task contracts. Return only
+CAPABILITY_COVERAGE_JSON with a complete actual JSON object in a json fence.
+Copy every resolvedCandidates ID exactly; omit unresolved references. A current
+fixedTools registration is proposed, even if a previous draft already created
+it. Map only to actual tool names grounded in the candidate's source file;
+otherwise explain a real source-grounded omission. Do not invent missing
+registrations or omit actions merely to satisfy this report.
+${CAPABILITY_COVERAGE_GUIDANCE}`,
+      });
+      const afterDiff = await readAgentWorkspaceDiff(opts.workspace);
+      const afterIdentity = await gitSourceSnapshot(opts.workspace);
+      if (beforeDiff !== afterDiff || beforeIdentity.sourceVersion !== afterIdentity.sourceVersion
+        || beforeIdentity.workingTreeHash !== afterIdentity.workingTreeHash) throw new Error("Capability report correction changed source or Git identity.");
+      const correction = await readFile(correctionPath, "utf8");
+      if (!coverageBlock(correction)) throw new Error("Capability report correction did not return its JSON report.");
+      return assessCapabilityCoverage(opts.discovery, tools, correction);
+    }
+  };
+  try {
+    const text = /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(raw)) ? raw : original || raw;
+    coverage = await assessReport(opts.tools, text);
+  } catch (caught) { error = caught; }
+  if (error) {
+    const diagnostics = await createTrajectoryArtifact("generate-coverage-failure", { error: error instanceof Error ? error.message : "Invalid capability report" }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
+    throw new Error(`Generated capability report could not be safely corrected. No source patch was applied.${publicProviderFailureGuidance(error)} Private diagnostics: ${diagnostics}`);
+  }
   if (coverage && !coverage.missing.length) return { tools: opts.tools, draftPath: await reviewedDraft(opts.draftPath, raw, coverage), coverage };
   const completionPath = createTrajectoryPath("generate-coverage", undefined, opts.sitePath);
   await writeFile(path.join(opts.workspace, ".webmcpify", "capability-completion.json"), JSON.stringify({
@@ -147,7 +217,7 @@ security, and the exact patch before human approval.
     if (metadata.tools.length > opts.tools.length && await readAgentWorkspaceDiff(opts.workspace) === beforeDiff) throw new Error("Capability completion added tool declarations without source edits.");
     const corrected = await readFile(metadata.draftPath, "utf8");
     const completion = metadata.draftPath === completionPath ? corrected : await readFile(completionPath, "utf8");
-    coverage = assessCapabilityCoverage(opts.discovery, metadata.tools, coverageBlock(corrected) ? corrected : completion);
+    coverage = await assessReport(metadata.tools, /\bCAPABILITY_COVERAGE_JSON\b/.test(normalizeProviderOutput(corrected)) ? corrected : completion);
     if (coverage.missing.length) throw new Error("Source-backed capabilities remain unaccounted after completion.");
     return { tools: metadata.tools, draftPath: await reviewedDraft(metadata.draftPath, corrected, coverage), coverage };
   } catch (caught) {

@@ -26,11 +26,26 @@ assert.throws(() => assessCapabilityCoverage(discovery, fakeTools, report([{cand
 assert.throws(() => assessCapabilityCoverage(discovery, fakeTools, report([{candidateId:logout.id,status:"proposed",toolNames:["missing"],reason:"This missing tool would invoke logout"}])), /actual proposed tools/);
 assert.throws(() => assessCapabilityCoverage(discovery, fakeTools, report([{candidateId:"unknown",status:"skipped",reason:"A nonexistent private action"}])), /unknown/);
 assert.throws(() => assessCapabilityCoverage(discovery, fakeTools, report([{candidateId:logout.id,status:"existing",reason:"Registered in the source already"}])), /source evidence/);
+const retained = [{candidateId:logout.id,status:"existing",toolNames:["logout"],reason:"The previous draft already registered this source-backed logout tool."}];
+const normalized = assessCapabilityCoverage(discovery, fakeTools, report(retained));
+assert.equal(normalized.missing.length, 0);
+assert.equal(normalized.entries.find(entry=>entry.candidateId===logout.id).status,"proposed");
+assert.equal(assessCapabilityCoverage(discovery, fakeTools, `CAPABILITY_COVERAGE_JSON\n${JSON.stringify({candidates:retained})}\nOther notes`).missing.length,0,"A plain JSON report must not be ignored");
+assert.equal(assessCapabilityCoverage(discovery, fakeTools, report([{...retained[0],reason:'Registered logout; braces { and escaped "quotes" are plain text.'}])).missing.length,0);
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([{...retained[0],toolNames:["invented"]}])),/actual proposed tools/);
+const unresolved = {id:"unresolved-hint",file:"src/app.js",handler:"helper",resolved:false};
+assert.equal(assessCapabilityCoverage({...discovery,actionCandidates:[...inventory.candidates,unresolved]},fakeTools,report([...retained,{candidateId:unresolved.id,status:"existing",toolNames:["invented"],reason:"Inspection hint only"}])).entries.length,7,"Unresolved hints cannot satisfy or invalidate resolved coverage");
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,"CAPABILITY_COVERAGE_JSON\n{\"candidates\":["),/incomplete/);
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([retained[0],retained[0]])),/duplicate/);
 assert.equal(assessCapabilityCoverage(discovery, fakeTools.slice(0,-1), report([{candidateId:inventory.candidates.find(candidate=>candidate.handler==='clearNotice').id,status:"skipped",reason:"Dismisses decorative feedback only; intentionally not exposed as an agent capability."}])).missing.length, 0);
 const ignored = await inventoryActions("src/webmcp.js", "document.modelContext.registerTool({name:'x',execute:()=>set({x:1})});");
 assert.deepEqual(ignored.candidates, [], "Generated execute wrappers must not become new application actions");
 const dynamic = await inventoryActions("src/app.js", "button.addEventListener('click',()=>store[action]());");
 assert.deepEqual(dynamic.candidates, [], "Dynamic property keys are not known handler names");
+if (process.argv.includes("--unit-only")) {
+  console.log("Coverage report checks passed: fenced/plain JSON, draft-existing normalization, unresolved hints and invalid mapping refusal");
+  process.exit(0);
+}
 
 const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-capability-coverage-"));
 const previousEnv = {...process.env};
@@ -102,3 +117,4 @@ if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/disc
   await rm(root,{recursive:true,force:true});
 }
 console.log("Capability coverage passed: seven distinct actions including login/logout, ten tests, bounded completion, immutable existing contracts, omission evidence, and unchanged target source");
+await import("./verify-coverage-report.mjs");

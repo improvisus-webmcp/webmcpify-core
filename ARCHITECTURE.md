@@ -68,7 +68,7 @@ flowchart LR
 | --- | --- |
 | `src/lib/discovery.ts` | Detects stack, routes, forms, actions, APIs, auth, state, and existing WebMCP signals without silent signal-count truncation. |
 | `src/lib/action-inventory.ts` | Lazily parses JS/TS/JSX to inventory distinct event branches and named store actions; preserves unresolved references as hints and reports parse fallbacks. |
-| `src/lib/capability-coverage.ts` | Accounts for resolved candidates through proposed/existing/skipped capabilities, forbids arbitrary tool-count omissions, and requests one source-capable completion while freezing existing contracts before normal validation/review. |
+| `src/lib/capability-coverage.ts` | Reads fenced/plain labelled JSON, normalizes source-grounded retained draft tools to proposed coverage, excludes unresolved hints, and accounts for resolved candidates through proposed/existing/skipped capabilities. Permits one report-only correction with source/tasks/tools retained and one source-capable completion for real gaps before normal validation/review. |
 | `src/lib/agent-workspace.ts` | Copies a target into a temporary Git workspace, captures its real diff, and removes it. |
 | `src/lib/agent-readiness.ts` | Merges target-root agent guides and public capability/crawler documentation into the same reviewed patch. |
 | `src/lib/agent-discovery-content.ts` | Renders safe static HTML capability guidance and source-backed deployment/GEO/AEO checks without invented deployment URLs or indexing promises. |
@@ -131,6 +131,7 @@ flowchart LR
 | `scripts/verify-mcp.mjs` | Tests MCP identity, tools, workspace confinement, and browser MCP config merging. |
 | `scripts/verify-discovery.mjs` | Tests framework, route, action, API, and WebMCP discovery with a temporary fixture. |
 | `scripts/verify-capability-coverage.mjs` | Tests seven distinct actions including conditional login/logout, ten verification tasks, bounded gap completion, omission evidence, immutable existing contracts, and unchanged target source. |
+| `scripts/verify-coverage-report.mjs` | Checks the metadata-to-coverage handoff, fenced/plain report handling, bounded report-only correction, retained source/contracts/tasks and refusal of invalid reports or source/Git drift without browser or build execution. |
 | `scripts/verify-tool-proposals.mjs` | Tests structured proposal parsing and grounding. |
 | `scripts/verify-agent-invocation.mjs` | Tests provider invocation, executable paths, safe launch diagnostics, and terminal redaction. |
 | `scripts/verify-generation-recovery.mjs` | Exercises generation metadata recovery and fail-closed source/contract checks using credential-free providers in disposable repositories. |

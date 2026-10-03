@@ -115,6 +115,8 @@ After confirmation, CLI activity shows review connections closing. Standalone `r
 
 Invalid generated metadata gets one correction attempt without changing valid contracts or source. Failed correction stops generation without applying a patch. Full review and failure scenarios are in the [step-by-step test guide](docs/testing/end-to-end.md).
 
+Coverage reports accept labelled JSON with or without Markdown fences. Core distinguishes tools in the current draft from registrations found before generation and can correct report metadata once while retaining the source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
+
 ### Browser testing and verification
 
 Core connects Chrome DevTools MCP before starting each task agent and binds the gateway to that task's isolated tab. The agent receives only `list_webmcp_tools` and `call_webmcp_tool` (delegating to the pinned server's `execute_webmcp_tool`). Clicks, injected JavaScript, `cua_repl`, other bridges, or claimed tool calls cannot substitute for recorded WebMCP execution. `baseline` separately exercises the human interface.
