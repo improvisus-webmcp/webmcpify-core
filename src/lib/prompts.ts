@@ -134,10 +134,13 @@ order and describe that setup.
 
 Use a rejection task for a real, discovered business-rule guard: for example,
 checkout without authentication or cart contents, or remove_item with an empty
-cart. A rejection task must test exactly one proposed tool. It may declare
+cart. A rejection task must have exactly one primary rejected action: the last
+requiredTools entry. Earlier entries are successful setup tools in execution
+order (e.g. add a cart item while remaining logged out, then reject checkout).
+It may declare
 setup to prepare the negative case, such as emptying the cart or choosing an
 absent item, but that preparation must keep the declared failure condition
-true and must never satisfy the missing prerequisite or perform the primary
+true and must never satisfy the specific missing prerequisite or perform the primary
 rejected operation early. Setup may successfully call the same tool with other
 inputs when that establishes the negative case. Omit setup when the initial
 state already meets the negative case.

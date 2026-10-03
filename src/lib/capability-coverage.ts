@@ -115,7 +115,21 @@ export function assessCapabilityCoverage(discovery: DiscoveryResult, tools: Prop
       // Extra, known unresolved references cannot satisfy required coverage,
       // but must not invalidate an otherwise complete resolved-action report.
       if (typeof entry.candidateId === "string" && unresolvedIds.has(entry.candidateId)) continue;
-      const candidate = typeof entry.candidateId === "string" ? candidateById.get(entry.candidateId) : undefined;
+      let candidate = typeof entry.candidateId === "string" ? candidateById.get(entry.candidateId) : undefined;
+      // Candidate IDs are copied metadata, not authority. Recover a unique
+      // one-character hash typo only with independent handler/file grounding.
+      // Never guess arbitrary IDs, omissions, aliases or ambiguous handlers.
+      if (!candidate && typeof entry.candidateId === "string" && /^[a-f0-9]{19,20}$/.test(entry.candidateId)
+        && entry.status === "proposed" && typeof entry.reason === "string"
+        && Array.isArray(entry.toolNames) && entry.toolNames.length) {
+        const id = entry.candidateId, reason = entry.reason, names = entry.toolNames;
+        const matches = candidates.filter(item => /^[a-f0-9]{20}$/.test(item.id)
+          && (id.length === 19 ? item.id.startsWith(id) : [...id].filter((character, at) => character !== item.id[at]).length === 1)
+          && handlerCounts.get(`${item.file}#${item.handler}`) === 1
+          && new RegExp(`(^|[^a-zA-Z0-9_$])${item.handler.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zA-Z0-9_$]|$)`).test(reason)
+          && names.every(name => typeof name === "string" && toolByName.get(name)?.sourceFiles.includes(item.file)));
+        if (matches.length === 1) candidate = matches[0];
+      }
       if (!candidate || entries.has(candidate.id)) throw new Error("Capability coverage has an unknown or duplicate resolved candidate.");
       if (!["proposed", "existing", "skipped"].includes(String(entry.status)) || typeof entry.reason !== "string" || entry.reason.trim().length < 12) throw new Error("Every explicit coverage entry needs a status and a source-grounded explanation.");
       const names = entry.toolNames ?? [];

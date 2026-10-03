@@ -140,13 +140,13 @@ After confirmation, CLI activity shows review connections closing. Standalone `r
 
 Invalid generated metadata gets one correction attempt without changing valid contracts or source. Failed correction stops generation without applying a patch. Full review and failure scenarios are in the [step-by-step test guide](docs/testing/end-to-end.md).
 
-Coverage reports accept labelled JSON with or without Markdown fences, or one unambiguous JSON report without a heading. Core distinguishes tools in the current draft from registrations found before generation and can correct report metadata once while retaining the source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
+Coverage reports accept labelled JSON with or without Markdown fences, or one unambiguous JSON report without a heading. Core can recover a unique one-character copied candidate-ID typo when the named handler and proposed tool's source file agree. It distinguishes current-draft tools from pre-existing registrations and can correct report metadata once while retaining source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
 
 ### Browser testing and verification
 
 Core connects Chrome DevTools MCP before starting each task agent and binds the gateway to that task's isolated tab. The agent receives only `list_webmcp_tools` and `call_webmcp_tool` (delegating to the pinned server's `execute_webmcp_tool`). Clicks, injected JavaScript, `cua_repl`, other bridges, or claimed tool calls cannot substitute for recorded WebMCP execution. `baseline` separately exercises the human interface.
 
-Success tasks declare prerequisite setup. Expected-rejection tasks deliberately preserve an unmet business prerequisite, such as logged-out checkout, and pass only when Core observes the primary tool call, matching business error, and unchanged forbidden state. Setup calls to the same tool with different inputs are allowed. Missing tools, undeclared input failures, cancellation, connection errors, or successful retries are not valid expected rejections.
+Success tasks declare prerequisite setup. Expected-rejection tasks preserve the specific unmet business prerequisite, such as logged-out checkout. They may use successful setup tools first; the last `requiredTools` entry is the primary rejected action. Core requires ordered successful setup, exactly one matching business error, and an independent unchanged-state check. Setup calls to the same tool with different inputs are also allowed. Missing tools, setup failures, undeclared input failures, cancellation, connection errors, or successful retries are not valid expected rejections.
 
 Verification runs on the acted-on tab with deadlines and cancellation; negative checks include a 500 ms unchanged-state settle window, not a guarantee against later effects. Checks must tolerate missing storage keys without creating state. Approved criteria never change silently: invalid checks require regeneration/review, while infrastructure failures must be resolved before source repair.
 

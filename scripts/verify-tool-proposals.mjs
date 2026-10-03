@@ -10,6 +10,7 @@ import {
 } from "../dist/lib/tool-proposals.js";
 import { extractTasksFromText, validateTaskToolBindings, validateToolScaledTasks } from "../dist/lib/tasks.js";
 import { expectedRejectionObserved, requiredToolsObserved } from "../dist/lib/scoring.js";
+import { taskOutcomeInstruction } from "../dist/commands/test.js";
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "webmcpify-tools-"));
 
@@ -217,6 +218,20 @@ ${JSON.stringify(tasks)}
   assert.deepEqual(validateTaskToolBindings([rejectionTask], [guardedTool]), [rejectionTask]);
   const preparedRejection = { ...rejectionTask, setup: "Use the normal UI to empty the cart while staying logged out. Do not attempt checkout during setup." };
   assert.deepEqual(validateTaskToolBindings([preparedRejection], [guardedTool]), [preparedRejection]);
+  const setupRejection = { ...rejectionTask, requiredTools: ["add_item", "checkout_now"], setup: "Add an item while remaining logged out, then attempt checkout once." };
+  const setupContracts = [{ name: "add_item" }, guardedTool];
+  assert.deepEqual(validateTaskToolBindings([setupRejection], setupContracts), [setupRejection]);
+  assert.match(taskOutcomeInstruction(setupRejection), /primary rejection attempt with checkout_now\./, "Browser instructions must reject the final tool, not the setup tool");
+  assert.throws(() => validateTaskToolBindings([{ ...setupRejection, setup: undefined }], setupContracts), /self-contained setup/);
+  const recorded = calls => ({ source: "chrome-devtools-mcp", pageId: 1, discovered: true, policyViolations: [], calls });
+  const added = { toolName: "add_item", status: "success" };
+  const rejected = { toolName: "checkout_now", status: "error", error: rejectionTask.expectedError };
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([added, rejected])), true);
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([rejected, added])), false, "Setup must precede the rejected action");
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([rejected])), false, "Setup cannot be described-only");
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([{ ...added, status: "error", error: "Setup failed" }, rejected])), false, "Setup errors are not expected passes");
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([added, { ...rejected, error: "Wrong business guard" }])), false);
+  assert.equal(expectedRejectionObserved(setupRejection, recorded([added, rejected, { ...rejected, status: "success" }])), false);
   const absentCoffee = { ...preparedRejection, id: "remove-absent-coffee-rejected", requiredTools: ["remove_item"], setup: "Use the normal UI to empty the cart, then choose an absent coffee. Do not invoke remove_item during setup.", expectedError: "Item not found" };
   assert.deepEqual(validateTaskToolBindings([absentCoffee], [{ name: "remove_item", expectedFailures: [{ condition: "Requested coffee is absent", error: "Item not found" }] }]), [absentCoffee]);
   const concreteCoffee = { ...absentCoffee, expectedError: "Gachatha AA is not in the cart." };
@@ -239,7 +254,7 @@ ${JSON.stringify(tasks)}
   assert.equal(validateToolScaledTasks(thirteenTasks, tenTools).length, 13);
   assert.throws(
     () => validateTaskToolBindings([{ ...preparedRejection, requiredTools: ["checkout_now", "login"] }], [guardedTool, { name: "login" }]),
-    /exactly one WebMCP tool/,
+    /not backed by a declared expected failure/,
   );
   assert.throws(
     () => validateTaskToolBindings([preparedRejection], [{ name: "checkout_now", behavior: { expectedFailures: [] } }]),

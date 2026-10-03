@@ -42,6 +42,15 @@ const unresolved = {id:"unresolved-hint",file:"src/app.js",handler:"helper",reso
 assert.equal(assessCapabilityCoverage({...discovery,actionCandidates:[...inventory.candidates,unresolved]},fakeTools,report([...retained,{candidateId:unresolved.id,status:"existing",toolNames:["invented"],reason:"Inspection hint only"}])).entries.length,7,"Unresolved hints cannot satisfy or invalidate resolved coverage");
 assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,"CAPABILITY_COVERAGE_JSON\n{\"candidates\":["),/incomplete/);
 assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([retained[0],retained[0]])),/duplicate/);
+const typoId=logout.id.slice(0,-1)+(logout.id.endsWith('0')?'1':'0');
+const groundedTypo={candidateId:typoId,status:'proposed',toolNames:['logout'],reason:'The proposed tool calls the logout handler in its declared source file.'};
+assert.equal(assessCapabilityCoverage(discovery,fakeTools,report([groundedTypo])).entries.find(entry=>entry.candidateId===logout.id).status,'proposed');
+assert.equal(assessCapabilityCoverage(discovery,fakeTools,report([{...groundedTypo,candidateId:logout.id.slice(0,-1)}])).missing.length,0);
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([{...groundedTypo,reason:'The proposed tool exists in this project.'}])),/unknown/,'A near ID needs handler grounding');
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([{...groundedTypo,toolNames:['invented']}])),/unknown/);
+assert.throws(()=>assessCapabilityCoverage(discovery,fakeTools,report([groundedTypo,{...groundedTypo,candidateId:logout.id}])),/duplicate/);
+const ambiguousCandidate={...logout,id:typoId.slice(0,-1)+(typoId.endsWith('2')?'3':'2')};
+assert.throws(()=>assessCapabilityCoverage({...discovery,actionCandidates:[...inventory.candidates,ambiguousCandidate]},fakeTools,report([groundedTypo])),/unknown/,'Ambiguous source candidates must not be guessed');
 assert.equal(assessCapabilityCoverage(discovery, fakeTools.slice(0,-1), report([{candidateId:inventory.candidates.find(candidate=>candidate.handler==='clearNotice').id,status:"skipped",reason:"Dismisses decorative feedback only; intentionally not exposed as an agent capability."}])).missing.length, 0);
 const ignored = await inventoryActions("src/webmcp.js", "document.modelContext.registerTool({name:'x',execute:()=>set({x:1})});");
 assert.deepEqual(ignored.candidates, [], "Generated execute wrappers must not become new application actions");

@@ -43,7 +43,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN=provider;
   console.log=console.warn=console.error=(...args)=>logs.push(args.map(String).join(" "));
-  for(const mode of ["plain-report","unlabelled-report","metadata-handoff","report-repair","unlabelled-repair","commentary","invented","source-drift","git-drift"]){
+  for(const mode of ["plain-report","unlabelled-report","typo-report","metadata-handoff","report-repair","unlabelled-repair","commentary","invented","source-drift","git-drift"]){
     const workspace=path.join(root,mode);
     await mkdir(path.join(workspace,"src"),{recursive:true});
     await writeFile(path.join(workspace,"src/app.js"),source);
@@ -57,8 +57,9 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
     const reports=discovery.actionCandidates.map(candidate=>({candidateId:candidate.id,status:"existing",toolNames:["login"],reason:'The draft registers login from this source handler; {braces} and "quotes" are text.'}));
     const originalTasks=structuredClone(tasks);
     if(mode==="metadata-handoff")originalTasks[0].requiredTools=["PRIVATE_INVALID_TOOL"];
-    const validReport=["plain-report","unlabelled-report","metadata-handoff"].includes(mode);
+    const validReport=["plain-report","unlabelled-report","typo-report","metadata-handoff"].includes(mode);
     const report=validReport?{candidates:reports}:{candidates:[{candidateId:"PRIVATE_STALE_ID",status:"existing",toolNames:["login"],reason:"A stale report ID needs correction to the actual inventory."}]};
+    if(mode==="typo-report")report.candidates[0]={...reports[0],candidateId:reports[0].candidateId.slice(0,-1)+(reports[0].candidateId.endsWith('0')?'1':'0'),status:'proposed',reason:'The proposed tool invokes the login handler in its declared source file.'};
     const draftPath=path.join(workspace,".webmcpify/original.json");
     const coverageText=mode==="unlabelled-report"?block("",report):`CAPABILITY_COVERAGE_JSON\n${JSON.stringify(report)}`;
     await writeFile(draftPath,`${block("TOOL_PROPOSALS_JSON",{tools:[tool]})}\n${block("TASKS_JSON",originalTasks)}\n${coverageText}\nOther draft notes`);
@@ -68,7 +69,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
     await writeFile(process.env.FIXTURE_REPORT_COUNTER,"0");
     const metadata=await validateGenerationMetadata({provider:"opencode",sitePath:workspace,workspace,draftPath,discovery});
     const complete=()=>completeCapabilityCoverage({provider:"opencode",sitePath:workspace,workspace,discovery,...metadata,originalDraftPath:draftPath});
-    if(["plain-report","unlabelled-report","metadata-handoff","report-repair","unlabelled-repair"].includes(mode)){
+    if(["plain-report","unlabelled-report","typo-report","metadata-handoff","report-repair","unlabelled-repair"].includes(mode)){
       const result=await complete();
       assert.equal(result.coverage.missing.length,0);
       assert.ok(result.coverage.entries.every(entry=>entry.status==="proposed"));
@@ -78,7 +79,7 @@ if(prompt.includes('Return only a complete TASKS_JSON block')) {
       assert.deepEqual(assessCapabilityCoverage(discovery,result.tools,reviewed).entries,result.coverage.entries,"Review must see the normalized, validated report");
       assert.equal(await readFile(path.join(workspace,"src/app.js"),"utf8"),source);
     }else await assert.rejects(complete(),/capability report could not be safely corrected/);
-    assert.equal(Number(await readFile(process.env.FIXTURE_REPORT_COUNTER,"utf8")),["plain-report","unlabelled-report"].includes(mode)?0:1,"No extra source generation or repeated correction");
+    assert.equal(Number(await readFile(process.env.FIXTURE_REPORT_COUNTER,"utf8")),["plain-report","unlabelled-report","typo-report"].includes(mode)?0:1,"No extra source generation or repeated correction");
     await assert.rejects(readFile(path.join(workspace,".webmcpify/approved-tools.json")),{code:"ENOENT"});
   }
   assert.doesNotMatch(logs.join("\n"),/PRIVATE_STALE_ID|PRIVATE_INVENTED_TOOL|PRIVATE_INVALID_TOOL/);

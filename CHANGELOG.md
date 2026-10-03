@@ -4,6 +4,12 @@ All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
 
+### Fixed: rejection tests with preparatory tools
+
+- Allow successful setup tools before the final primary rejection action, such as adding an item while remaining logged out before checkout. Match the declared guard against the final tool consistently in metadata validation, task instructions and recorded browser evidence.
+- Require setup success in order and exactly one recorded error; missing/failed setup, wrong guards and successful retries cannot count as expected passes. Cover direct metadata acceptance, correction handoffs and recorded execution without changing source or test criteria.
+- Recover a unique one-character copied candidate-ID typo only for a proposed entry grounded in its exact named handler and tool source file; reject arbitrary IDs, duplicates and ambiguous handlers rather than regenerating source to correct report metadata.
+
 ### Fixed: valid capability reports without headings
 
 - Accept an unambiguous coverage JSON object or JSON fence without the presentation heading; keep candidate/tool/source validation and reject ambiguous reports. Cover initial generation and report-only correction without extra model retries or changing application source.

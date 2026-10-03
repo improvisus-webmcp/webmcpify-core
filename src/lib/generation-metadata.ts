@@ -118,6 +118,6 @@ ${TASK_AUTHORING_PROMPT}`,
     const failurePath = await createTrajectoryArtifact("generate-metadata-failure", {
       error: error instanceof Error ? error.message : String(error), diagnosticPath, repairPath,
     }, { sitePath: opts.sitePath, status: "failed", sourceTrajectory: opts.draftPath });
-    throw new Error(`Generated tool/task metadata could not be safely corrected after one attempt. No source patch was applied.${publicProviderFailureGuidance(error)} Private diagnostics: ${failurePath}`);
+    throw new Error(`Generated tool/task metadata could not be safely corrected after one attempt. A review draft was not created; the target application is unchanged.${publicProviderFailureGuidance(error)} Private diagnostics: ${failurePath}`);
   }
 }

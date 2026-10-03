@@ -71,9 +71,10 @@ export function requiredToolsObserved(task: Task, evidence: unknown): boolean {
     return /document\.modelContext/.test(task.verify) || evidence.calls.some(call => call.status === "success");
   }
   let position = 0;
-  for (const name of task.requiredTools) {
+  for (const [requiredIndex, name] of task.requiredTools.entries()) {
+    const rejectedPrimary = taskExpectedOutcome(task) === "rejection" && requiredIndex === task.requiredTools.length - 1;
     const next = evidence.calls.findIndex((call, index) => index >= position && call.toolName === name
-      && (taskExpectedOutcome(task) === "rejection" || call.status === "success"));
+      && (rejectedPrimary || call.status === "success"));
     if (next < 0) return false;
     position = next + 1;
   }
@@ -83,10 +84,10 @@ export function requiredToolsObserved(task: Task, evidence: unknown): boolean {
 export function expectedRejectionObserved(task: Task, evidence: unknown): boolean {
   if (taskExpectedOutcome(task) !== "rejection" || !task.expectedError || !validEvidence(evidence)) return false;
   const expected = task.expectedError.replace(/\s+/g, " ").trim().toLowerCase();
-  const calls = evidence.calls.filter(call => call.toolName === task.requiredTools?.[0]);
+  const calls = evidence.calls.filter(call => call.toolName === task.requiredTools?.at(-1));
   const rejection = calls.at(-1);
   return expected.length > 0 && requiredToolsObserved(task, evidence)
-    && calls.filter(call => call.status === "error").length === 1
+    && evidence.calls.filter(call => call.status === "error").length === 1
     && rejection?.status === "error"
     && Boolean(rejection.error?.replace(/\s+/g, " ").toLowerCase().includes(expected));
 }

@@ -13,7 +13,7 @@ export interface Task {
   expectedOutcome?: "success" | "rejection";
   /** Stable error text required in the recorded WebMCP execution response. */
   expectedError?: string;
-  /** Approved WebMCP tools needed to complete this task. */
+  /** Approved tools in execution order; the last tool is the primary action. */
   requiredTools?: string[];
   /** Preparation before the primary action; rejection setup must preserve the unmet guard. */
   setup?: string;
@@ -175,13 +175,10 @@ export function validateTaskToolBindings(
       throw new Error(`Task "${task.id}" uses multiple WebMCP tools and must declare self-contained setup instructions.`);
     }
     if (taskExpectedOutcome(task) === "rejection") {
-      if (task.requiredTools.length !== 1) {
-        throw new Error(`Rejection task "${task.id}" must test exactly one WebMCP tool.`);
-      }
       // Negative cases may need preparation (for example, clearing a cart or
       // selecting an absent item). The declared error and independent
       // postcondition still have to prove rejection of the guarded action.
-      const contract = contracts.find((tool) => tool.name === task.requiredTools?.[0]);
+      const contract = contracts.find((tool) => tool.name === task.requiredTools?.at(-1));
       const expectedFailures = contract?.expectedFailures ?? contract?.behavior?.expectedFailures ?? [];
       if (expectedFailures.length === 0) {
         throw new Error(`Rejection task "${task.id}" is not backed by a declared expected failure for tool "${contract?.name}".`);
