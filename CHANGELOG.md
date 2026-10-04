@@ -8,6 +8,7 @@ All notable changes to WebMCPify are documented here.
 - Restore declared Node 20 support by using Execa 9.6 instead of the Node-22-only Execa 10.
 - Resolve macOS temporary-directory aliases when confining disposable-workspace symlinks, preserving external-link rejection.
 - Run provider fixtures via their Node shebang on Windows instead of shell wrappers that corrupt multiline prompt arguments.
+- Preserve safe missing-executable diagnostics when Windows reports a shell launch failure without `ENOENT`; restore macOS Chrome's `.app` bundle layout in CI for sandboxed subprocess communication.
 
 ## [1.0.7] - 2026-10-04
 

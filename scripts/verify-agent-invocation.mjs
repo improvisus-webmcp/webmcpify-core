@@ -6,7 +6,7 @@ import { inspect } from "node:util";
 import { getInvocation, publicProviderFailureGuidance, runAgent } from "../dist/lib/agent.js";
 import { GENERATE_ONLY_PROMPT } from "../dist/commands/generate.js";
 import { fixtureProvider } from "./fixture-provider.mjs";
-import { executableOnPath, findCodexExecutable } from "../dist/lib/executables.js";
+import { classifyProviderLaunchError, executableOnPath, findCodexExecutable } from "../dist/lib/executables.js";
 
 const invocation = getInvocation({
   provider: "antigravity",
@@ -141,6 +141,7 @@ console.log(JSON.stringify({type:'turn.failed',message:'401 Unauthorized'})); pr
     return true;
   });
   process.env.WEBMCPIFY_OPENCODE_BIN = path.join(failureFixture, "missing-provider");
+  assert.match(classifyProviderLaunchError("opencode", process.env.WEBMCPIFY_OPENCODE_BIN, failureFixture, { exitCode: 1 }).message, /Could not find the opencode CLI executable/);
   await assert.rejects(runAgent(options), (error) => {
     assert.match(error.message, /Could not find the opencode CLI executable/);
     assert.equal(error.cause, undefined, "A public error cause must not leak private subprocess argv");

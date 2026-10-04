@@ -89,7 +89,11 @@ export function assertProviderCwd(provider: string, cwd: string): void {
 }
 
 export function classifyProviderLaunchError(provider: string, command: string, cwd: string, error: unknown): unknown {
-  if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "ENOENT") return error;
+  if (typeof error !== "object" || error === null) return error;
+  // Windows launchers can report a missing explicit path as a normal nonzero
+  // exit rather than ENOENT. Classify from filesystem evidence, not stderr.
+  const explicitPathMissing = /[\\/]/.test(command) && !existsSync(command);
+  if (!("code" in error && error.code === "ENOENT") && !explicitPathMissing) return error;
   try { assertProviderCwd(provider, cwd); }
   catch (cwdError) { return cwdError; }
   const candidate = /[\\/]/.test(command) ? command : executableOnPath(command);

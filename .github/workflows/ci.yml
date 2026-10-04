@@ -26,6 +26,18 @@ jobs:
       - run: npm install --ignore-scripts
       - uses: browser-actions/setup-chrome@v2
         id: chrome
+      - name: Restore Chrome app bundle on macOS
+        if: runner.os == 'macOS'
+        id: macchrome
+        shell: bash
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          chrome_bundle_root="$(dirname "$(dirname "$(dirname "$CHROME_PATH")")")"
+          chrome_ci_app="$RUNNER_TEMP/Google Chrome for Testing.app"
+          test -f "$chrome_bundle_root/Contents/Info.plist"
+          ditto "$chrome_bundle_root" "$chrome_ci_app"
+          printf 'chrome-path=%s/Contents/MacOS/%s\n' "$chrome_ci_app" "$(basename "$CHROME_PATH")" >> "$GITHUB_OUTPUT"
       - name: Allow sandboxed Chrome on Linux
         if: runner.os == 'Linux'
         shell: bash
@@ -43,7 +55,7 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/webmcpify-ci-chrome
       - run: npm test
         env:
-          WEBMCPIFY_CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          WEBMCPIFY_CHROME_BIN: ${{ steps.macchrome.outputs.chrome-path || steps.chrome.outputs.chrome-path }}
       - run: npm run verify:browser-state
         env:
-          WEBMCPIFY_CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          WEBMCPIFY_CHROME_BIN: ${{ steps.macchrome.outputs.chrome-path || steps.chrome.outputs.chrome-path }}
