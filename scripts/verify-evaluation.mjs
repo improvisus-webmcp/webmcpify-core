@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../dist/lib/trajectories.js";
 import { taskFingerprint } from "../dist/lib/tasks.js";
 import { readFile } from "node:fs/promises";
+import { matchesFinalComparison, runEval } from "../dist/commands/eval.js";
 
 const projectA = "/tmp/webmcpify-evaluation-project-a";
 const projectB = "/tmp/webmcpify-evaluation-project-b";
@@ -34,4 +35,19 @@ assert.equal(scopedWebmcp.taskSetId, taskSetId);
 assert.deepEqual(scopedWebmcp.tasks, tasks);
 assert.deepEqual(scopedWebmcp.scores.results.map((result) => result.task), tasks.map((task) => task.id));
 assert.equal((scopedWebmcp.scores.passed - baselineScores.passed) / tasks.length, 0.4);
+const comparison = { version: 1, finalTestRunId: scopedWebmcp.runId, targetProject: projectA, taskSetId, tasks };
+assert.equal(matchesFinalComparison(comparison, scopedWebmcp), true);
+assert.equal(matchesFinalComparison({ ...comparison, finalTestRunId: "unrelated-run" }, scopedWebmcp), false);
+assert.equal(matchesFinalComparison({ ...comparison, targetProject: projectB }, scopedWebmcp), false);
+assert.equal(matchesFinalComparison({ ...comparison, tasks: tasks.slice(1) }, scopedWebmcp), false);
+const linkedEvaluation = { ...scopedWebmcp, baseline: { runId: "baseline-fixture", evaluationPath: "linked-baseline.json", scores: baselineScores } };
+await createTrajectoryArtifact("test-eval", linkedEvaluation, { sitePath: projectA }, "linked-baseline-fixture");
+const output = [];
+const log = console.log;
+try {
+  console.log = (...args) => output.push(args.join(" "));
+  await runEval(projectA);
+} finally { console.log = log; }
+assert.ok(output.some(line => line.includes("UI baseline 2/5; WebMCP 4/5")));
+assert.equal(output.filter(line => line.includes("UI baseline:")).length, tasks.length);
 console.log("evaluation verification passed: shared tasks, per-task comparison, run identity, and project-scoped lookup");

@@ -34,6 +34,10 @@ try {
   );
 
   await runDiscovery(fixture);
+  const ignore = await readFile(path.join(fixture, ".gitignore"), "utf8");
+  assert.match(ignore, /^\/\.webmcpify\/$/m, "Standalone discovery must ignore private state immediately");
+  await runDiscovery(fixture);
+  assert.equal(await readFile(path.join(fixture, ".gitignore"), "utf8"), ignore, "Discovery must not duplicate ignore rules");
   const stored = JSON.parse(await readFile(discoveryPath(fixture), "utf8"));
   assert.equal(stored.version, 1);
   assert.equal(stored.targetProject, fixture);

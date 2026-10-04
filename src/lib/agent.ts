@@ -18,6 +18,7 @@ import {
 } from "./trajectories.js";
 import { resolveRecordArtifacts } from "./config.js";
 import { currentOperationSignal, currentOperationDeadline } from "./operation-context.js";
+import { logProviderMcpToolEvent } from "./mcp-tool-log.js";
 
 export interface AgentRunOptions {
   provider: AIProvider;
@@ -171,7 +172,8 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
   const args: string[] = [];
   for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
     if (!server.command) continue;
-    const key = `mcp_servers.${JSON.stringify(name)}`;
+    // Codex splits override keys on dots; quotes become literal key characters.
+    const key = `mcp_servers.${name}`;
     args.push("-c", `${key}.command=${JSON.stringify(server.command)}`);
     if (server.args) {
       args.push("-c", `${key}.args=${JSON.stringify(server.args)}`);
@@ -180,7 +182,7 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
       if (server[field] !== undefined) args.push("-c", `${key}.${field}=${JSON.stringify(server[field])}`);
     }
     for (const [name, value] of Object.entries(server.env ?? {})) {
-      args.push("-c", `${key}.env.${JSON.stringify(name)}=${JSON.stringify(value)}`);
+      args.push("-c", `${key}.env.${name}=${JSON.stringify(value)}`);
     }
   }
   if (Object.values(config.mcpServers ?? {}).some(server => server.required)) {
@@ -462,8 +464,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
   const stopProgress = startAgentProgress(opts, startedMs);
 
   try {
+    console.log(`[trace ${opts.provider}] check provider working directory START`);
     assertProviderCwd(opts.provider, opts.cwd);
+    console.log(`[trace ${opts.provider}] check provider working directory DONE`);
     if (opts.provider === "claude") {
+      console.log("[trace claude] provider execution START (raw output withheld)");
       const result = await runClaude({
         prompt: opts.prompt,
         cwd: opts.cwd,
@@ -472,22 +477,28 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
         saveTo: opts.saveTo,
         timeout: providerTimeoutMs(opts),
       });
+      console.log("[trace claude] provider execution DONE; completion check START");
       assertProviderCompletion(opts.provider, result);
+      console.log("[trace claude] completion check DONE");
       await recordAgentMetadata(opts, "completed", startedAt, startedMs);
       return result;
     }
 
+    console.log(`[trace ${opts.provider}] prepare provider configuration START`);
     if (opts.provider === "antigravity") {
       await prepareAntigravityMcpConfig(opts);
     }
     const providerEnv = opts.provider === "opencode" ? await prepareOpenCodeMcpConfig(opts) : {};
     if (opts.provider === "gemini") await prepareGeminiMcpConfig(opts);
+    console.log(`[trace ${opts.provider}] prepare provider configuration DONE; resolve invocation START`);
 
     const invocation = getInvocation(opts);
     if (opts.provider === "codex") {
       const mcpArgs = await codexMcpArgs(opts.mcpConfig);
       invocation.args.splice(1, 0, ...mcpArgs);
     }
+    const timeoutMs = providerTimeoutMs(opts);
+    console.log(`[trace ${opts.provider}] invocation ready: output=${invocation.output}, timeout=${Math.round(timeoutMs / 1000)}s; arguments withheld`);
     let stdout: string;
     // Keep the provider in its own process group. If the user interrupts the
     // WebMCPify command, AGY (and any child shell it started) must stop before
@@ -500,9 +511,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
       // Codex assume that more prompt text is coming and wait indefinitely
       // with "Reading additional input from stdin...".
       stdin: "ignore",
-      timeout: providerTimeoutMs(opts),
+      timeout: timeoutMs,
       cancelSignal: currentOperationSignal(),
     });
+    console.log(`[trace ${opts.provider}] subprocess created; waiting for provider output (not proof of model connection)`);
     const terminateProvider = (signal: NodeJS.Signals): void => {
       if (subprocess.pid) {
         if (process.platform === "win32") {
@@ -528,7 +540,19 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     signal?.addEventListener("abort", onTerminate, { once: true });
 
     let pendingJsonLine = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let lastOutputAt = Date.now();
+    // Byte counts reveal transport activity without exposing prompts or source.
+    subprocess.stderr?.on("data", (chunk: Buffer | string) => {
+      if (!stderrBytes) console.log(`[trace ${opts.provider}] first stderr bytes received (contents withheld)`);
+      stderrBytes += Buffer.byteLength(chunk);
+      lastOutputAt = Date.now();
+    });
     subprocess.stdout?.on("data", (chunk: Buffer | string) => {
+      if (!stdoutBytes) console.log(`[trace ${opts.provider}] first stdout bytes received (contents withheld)`);
+      stdoutBytes += Buffer.byteLength(chunk);
+      lastOutputAt = Date.now();
       if (invocation.output !== "json-lines") return;
 
       pendingJsonLine += chunk.toString();
@@ -540,9 +564,15 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
             type?: string;
             item?: { type?: string };
           };
-          // Codex emits one JSONL event for every internal item. Keep the
-          // trajectory complete, but show only lifecycle events in the CLI;
-          // the shared spinner already communicates that work is ongoing.
+          // Whitelist labels: never log arbitrary provider strings, item text,
+          // command arguments, tool results, prompts, or generated code.
+          const events = ["thread.started", "turn.started", "turn.completed", "turn.failed", "item.started", "item.updated", "item.completed", "error"];
+          const items = ["reasoning", "agent_message", "command_execution", "file_change", "mcp_tool_call", "web_search", "todo_list", "collab_tool_call", "error"];
+          if (event.type && events.includes(event.type)) {
+            const itemType = event.item?.type && items.includes(event.item.type) ? event.item.type : "none/unknown";
+            console.log(`[trace ${opts.provider}] event=${event.type}, item=${itemType}, elapsed=${Math.round((Date.now() - startedMs) / 1000)}s`);
+          }
+          if (opts.trajectoryMetadata?.role === "test") logProviderMcpToolEvent(event, opts.trajectoryMetadata.taskId);
           if (event.type === "turn.started") {
             console.log("[codex] turn started");
           } else if (event.type === "turn.completed") {
@@ -559,12 +589,18 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
     // Provider stderr is intentionally buffered but never streamed. Some CLIs
     // echo their argv on failure, and the prompt may contain source code.
     // Raw diagnostics are preserved privately in the failed trajectory.
+    const activityTimer = setInterval(() => {
+      console.log(`[trace ${opts.provider}] waiting for process completion: stdout=${stdoutBytes} bytes, stderr=${stderrBytes} bytes, last stream bytes=${Math.round((Date.now() - lastOutputAt) / 1000)}s ago; silence does not prove a stall`);
+    }, 15_000);
 
     try {
       ({ stdout } = await subprocess);
+      console.log(`[trace ${opts.provider}] subprocess completed successfully`);
     } catch (error) {
+      console.error(`[trace ${opts.provider}] subprocess stopped unsuccessfully; raw details withheld`);
       throw classifyProviderLaunchError(opts.provider, invocation.command, opts.cwd, error);
     } finally {
+      clearInterval(activityTimer);
       // A timed-out parent may leave MCP servers and child shells alive.
       terminateProvider("SIGKILL");
       process.removeListener("SIGINT", onInterrupt);
@@ -572,11 +608,14 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
       signal?.removeEventListener("abort", onTerminate);
     }
 
+    console.log(`[trace ${opts.provider}] save output START`);
     await mkdir(path.dirname(opts.saveTo), { recursive: true });
     await writeFile(opts.saveTo, stdout, "utf8");
+    console.log(`[trace ${opts.provider}] save output DONE; parse and completion check START`);
 
     const result = parseOutput(stdout, invocation.output);
     assertProviderCompletion(opts.provider, result, stdout);
+    console.log(`[trace ${opts.provider}] parse and completion check DONE`);
     await recordAgentMetadata(opts, "completed", startedAt, startedMs);
     return result;
   } catch (error) {

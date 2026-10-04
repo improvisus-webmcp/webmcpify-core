@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { validateVerifyExpression, verificationErrors, type VerificationContext, type VerificationIssue } from "./task-verification.js";
 import { normalizeProviderOutput } from "./provider-output.js";
@@ -78,6 +78,7 @@ export async function writeApprovedTasksAtomically(sitePath: string, manifest: A
   const suffix = `.${process.pid}.${Date.now()}.tmp`;
   const manifestTemp = `${destination}${suffix}`;
   const tasksTemp = `${taskDestination}${suffix}`;
+  await mkdir(path.dirname(taskDestination), { recursive: true });
   try {
     await writeFile(tasksTemp, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
     await writeFile(manifestTemp, `${JSON.stringify({ ...manifest, tasks: validated }, null, 2)}\n`, "utf8");
@@ -103,7 +104,14 @@ export function minimumTaskCount(toolCount: number): number {
 }
 
 export function tasksPath(sitePath: string): string {
-  return path.join(sitePath, "tasks.json");
+  return path.join(sitePath, ".webmcpify", "tasks.json");
+}
+
+/** Read older approved runs without rewriting source or trusting a stale fallback. */
+export function existingTasksPath(sitePath: string): string {
+  const current = tasksPath(sitePath);
+  const legacy = path.join(sitePath, "tasks.json");
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
 }
 
 export function validateTasks(value: unknown, minimum = 1): Task[] {
@@ -280,7 +288,7 @@ function validateTask(candidate: unknown, index: number, ids = new Set<string>()
 }
 
 export async function loadTasks(sitePath: string): Promise<Task[]> {
-  const filePath = tasksPath(sitePath);
+  const filePath = existingTasksPath(sitePath);
   if (!existsSync(filePath)) {
     throw new Error(
       `No tasks.json found at ${filePath}. Run "webmcpify generate" and approve the task list with "webmcpify review" first.`
@@ -300,7 +308,7 @@ export async function loadTasks(sitePath: string): Promise<Task[]> {
 export async function loadTasksIfPresent(
   sitePath: string
 ): Promise<Task[] | undefined> {
-  const filePath = tasksPath(sitePath);
+  const filePath = existingTasksPath(sitePath);
   if (!existsSync(filePath)) return undefined;
   return loadTasks(sitePath);
 }
@@ -311,6 +319,7 @@ export async function writeTasks(
 ): Promise<string> {
   const validated = validateTasks(tasks, 1);
   const filePath = tasksPath(sitePath);
+  await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(validated, null, 2) + "\n", "utf8");
   return filePath;
 }

@@ -8,7 +8,7 @@ import { createTrajectoryArtifact } from "../lib/trajectories.js";
 import { withManagedChrome } from "../lib/browser.js";
 import { closeScoringBrowser } from "../lib/scoring.js";
 import type { DraftIdentity } from "./contracts.js";
-import { taskFingerprint } from "../lib/tasks.js";
+import { existingTasksPath, taskFingerprint } from "../lib/tasks.js";
 
 export interface ActivityTaskResult {
   task: string;
@@ -68,7 +68,7 @@ export async function testActivity(
       task,
       attempt,
       sitePath,
-      tasksPath: `${sitePath}/tasks.json`,
+      tasksPath: existingTasksPath(sitePath),
       durable: true,
       runId,
       targetProject: sitePath,

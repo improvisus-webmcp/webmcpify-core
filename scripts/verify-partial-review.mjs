@@ -27,6 +27,7 @@ try {
   const provider = await fixtureProvider(root, "provider", `
 import {appendFileSync,existsSync,readFileSync,writeFileSync,writeSync} from 'node:fs';
 const selection = existsSync('.webmcpify/tool-selection.json') ? JSON.parse(readFileSync('.webmcpify/tool-selection.json','utf8')) : null;
+const metadataPass=process.argv.some(arg=>arg.includes('This is a read-only metadata pass'));
 if(selection)appendFileSync(${JSON.stringify(path.join(root, "revision-calls"))},'call\\n');
 if(selection&&['tasks-only','reordered','coverage-gap','provider-failure'].includes(process.env.PARTIAL_REVIEW_MODE))await new Promise(resolve=>setTimeout(resolve,process.env.WEBMCPIFY_VERIFY_REVIEW_BROWSER==='1'?6500:500));
 const makeTool = (name,handler)=>({id:name,name,title:name,description:'Changes local selection state',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Browser local state only'},implementation:{handler:'src/app.js#'+handler,action:'change selection',state:'document.body.dataset.selected'},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Loaded entry integration'},sourceFiles:['src/app.js'],behavior:{success:'Selection changes',preconditions:[],expectedFailures:[]}});
@@ -35,13 +36,13 @@ if(!selection&&process.env.PARTIAL_REVIEW_MODE==='repeat')tools.push(makeTool('c
 if(selection&&process.env.PARTIAL_REVIEW_MODE==='contract-drift')tools=tools.map(tool=>({...tool,description:'Changed contract'}));
 if(selection&&process.env.PARTIAL_REVIEW_MODE==='reordered')tools=tools.map(tool=>Object.fromEntries(Object.entries(tool).reverse()));
 if(selection&&process.env.PARTIAL_REVIEW_MODE==='provider-failure'){process.stderr.write('PRIVATE_REVIEW_PROVIDER_OUTPUT');process.exit(5);}
-if(!selection)writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");
+if(!selection&&!metadataPass)writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");
 const registrations=tools.map(tool=>"context.registerTool({name:"+JSON.stringify(tool.name)+",title:'Change selection',description:'Change selection',inputSchema:{type:'object',properties:{}},execute:()=>{ "+(tool.name==='select_item'?'selectItem':tool.name==='clear_item'?'clearItem':'dismissItem')+"();return {};}});").join('\\n');
 const rejected=selection&&process.env.PARTIAL_REVIEW_MODE==='source-drift'?"context.registerTool({name:'dismiss_item',execute:dismissItem});":'';
 const entangled=!selection&&['tasks-only','reordered','provider-failure','source-drift','contract-drift'].includes(process.env.PARTIAL_REVIEW_MODE);
 const sourceRegistrations=entangled?"const definitions=["+tools.map(tool=>"{name:"+JSON.stringify(tool.name)+",execute:"+(tool.name==='select_item'?'selectItem':'dismissItem')+"}").join(',')+"];definitions.forEach(tool=>context.registerTool(tool));":registrations;
 const imports=selection&&process.env.PARTIAL_REVIEW_MODE==='unused-integration'?'selectItem':'selectItem,dismissItem,clearItem';
-if(!selection?.sourceAlreadyPruned)writeFileSync('src/webmcp.js',"import {"+imports+"} from './app.js';\\nconst context=document.modelContext;if(context){\\n"+sourceRegistrations+rejected+"\\n}\\n");
+if(!metadataPass&&!selection?.sourceAlreadyPruned)writeFileSync('src/webmcp.js',"import {"+imports+"} from './app.js';\\nconst context=document.modelContext;if(context){\\n"+sourceRegistrations+rejected+"\\n}\\n");
 if(selection?.sourceAlreadyPruned&&process.env.PARTIAL_REVIEW_MODE==='task-only-drift')writeFileSync('src/webmcp.js',readFileSync('src/webmcp.js','utf8')+'\\n// forbidden task-only source edit\\n');
 const gap=!selection&&['coverage-gap','task-only-drift'].includes(process.env.PARTIAL_REVIEW_MODE);
 const tasks=Array.from({length:5},(_,i)=>({id:'task_'+i,description:'Verify local selection',requiredTools:gap?['dismiss_item','select_item']:[tools[i%tools.length].name],...(gap?{setup:'Reset selection with dismiss_item before selecting with select_item'}:{}),verify:'document.body.dataset.selected === "true"'}));

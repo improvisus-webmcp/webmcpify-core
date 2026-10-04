@@ -307,8 +307,8 @@ export async function gitSourceSnapshot(sitePath: string): Promise<{ sourceVersi
   const sourceVersion = (await gitOutput(sitePath, ["rev-parse", "HEAD"]))?.trim();
   if (!sourceVersion) return {};
   // These are WebMCPify-owned approval/runtime artifacts, not target source.
-  // Review writes tasks.json after generation, so including it here would make
-  // apply reject the exact approval transaction that it is meant to honor.
+  // New approved tasks live inside .webmcpify. Keep the legacy root exclusion
+  // so existing approval/source fingerprints remain valid after the upgrade.
   const sourcePathspec = [".", ":(exclude).webmcpify/**", ":(exclude)tasks.json"];
   const diff = await gitOutput(sitePath, ["diff", "--binary", "HEAD", "--", ...sourcePathspec]);
   const status = await gitOutput(sitePath, ["status", "--porcelain", "--untracked-files=all", "--", ...sourcePathspec]);

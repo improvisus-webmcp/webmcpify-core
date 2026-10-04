@@ -4,6 +4,7 @@ import path from "node:path";
 import { agentPublicDirectory } from "./agent-readiness.js";
 import { inventoryActions, type ActionCandidate } from "./action-inventory.js";
 import { currentOperationSignal } from "./operation-context.js";
+import { initializeProjectState } from "./project-state.js";
 
 export interface DiscoverySignal {
   file: string;
@@ -209,6 +210,7 @@ export async function writeDiscovery(sitePath: string, discovery: DiscoveryResul
 }
 
 export async function runDiscovery(sitePath: string, persist = true): Promise<DiscoveryResult> {
+  if (persist) await initializeProjectState(sitePath);
   const discovery = await discoverProject(sitePath);
   if (persist) await writeDiscovery(sitePath, discovery);
   return discovery;

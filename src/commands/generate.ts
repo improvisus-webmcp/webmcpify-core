@@ -4,26 +4,24 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { runAgent } from "../lib/agent.js";
 import { resolveProvider } from "../lib/ai-provider.js";
 import {
-  WEBMCP_SPEC_GUIDANCE,
-  TASK_AUTHORING_PROMPT,
-  TOOL_PLACEMENT_GUIDANCE,
-  TOOL_PROPOSAL_PROMPT,
+  GENERATION_EXECUTION_GUIDANCE,
 } from "../lib/prompts.js";
-import { createTrajectoryPath } from "../lib/trajectories.js";
-import { createPendingPatch, extractUnifiedDiff } from "../lib/patches.js";
+import { createTrajectoryPath, createTrajectoryArtifact } from "../lib/trajectories.js";
+import { createPendingPatch, extractUnifiedDiff, gitSourceSnapshot } from "../lib/patches.js";
 import { GenerationPreflightError, PreflightEnvironmentError, runGenerationPreflight } from "../lib/preflight.js";
 import { readFile } from "node:fs/promises";
-import { discoveryPath, runDiscovery } from "../lib/discovery.js";
+import { discoveryPath, discoverProject, runDiscovery, writeDiscovery } from "../lib/discovery.js";
 import { writeProposedTools } from "../lib/tool-proposals.js";
-import { validateGenerationMetadata } from "../lib/generation-metadata.js";
-import { CAPABILITY_COVERAGE_GUIDANCE, completeCapabilityCoverage } from "../lib/capability-coverage.js";
+import { authorGenerationMetadata, validateGenerationMetadata } from "../lib/generation-metadata.js";
+import { completeCapabilityCoverage } from "../lib/capability-coverage.js";
+import { loadGenerationMetadata, loadGenerationSource, restoreGenerationSource, saveGenerationSource } from "../lib/generation-source.js";
 import { auditToolSecurity, resolveSecurityPolicy, writeSecurityReport, type SecurityReport } from "../lib/security-audit.js";
 import { collectProductContext } from "../lib/product-context.js";
 import { currentOperationSignal } from "../lib/operation-context.js";
 import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-readiness.js";
 import type { ProposedTool } from "../lib/tool-proposals.js";
-import { generationOutputSchema } from "../lib/provider-output.js";
 import { removeDuplicateImports } from "../lib/duplicate-imports.js";
+import { initializeProjectState } from "../lib/project-state.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -31,60 +29,63 @@ import {
   removeAgentWorkspace,
 } from "../lib/agent-workspace.js";
 
+export const SOURCE_EDIT_ONLY_PROMPT = `
+This is a source-edit-only diagnostic, not a reviewable generation run.
+Read ./.webmcpify/discovery.json and the relevant source. Integrate WebMCP for
+the real source-backed actions, reusing existing handlers and business rules.
+Use declarative toolname/tooldescription attributes on suitable existing forms,
+or document.modelContext.registerTool with title, description, inputSchema and
+execute for imperative tools. Guard optional context access, use a stable
+AbortController for each registration lifecycle and abort its signal on cleanup.
+Wire registrations into code that actually runs on app/route load. Preserve the
+target's JS/TS language conventions, existing UI, authentication and confirmations.
+
+Make actual source edits only inside this disposable workspace. Do not edit
+.webmcpify or agent-local files. Do not install packages, change dependency
+manifests/lockfiles, run builds, typechecks, tests, linters or start servers.
+Do not access parent directories, another checkout or shared dependencies.
+Missing node_modules is intentional. Core is measuring source-editing time only.
+
+Do not author or output TOOL_PROPOSALS_JSON, TASKS_JSON, CAPABILITY_COVERAGE_JSON,
+test tasks, capability reports, patches or source listings. Once source edits
+are complete, immediately return a short plain-language completion summary.
+No large final response or structured response schema is required.
+`.trim();
+
 export const GENERATE_ONLY_PROMPT = `
-Focused generation: read ./.webmcpify/discovery.json first and draft WebMCP
-tool registrations only for the discovered actions —
-declarative (HTML form attributes) for simple single-input actions, imperative
-(document.modelContext) for actions needing custom logic or state. Report the
-relevant discovery findings briefly, then make the source edits in the
-workspace. Do not output a unified diff, a patch, or instructions to apply a
-diff: Core captures the actual workspace diff itself. Do not deploy or run
-browser verification — WebMCPify will compile-check this disposable workspace
-before the draft reaches human review.
+This is the source-editing stage. Read ./.webmcpify/discovery.json and the
+relevant source. Integrate WebMCP for the meaningful source-backed actions,
+reusing existing handlers, shared state and business rules. Inspect the whole
+interactive surface, including conditional actions such as login and logout;
+there is no fixed tool count. Respect robots restrictions and existing controls.
+Use declarative toolname/tooldescription attributes on suitable existing forms,
+or document.modelContext.registerTool with name, title, description, inputSchema
+and execute for imperative tools. Guard optional context access, use a stable
+AbortController for each registration lifecycle and abort its signal on cleanup.
+Wire registrations into code that actually runs on app/route load. Provide
+plain serializable results, not MCP content envelopes. Execute callbacks accept
+the signal options; schemas must encode real inputs with additionalProperties:false.
+Preserve real rejection guards and surface errors, never disguise failure as success.
+Use browser-only mount/effect lifecycle and fresh shared state in framework code.
+Provide agent-activity feedback: match toolactivated/toolcancel by toolName on
+the supported context event target, inspect native SubmitEvent.agentInvoked,
+and clean up listeners/status. Separately feature-guard :tool-form-active and
+:tool-submit-active CSS; show readable status in a loaded live region, not just
+color or CSS text. Use toolautosubmit only when existing consent permits it.
+Preserve the target's JS/TS conventions, existing UI, authentication and confirmations.
+Inspect exports before importing them. Use narrow local form typings when
+necessary; do not disable typechecking or replace WebMCP attributes with data-*.
 
-You are working in a disposable workspace, not the target checkout. Make the
-proposed source edits in this workspace so WebMCPify can capture the exact
-working-tree diff. A text-only proposal is not a completed task. Before ending,
-verify that one or more source files are actually modified in this workspace.
-Never edit .webmcpify artifacts and never claim a diff for files you did not
-actually inspect and edit. Do not include .serena configuration, caches, or other agent-local state
-in the source changes. Existing owner agent configuration must remain untouched.
+${GENERATION_EXECUTION_GUIDANCE}
 
-Before importing any function, value, or type from an existing module, inspect
-that module and verify the symbol is actually exported. Never invent a public
-type such as ShopState. If a type is internal, derive the type locally from
-the public API or keep the generated handler independent of that type. Run the
-workspace typecheck after editing and fix generated import/export errors before
-reporting the proposal.
-
-The current working directory is the only project you may access. Do not use
-absolute paths, inspect parent directories, or access any checkout outside it.
-
-In TypeScript JSX projects, inspect the installed form attribute types before
-adding WebMCP attributes. If those types do not yet recognize the new attributes,
-use a narrow local typing extension or typed attribute spread that preserves
-the actual toolname/tooldescription HTML attributes. Do not disable typechecking
-or substitute data-* attributes. Include any necessary typing file in the draft.
-
-Every imperative integration must be wired into code that runs once on app load
-or the relevant route, and must safely access document.modelContext. Use one
-stable AbortController per registration lifecycle; abort it on cleanup rather
-than calling unregisterTool. Every
-declarative integration must add toolname and tooldescription to the real rendered form. Do not
-leave a standalone unregistered module. These runtime requirements are checked
-before approval.
-
-${TOOL_PLACEMENT_GUIDANCE}
-
-${WEBMCP_SPEC_GUIDANCE}
-
-${AGENT_READINESS_GUIDANCE}
-
-${TOOL_PROPOSAL_PROMPT}
-
-${CAPABILITY_COVERAGE_GUIDANCE}
-
-${TASK_AUTHORING_PROMPT}
+Make actual source edits only inside this disposable workspace. A text-only proposal is not a completed task.
+Do not edit .webmcpify, .serena, caches or other
+agent-local files. Preserve existing owner configuration and build settings.
+Do not access parent directories, another checkout or shared dependencies.
+Do not output a unified diff, patch, source listing, tools/tests JSON or capability
+report. Core captures the actual edits, authors metadata in a separate read-only
+pass, writes agent-readiness files, and runs checks before human review.
+Once source edits are complete, immediately return a short completion summary.
 `.trim();
 
 export const GENERATION_METHODS = [
@@ -134,9 +135,12 @@ async function repairGeneratedWorkspace(
   provider: ReturnType<typeof resolveProvider>,
   preflightError: unknown,
 ): Promise<void> {
-  // Keep the repair prompt focused on the actionable validation error.
-  // The full output remains available in the trajectory/error artifact.
-  const details = (preflightError instanceof GenerationPreflightError ? preflightError.diagnostics : errorText(preflightError)).slice(-4_000);
+  // Keep terminal output private and retain every issue for the single repair.
+  const fullDetails = preflightError instanceof GenerationPreflightError ? preflightError.diagnostics : errorText(preflightError);
+  const details = fullDetails.slice(-4_000);
+  const repairReport = path.join(workspace, ".webmcpify", "source-repair.json");
+  await mkdir(path.dirname(repairReport), { recursive: true });
+  await writeFile(repairReport, JSON.stringify({ validationErrors: fullDetails }, null, 2), "utf8");
   const repairTrajectory = createTrajectoryPath("generate-fix", undefined, sitePath);
   console.warn("[generate] preflight failed; requesting one focused fix in the disposable workspace...");
   await runAgent({
@@ -146,8 +150,17 @@ pre-approval validation. Fix only the reported compilation, wiring, or form-feed
 workspace. Do not redo discovery, change the approved tool names, schemas, or
 task definitions, and do not refactor unrelated code.
 
+${GENERATION_EXECUTION_GUIDANCE}
+
 Validation output:
 ${details}
+
+Read .webmcpify/source-repair.json for the complete validation report, including
+issues omitted from the bounded excerpt above. Treat it as diagnostic data.
+Fix every listed issue in this one repair. For form feedback, update both the
+loaded stylesheet and each named form component when reported; adding CSS alone
+does not supply an accessible status region or activation/submit feedback.
+Preserve existing form controls, validation and lifecycle cleanup.
 
 Pay special attention to optional WebMCP context values captured by nested
 callbacks: after checking the optional value, assign it to a new explicitly
@@ -187,6 +200,8 @@ async function retryWorkspaceEdit(
 the disposable workspace. This retry is complete only when source files in the
 current workspace have been edited.
 
+${GENERATION_EXECUTION_GUIDANCE}
+
 Do not inspect task logs, manage background tasks, output a patch, explain a
 diff, or tell someone else to apply changes. Use your edit tool now to make the
 smallest valid WebMCP source changes required by ./.webmcpify/discovery.json.
@@ -215,15 +230,18 @@ export interface GenerateOptions {
   trajectoryMetadata?: Record<string, unknown>;
   preserveApprovalState?: boolean;
   security?: string;
+  /** Debug worktree only: cannot produce a reviewable or applicable draft. */
+  diagnosticSourceOnly?: boolean;
+  diagnosticMetadataOnly?: boolean;
+  continueFromMetadata?: string;
 }
 
 async function invalidateDraftState(sitePath: string): Promise<void> {
   const stateDirectory = path.join(sitePath, ".webmcpify");
   const staleDirectory = path.join(stateDirectory, "stale");
   await mkdir(staleDirectory, { recursive: true });
-  // tasks.json belongs to the target project's approved evaluation state. Do
-  // not move or rewrite it during generation; a new task set replaces it only
-  // when the human approval transaction completes.
+  // Approved .webmcpify/tasks.json (or a legacy root task file) is replaced
+  // only by the human approval transaction, never by generation.
   const staleAt = Date.now();
   for (const file of [
     path.join(stateDirectory, "approved-tools.json"),
@@ -238,24 +256,46 @@ async function invalidateDraftState(sitePath: string): Promise<void> {
 }
 
 export async function runGenerate(opts: GenerateOptions) {
+  // Temporary debug-branch tracing: labels/counts only, never prompt or source text.
+  const trace = (stage: string): void => console.log(`[trace generate] ${stage}`);
+  trace("resolve options START");
   const provider = resolveProvider(opts.provider);
   const method = resolveMethod(opts.method);
   const securityPolicy = resolveSecurityPolicy(opts.security);
   const sitePath = path.resolve(opts.path ?? process.cwd());
+  trace(`resolve options DONE: provider=${provider}, method=${method}, security=${securityPolicy}`);
 
   if (!existsSync(sitePath)) {
     throw new Error(`Site path does not exist: ${sitePath}`);
   }
 
-  if (!opts.preserveApprovalState) await invalidateDraftState(sitePath);
+  if ([opts.diagnosticSourceOnly, opts.diagnosticMetadataOnly, opts.continueFromMetadata].filter(Boolean).length > 1) throw new Error("Choose only one diagnostic or metadata continuation mode.");
+  // New drafts initialize housekeeping before taking their source baseline.
+  // Replays/repair preserve existing checkpoint and approval source identity.
+  if (!opts.diagnosticMetadataOnly && !opts.continueFromMetadata && !opts.preserveApprovalState) await initializeProjectState(sitePath);
+  const checkpoint = opts.diagnosticMetadataOnly || opts.continueFromMetadata ? await loadGenerationSource(sitePath) : undefined;
+  const savedMetadata = opts.continueFromMetadata && checkpoint
+    ? await loadGenerationMetadata(sitePath, opts.continueFromMetadata, checkpoint.sourceTrajectory) : undefined;
+  const sourceIdentity = await gitSourceSnapshot(sitePath);
+  if (!opts.preserveApprovalState && !opts.diagnosticSourceOnly && !opts.diagnosticMetadataOnly) {
+    trace("invalidate previous draft START");
+    await invalidateDraftState(sitePath);
+    trace("invalidate previous draft DONE");
+  }
 
-  const discovery = await runDiscovery(sitePath);
-  const productContext = await collectProductContext(
+  trace("discovery START");
+  const discovery = checkpoint?.discovery ?? await discoverProject(sitePath);
+  if (!checkpoint && !opts.diagnosticSourceOnly) await writeDiscovery(sitePath, discovery);
+  trace(`discovery DONE: ${(discovery.actionCandidates ?? []).filter(candidate => candidate.resolved).length} resolved action candidates`);
+  trace("product context START");
+  const productContext = checkpoint ? undefined : await collectProductContext(
     opts.productContext,
     opts.productContextPrompt,
   );
+  trace("product context DONE");
 
-  const saveTo = createTrajectoryPath("generate", undefined, sitePath);
+  const role = opts.diagnosticSourceOnly ? "generate-source-only" : "generate";
+  const saveTo = checkpoint?.sourceTrajectory ?? createTrajectoryPath(role, undefined, sitePath);
   const strategy = methodInstruction(method);
   const securityInstruction = securityPolicy === "strict"
     ? `Use Core's strict security posture based on actual effects. Browser-only clicks, navigation, form filling, filters, local cart edits, and reversible user-interface state do not need backend authorization, authenticated user/agent binding, backend quotas, or replay protection. Declare executionScope "ui-state" only when source proves the action stays in local UI state. Backend mutations require real server authorization; consequential or high-impact actions require real user and agent binding, quotas, and replay protection. Never invent backend services to satisfy metadata. Keep consequentialHint false for harmless UI changes and true for purchases, destructive effects, or external communication. Strict also reviews input bounds, privacy, origin scope, and missing contracts.`
@@ -278,43 +318,55 @@ ${productContext}`
   // Do not expose the real checkout path to an unrestricted provider process.
   // The provider receives a local copy in its disposable workspace below.
   const agentDiscovery = { ...discovery, targetProject: "." };
-  const prompt = [GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, securityInstruction, productContextInstruction, failureContext]
+  const prompt = [opts.diagnosticSourceOnly ? SOURCE_EDIT_ONLY_PROMPT : GENERATE_ONLY_PROMPT, `The structured discovery is available at ./.webmcpify/discovery.json. Read that file as the source of truth; do not invent actions or repeat its full contents in your response.`, strategy, securityInstruction, productContextInstruction, failureContext]
     .filter(Boolean)
     .join("\n\n");
+  trace(`prompt assembled: ${prompt.length} characters (contents withheld)`);
+  if (opts.diagnosticSourceOnly) {
+    console.warn("[generate] DIAGNOSTIC SOURCE-ONLY: no validation, approval or application; existing draft/approval state is preserved");
+  }
 
   console.log(
     `[generate] drafting WebMCP tools for ${sitePath} via ${provider} (${method})...`
   );
 
+  trace("copy disposable workspace START");
   const agentWorkspace = await createAgentWorkspace(sitePath);
+  trace("copy disposable workspace DONE");
+  trace("initialize workspace Git baseline START");
   await initializeAgentWorkspace(agentWorkspace);
+  trace("initialize workspace Git baseline DONE");
+  trace("write workspace discovery START");
   await mkdir(path.join(agentWorkspace, ".webmcpify"), { recursive: true });
   await writeFile(
     path.join(agentWorkspace, ".webmcpify", "discovery.json"),
     `${JSON.stringify({ ...discovery, targetProject: "." }, null, 2)}\n`,
     "utf8",
   );
+  trace("write workspace discovery DONE");
   let workspaceDiff = "";
-  let draftPath = saveTo;
+  let draftPath = savedMetadata ?? saveTo;
   let tools: ProposedTool[];
   let readinessFiles: string[] = [];
   let security: SecurityReport;
   try {
-    const outputSchema = provider === "codex" ? path.join(agentWorkspace, ".webmcpify", "generation-output.schema.json") : undefined;
-    if (outputSchema) await writeFile(outputSchema, JSON.stringify(generationOutputSchema(
-      (discovery.actionCandidates ?? []).filter(candidate => candidate.resolved).map(candidate => candidate.id),
-    )), "utf8");
+    if (checkpoint) {
+      trace("restore saved source START; source provider skipped");
+      await restoreGenerationSource(agentWorkspace, checkpoint);
+      trace("restore saved source DONE");
+    } else {
+    trace("source-editing provider run START; no response schema or metadata requested");
     await runAgent({
       provider,
-      prompt: outputSchema ? `${prompt}\nYour final response must follow the supplied output schema. Put the complete TOOL_PROPOSALS_JSON object and TASKS_JSON array as JSON strings in tool_proposals_json and tasks_json. Put CAPABILITY_COVERAGE_JSON as an actual JSON object (not a string) in capability_coverage_json. Do not include Markdown fences or summaries in these fields. Source edits alone are not a completed response.` : prompt,
-      outputSchema,
+      prompt,
       cwd: agentWorkspace,
       // Providers may ignore permission hints. The disposable workspace is
       // the actual safety boundary keeping the target checkout untouched.
       allowedTools: "Read,Edit",
       saveTo,
       trajectoryMetadata: {
-        role: "generate",
+        role,
+        diagnosticSourceOnly: Boolean(opts.diagnosticSourceOnly),
         sitePath,
         method,
         securityPolicy,
@@ -324,10 +376,30 @@ ${productContext}`
         ...opts.trajectoryMetadata,
       },
     });
+    trace("initial provider run DONE");
+    }
+    trace("capture workspace diff START");
     workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+    if (checkpoint && !workspaceDiff.trim()) throw new Error("Saved source restored without a source diff; no generation provider was called. Capture a new source checkpoint.");
+    trace(`capture workspace diff DONE: ${workspaceDiff.length} characters (contents withheld)`);
+    if (opts.diagnosticSourceOnly) {
+      if (!workspaceDiff.trim()) throw new Error("Source-only diagnostic returned without source edits; no edit retry or review draft was created.");
+      const saved = await saveGenerationSource(sitePath, workspaceDiff, discovery, saveTo, sourceIdentity);
+      console.log(`[generate] private source checkpoint saved: ${saved}`);
+      const captured = extractUnifiedDiff(workspaceDiff);
+      const artifact = await createTrajectoryArtifact("generate-source-only-diff", workspaceDiff, {
+        sitePath, role, diagnosticSourceOnly: true, unvalidated: true, sourceTrajectory: saveTo,
+      });
+      console.log(`[generate] source-only provider completed with ${captured.changedFiles.length} changed file(s) in the disposable copy`);
+      console.log(`[generate] private UNVALIDATED diagnostic diff: ${artifact}`);
+      console.log("[generate] diagnostic ended before metadata, coverage, build, security and review; target application source is unchanged");
+      return;
+    }
     if (!workspaceDiff.trim()) {
+      trace("no source edits: focused edit retry START");
       await retryWorkspaceEdit(opts, sitePath, agentWorkspace, provider, saveTo);
       workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+      trace(`focused edit retry DONE: diff=${workspaceDiff.length} characters`);
     }
     if (!workspaceDiff.trim()) {
       throw new Error(
@@ -336,55 +408,98 @@ ${productContext}`
           : "The generation provider did not modify files in its disposable workspace after an edit-only retry. Provider-reported diffs are informational only; no source patch can be created safely."
       );
     }
+    if (!checkpoint) {
+      const saved = await saveGenerationSource(sitePath, workspaceDiff, discovery, saveTo, sourceIdentity);
+      console.log(`[generate] private source checkpoint saved: ${saved}`);
+    }
+    if (!savedMetadata) {
+    trace("read-only metadata authoring START; separate tools/tasks passes, no response schema");
+    draftPath = await authorGenerationMetadata({ provider, sitePath, workspace: agentWorkspace,
+      sourceTrajectory: saveTo, discovery, instructions: securityInstruction });
+    } else trace("saved metadata loaded; initial source/tool/task generation calls skipped");
+    if (opts.diagnosticMetadataOnly) {
+      console.log(`[generate] metadata-only diagnostic completed; private UNVALIDATED metadata: ${draftPath}`);
+      console.log("[generate] stopped before correction, coverage, build, security, review and apply; target source and approval state are unchanged");
+      return;
+    }
+    trace("metadata ready; tool/task metadata validation START");
     const metadata = await validateGenerationMetadata({ provider, sitePath, workspace: agentWorkspace, draftPath, discovery });
+    trace(`tool/task metadata validation DONE: ${metadata.tools.length} tools`);
+    trace("capability accounting START (may invoke provider correction and metadata validation)");
     const complete = await completeCapabilityCoverage({ provider, sitePath, workspace: agentWorkspace, discovery,
-      tools: metadata.tools, draftPath: metadata.draftPath, originalDraftPath: saveTo,
+      tools: metadata.tools, draftPath: metadata.draftPath, originalDraftPath: draftPath,
       instructions: [strategy, securityInstruction, productContextInstruction].filter(Boolean).join("\n\n") });
+    trace("capability accounting DONE");
     tools = complete.tools;
     draftPath = complete.draftPath;
     const skipped = complete.coverage.entries.filter(entry => entry.status === "skipped").length;
     console.log(`[generate] capability coverage: ${complete.coverage.entries.length} resolved action(s) accounted for; ${skipped} explicitly omitted; no fixed tool-count limit`);
     for (const warning of complete.coverage.warnings) console.warn(`[generate] ${warning}`);
+    trace("agent-readiness files START");
     const readiness = await writeAgentReadiness(agentWorkspace, discovery, tools);
+    trace(`agent-readiness files DONE: ${readiness.files.length} files`);
     readinessFiles = readiness.files;
     if (!readiness.publicDirectory) console.log("[generate] public asset serving could not be established; deployment guidance is included in the reviewed patch");
+    trace("refresh diff and duplicate-import cleanup START");
     workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
     const cleanedImports = await removeDuplicateImports(agentWorkspace, extractUnifiedDiff(workspaceDiff).changedFiles);
     if (cleanedImports) {
       console.log(`[generate] removed identical duplicate imports in ${cleanedImports} changed source file(s)`);
       workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
     }
+    trace("refresh diff and duplicate-import cleanup DONE");
     try {
+      trace("target preflight build START");
       await runGenerationPreflight(sitePath, agentWorkspace);
+      trace("target preflight build DONE; WebMCP wiring START");
       await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
+      trace("WebMCP wiring DONE; form feedback START");
       await assertGeneratedFormFeedback(agentWorkspace, tools);
+      trace("form feedback DONE");
     } catch (error) {
       if (error instanceof PreflightEnvironmentError || currentOperationSignal()?.aborted) throw error;
+      trace("preflight/wiring/feedback failed: focused source repair START");
       await repairGeneratedWorkspace(opts, sitePath, agentWorkspace, provider, error);
+      trace("focused source repair DONE; refresh readiness/diff START");
       // A focused source fix cannot silently drop or stale the reviewed documentation.
       readinessFiles = (await writeAgentReadiness(agentWorkspace, discovery, tools)).files;
       workspaceDiff = await readAgentWorkspaceDiff(agentWorkspace);
+      trace("refresh readiness/diff DONE; repaired target preflight START");
       await runGenerationPreflight(sitePath, agentWorkspace);
+      trace("repaired target preflight DONE; repaired WebMCP wiring START");
       await assertGeneratedWebMcpWiring(agentWorkspace, discovery, workspaceDiff);
+      trace("repaired WebMCP wiring DONE; repaired form feedback START");
       await assertGeneratedFormFeedback(agentWorkspace, tools);
+      trace("repaired form feedback DONE");
     }
+    trace("security audit START");
     security = auditToolSecurity(tools, discovery, sitePath, securityPolicy, { root: agentWorkspace });
+    trace(`security audit DONE: ${security.summary.block} blocking, ${security.summary.review} review findings`);
   } finally {
+    trace("workspace cleanup START (also runs after failure)");
     await removeAgentWorkspace(agentWorkspace);
+    trace("workspace cleanup DONE");
   }
 
   try {
+    trace("save proposals and security report START");
+    // Continuation reads discovery from its checkpoint rather than running
+    // discovery again. Publish that same inventory for review and later stages.
+    await writeDiscovery(sitePath, discovery);
     const proposalFile = await writeProposedTools(sitePath, tools, discoveryPath(sitePath), draftPath);
     const securityFile = await writeSecurityReport(sitePath, security);
+    trace("save proposals and security report DONE");
     if (security.status === "block") {
       throw new Error(`Security review blocked this proposal (${security.summary.block} blocking finding(s)). Inspect ${securityFile}; no pending patch was created.`);
     }
+    trace("create pending review patch START");
     const patch = await createPendingPatch(
       sitePath,
       workspaceDiff,
       draftPath,
       { securityPolicy, provider },
     );
+    trace("create pending review patch DONE");
     console.log(`[generate] draft saved to ${draftPath}`);
     console.log(`[generate] proposed tools: ${proposalFile}`);
     console.log(`[generate] validated ${tools.length} tool proposal(s)`);
@@ -411,16 +526,22 @@ export async function assertGeneratedFormFeedback(workspace: string, tools: Prop
   const loadedStyles = contents.filter(({ file }) => /\.(?:css|scss)$/.test(file)
     && (source.includes(path.posix.basename(file)) || assetsConfig.includes(file))).map(({ text }) => text).join("\n");
   const inlineStyles = contents.filter(({ file, text }) => !/\.(?:css|scss)$/.test(file) && /<style\b|\bstyles\s*:\s*\[/.test(text)).map(({ text }) => text).join("\n");
+  const problems: string[] = [];
   if (!/:tool-form-active/.test(loadedStyles + inlineStyles) || !/:tool-submit-active/.test(loadedStyles + inlineStyles)) {
-    throw new Error("WebMCP forms need loaded styles for :tool-form-active and :tool-submit-active before review.");
+    problems.push("WebMCP forms need loaded styles for :tool-form-active and :tool-submit-active before review. Add the missing selectors to a stylesheet actually loaded by the application.");
   }
   // Each form's component must expose status text or deliberately use its existing live region.
   for (const tool of formTools) {
     const component = await readFile(path.join(workspace, tool.placement.file), "utf8");
-    if (!/(?:role\s*=\s*["']status["']|aria-live\s*=\s*["']polite["'])/.test(component)
-      || !/(?:toolactivated|agentInvoked)/.test(source)) {
-      throw new Error(`WebMCP form "${tool.name}" needs an accessible agent-status region and activation/submit feedback before review.`);
+    if (!/(?:role\s*=\s*["']status["']|aria-live\s*=\s*["']polite["'])/.test(component)) {
+      problems.push(`WebMCP form "${tool.name}" in ${tool.placement.file} needs an accessible agent-status region (role="status" or aria-live="polite"). Update this component, not just its CSS.`);
     }
+    if (!/(?:toolactivated|agentInvoked)/.test(source)) {
+      problems.push(`WebMCP form "${tool.name}" in ${tool.placement.file} needs activation/submit feedback connected to toolactivated or agentInvoked; retain the normal human submit behavior.`);
+    }
+  }
+  if (problems.length) {
+    throw new Error(`WebMCP form feedback must be corrected before review:\n${problems.map((problem) => `- ${problem}`).join("\n")}`);
   }
 }
 

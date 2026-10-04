@@ -12,6 +12,13 @@ const tasks = [
 ];
 assert.deepEqual(buildFinalEvalPlan(), [
   "prepare-and-review",
+  "apply-and-test",
+  "repair-if-needed",
+  "temporal-evaluation",
+  "compare-and-record",
+], "UI baseline is skipped by default");
+assert.deepEqual(buildFinalEvalPlan(true), [
+  "prepare-and-review",
   "baseline",
   "apply-and-test",
   "repair-if-needed",
