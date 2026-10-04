@@ -199,8 +199,9 @@ for await (const line of createInterface({input:process.stdin})) {
   process.env.WEBMCPIFY_CODEX_BIN = fakeCodex;
   await runAgent({ provider: "codex", prompt: "Private fixture prompt", cwd: root, mcpConfig: bridge.configPath, saveTo: path.join(root, "agent.json") });
   const args = JSON.parse(await readFile(argsPath, "utf8"));
-  assert.ok(args.includes('mcp_servers."chrome-devtools".required=true'));
-  assert.ok(args.includes('mcp_servers."chrome-devtools".enabled=true'));
+  assert.ok(args.includes('mcp_servers.chrome-devtools.required=true'));
+  assert.ok(args.includes('mcp_servers.chrome-devtools.enabled=true'));
+  assert.ok(!args.some(arg => arg.startsWith('mcp_servers."')), "Codex override keys must not contain literal quotes");
   assert.ok(args.includes('mcp_servers.chrome-devtools.enabled_tools=["list_webmcp_tools","call_webmcp_tool"]'));
   assert.ok(args.includes("mcp_optional_startup_grace_ms=0"));
   await adapter.close(); adapter = undefined;
