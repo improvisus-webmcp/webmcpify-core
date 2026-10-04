@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
  * changed later by WebMCPify's explicit review/apply boundary.
  */
 export async function createAgentWorkspace(sitePath: string): Promise<string> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "webmcpify-agent-"));
+  const workspace = await realpath(await mkdtemp(path.join(os.tmpdir(), "webmcpify-agent-")));
   try {
     const sourceRoot = await realpath(sitePath);
     await cp(sourceRoot, workspace, {
@@ -46,7 +46,7 @@ async function confineWorkspaceLinks(sourceRoot: string, workspace: string, dire
     else if (entry.isSymbolicLink()) {
       const relative = path.relative(workspace, copiedPath);
       const link = await readlink(copiedPath);
-      const sourceTarget = path.resolve(path.dirname(path.join(sourceRoot, relative)), link);
+      const sourceTarget = await canonicalLinkTarget(path.resolve(path.dirname(path.join(sourceRoot, relative)), link));
       const targetRelative = path.relative(sourceRoot, sourceTarget);
       if (path.isAbsolute(targetRelative) || targetRelative.split(path.sep)[0] === "..") {
         throw new Error(`Cannot isolate symbolic link outside the selected target: ${relative}. Select a common project root containing its source, or replace the external link with a local source copy.`);
@@ -60,6 +60,18 @@ async function confineWorkspaceLinks(sourceRoot: string, workspace: string, dire
         await symlink(copiedTarget, copiedPath, process.platform === "win32" && isDirectory ? "junction" : isDirectory ? "dir" : "file");
       }
     }
+  }
+}
+
+/** Resolve OS directory aliases, while retaining safe dangling link paths. */
+async function canonicalLinkTarget(filename: string): Promise<string> {
+  try {
+    return await realpath(filename);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = path.dirname(filename);
+    if (parent === filename) throw error;
+    return path.join(await canonicalLinkTarget(parent), path.basename(filename));
   }
 }
 

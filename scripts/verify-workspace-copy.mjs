@@ -30,6 +30,12 @@ try {
   await fs.mkdir(path.join(source, "node_modules-helper"));
   await fs.writeFile(path.join(source, "node_modules-helper/required.js"), "export const keep = true;\n");
   if (process.platform !== "win32") {
+    // Model macOS /var -> /private/var: an absolute link may use a
+    // different spelling of the same target root, not an external source.
+    const rootAlias = path.join(root, "root-alias");
+    await fs.symlink(source, rootAlias, "dir");
+    await fs.symlink(path.join(rootAlias, "src/app.js"), path.join(source, "src/aliased-link.js"));
+    await fs.symlink(path.join(rootAlias, "missing/deep.js"), path.join(source, "src/aliased-dangling-link.js"));
     await fs.symlink("app.js", path.join(source, "src/relative-link.js"));
     await fs.symlink(path.join(source, "src/app.js"), path.join(source, "src/absolute-link.js"));
     await fs.symlink(path.join(source, "assets"), path.join(source, "linked-assets"), "dir");
@@ -67,6 +73,8 @@ try {
       assert.equal(await fs.realpath(path.join(workspace, "src/relative-link.js")), path.join(workspace, "src/app.js"), "Relative source links must not point back to the owner checkout");
       assert.equal(await fs.realpath(path.join(workspace, "src/absolute-link.js")), path.join(workspace, "src/app.js"), "Absolute internal links must be rebased into the snapshot");
       assert.equal(await fs.realpath(path.join(workspace, "linked-assets")), path.join(workspace, "assets"));
+      assert.equal(await fs.realpath(path.join(workspace, "src/aliased-link.js")), path.join(workspace, "src/app.js"));
+      assert.equal(await fs.readlink(path.join(workspace, "src/aliased-dangling-link.js")), path.join(workspace, "missing/deep.js"));
       assert.equal(await fs.readlink(path.join(workspace, "src/dangling-link.js")), "missing.js", "Safe dangling relative links remain unchanged");
     }
     await initializeAgentWorkspace(workspace);

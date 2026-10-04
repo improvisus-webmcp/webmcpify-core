@@ -42,7 +42,7 @@
     "verify:temporal-live": "node scripts/verify-temporal-live.mjs",
     "verify:temporal-pipeline": "node scripts/verify-temporal-pipeline.mjs",
     "verify:tools": "node scripts/verify-tool-proposals.mjs",
-    "verify:agent": "node scripts/verify-agent-invocation.mjs",
+    "verify:agent": "node scripts/verify-fixture-provider.mjs && node scripts/verify-agent-invocation.mjs",
     "verify:generation-recovery": "node scripts/verify-generation-recovery.mjs",
     "verify:runtime": "node scripts/verify-runtime-safety.mjs",
     "verify:workspace-copy": "node scripts/verify-workspace-copy.mjs",
@@ -100,7 +100,7 @@
     "@babel/parser": "^7.28.0",
     "commander": "^12.1.0",
     "dotenv": "^17.4.2",
-    "execa": "^10.0.1",
+    "execa": "^9.6.0",
     "express": "^5.2.1",
     "playwright-core": "^1.62.1"
   },

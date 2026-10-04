@@ -7,6 +7,7 @@ permissions:
 
 jobs:
   core:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +26,21 @@ jobs:
       - run: npm install --ignore-scripts
       - uses: browser-actions/setup-chrome@v2
         id: chrome
+      - name: Allow sandboxed Chrome on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          test -x "$CHROME_PATH"
+          sudo tee /etc/apparmor.d/webmcpify-ci-chrome >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile webmcpify-ci-chrome "${CHROME_PATH}" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/webmcpify-ci-chrome
       - run: npm test
         env:
           WEBMCPIFY_CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
