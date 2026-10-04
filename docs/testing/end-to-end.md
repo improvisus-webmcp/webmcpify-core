@@ -21,7 +21,7 @@ pnpm audit --prod
 npm pack --dry-run
 git diff --check
 npm uninstall --global @improvisus/webmcpify-core
-npm link
+npm link --ignore-scripts
 hash -r
 command -v webmcpify
 webmcpify --version
@@ -127,8 +127,8 @@ controls. Independent JS/TS registrations are removed directly in a disposable
 workspace; only shared/dynamic integrations or coverage gaps invoke the original
 coding provider. Rejected-only and mixed/dependent tasks disappear; unaffected
 task IDs and criteria stay unchanged. Both initial and revised drafts must have
-at least `ceil(tool count × 1.3)` tests with every tool covered (10 tools → 13+
-tests); there is no six-test cap. If removals cause a count shortfall, Core adds
+at least `ceil(tool count × 1.2)` tests with every tool covered; generation
+targets 30% extra scenarios (10 tools → 12 minimum, 13 target). If removals cause a count shortfall, Core adds
 grounded scenarios without rewriting retained tests. Retained-only docs are reconciled;
 the page automatically reopens for fresh review. Remove another tool
 and repeat if at least one remains. No approval/application happens
@@ -166,9 +166,10 @@ After approval creates the fixed task set, but before apply:
 webmcpify baseline --url http://127.0.0.1:5173 --provider codex
 ```
 
-Keep the server running. This one-shot baseline can use the existing UI or existing
-WebMCP tools; it is not necessarily a UI-only baseline. It verifies each task on its
-acted-on tab. The advanced final evaluation includes the separate UI-only comparison.
+Keep the server running. Baseline executes the approved tasks through ordinary
+UI interactions, without WebMCP calls, and verifies each task on its acted-on tab.
+It is optional. Use `test --baseline` for an automatically linked comparison,
+or start `final-eval --baseline` before apply for a pre-integration UI comparison.
 
 ## 6. Apply and check the application
 

@@ -510,6 +510,8 @@ Provider executable overrides are available as `WEBMCPIFY_CODEX_BIN`, `WEBMCPIFY
 For troubleshooting, prefix a command with `WEBMCPIFY_TRACE=1` to show safe
 generation stages, provider event types and stream byte counts. Trace output
 does not include prompts, code, tool arguments or raw provider diagnostics.
+It is off by default; use `unset WEBMCPIFY_TRACE` to clear a shell override,
+or prefix one command with `WEBMCPIFY_TRACE=0`. Normal progress remains visible.
 
 Core checks executable files on `PATH`, not shell aliases or functions. Codex also falls back to an executable in `~/.local/bin` or a supported editor installation. Relative executable paths and relative `PATH` entries are resolved before changing to the disposable workspace. Launch errors distinguish missing CLIs from a missing working directory or a broken launcher/interpreter; use an absolute override when necessary.
 
@@ -616,7 +618,7 @@ npm uninstall --global @improvisus/webmcpify-core
 cd /path/to/webmcpify-core
 pnpm install
 pnpm build
-npm link
+npm link --ignore-scripts
 hash -r
 command -v webmcpify
 webmcpify --version
