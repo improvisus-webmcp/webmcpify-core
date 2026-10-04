@@ -22,6 +22,7 @@ import { AGENT_READINESS_GUIDANCE, writeAgentReadiness } from "../lib/agent-read
 import type { ProposedTool } from "../lib/tool-proposals.js";
 import { removeDuplicateImports } from "../lib/duplicate-imports.js";
 import { initializeProjectState } from "../lib/project-state.js";
+import { hasAutomaticFormSubmission } from "../lib/form-submission.js";
 import {
   createAgentWorkspace,
   initializeAgentWorkspace,
@@ -71,7 +72,12 @@ Provide agent-activity feedback: match toolactivated/toolcancel by toolName on
 the supported context event target, inspect native SubmitEvent.agentInvoked,
 and clean up listeners/status. Separately feature-guard :tool-form-active and
 :tool-submit-active CSS; show readable status in a loaded live region, not just
-color or CSS text. Use toolautosubmit only when existing consent permits it.
+color or CSS text. Harmless filters/search forms need a real toolautosubmit=""
+DOM attribute to complete unattended WebMCP calls; without it Chrome waits for
+human submission and the test times out. React spreads must contain
+toolautosubmit: "", not a boolean or a type-only declaration. Preserve mandatory
+human confirmation: do not expose a human-submit-only form as an unattended
+capability or bypass consent. Expose safe preparation/status separately instead.
 Preserve the target's JS/TS conventions, existing UI, authentication and confirmations.
 Inspect exports before importing them. Use narrow local form typings when
 necessary; do not disable typechecking or replace WebMCP attributes with data-*.
@@ -519,7 +525,7 @@ ${productContext}`
   }
 }
 
-/** A declarative proposal must include actual styles and accessible UI feedback. */
+/** A declarative proposal must submit unattended and include accessible feedback. */
 export async function assertGeneratedFormFeedback(workspace: string, tools: ProposedTool[]): Promise<void> {
   const formTools = tools.filter((tool) => tool.placement.strategy === "declarative");
   if (!formTools.length) return;
@@ -538,6 +544,9 @@ export async function assertGeneratedFormFeedback(workspace: string, tools: Prop
   // Each form's component must expose status text or deliberately use its existing live region.
   for (const tool of formTools) {
     const component = await readFile(path.join(workspace, tool.placement.file), "utf8");
+    if (!await hasAutomaticFormSubmission(component, tool.placement.file, tool.name)) {
+      problems.push(`WebMCP form "${tool.name}" in ${tool.placement.file} cannot complete unattended testing: no statically present toolautosubmit attribute on its form. For harmless filters/search, render toolautosubmit=""; React spread properties need an empty string, not a boolean. Do not remove mandatory human confirmation or enable autosubmit on sensitive forms merely to pass testing; expose a consent-preserving callable capability or omit this unsupported submission with a source-grounded reason. The existing submit handler must return its real result through respondWith when preventing navigation.`);
+    }
     if (!/(?:role\s*=\s*["']status["']|aria-live\s*=\s*["']polite["'])/.test(component)) {
       problems.push(`WebMCP form "${tool.name}" in ${tool.placement.file} needs an accessible agent-status region (role="status" or aria-live="polite"). Update this component, not just its CSS.`);
     }

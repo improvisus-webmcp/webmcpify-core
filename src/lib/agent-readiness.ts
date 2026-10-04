@@ -40,8 +40,14 @@ AGENT-READY INTEGRATION
 - Vanilla JS, Vue, Svelte, and other stacks: use their existing DOM/mount/unmount
   conventions and styles. Import or link all generated CSS and integration files.
 - Use toolname/tooldescription on real forms for the current Chrome declarative
-  API, preserve validation, and add toolautosubmit only when existing consent and
-  confirmation behavior allows it. Prefer the detected runtime, not guessed APIs.
+  API and preserve validation. Harmless filters/search must render toolautosubmit=""
+  so unattended WebMCP calls actually submit, rather than waiting for a human click.
+  React: use a string attribute or spread property toolautosubmit: "", not true;
+  extend local TS types if needed. Angular: use toolautosubmit or [attr.toolautosubmit]="''".
+  Call nativeEvent.respondWith with the real result/error when preventing navigation.
+  Never bypass existing consent or confirmation to make a test pass. Human-submit-only
+  forms are not unattended capabilities; expose safe preparation/status separately
+  or omit the unsupported submission with a source-grounded reason.
 - Core adds llms.txt, webmcp.md, and one combined root AGENTS.md guide inside this disposable
   workspace after validating the proposal. Ensure the site's real static serving
   directory is configured (public/ for most JS frameworks, static/ for SvelteKit,

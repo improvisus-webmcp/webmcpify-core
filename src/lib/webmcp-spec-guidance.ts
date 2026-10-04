@@ -36,7 +36,12 @@ IMPLEMENTATION AREAS
   preserve the form's existing submit, validation, accessibility, and state
   behaviour. Do not create an unconnected standalone registration.
   Chrome's declarative API uses toolname, tooldescription, and optional
-  toolautosubmit attributes. Style :tool-form-active and :tool-submit-active
+  toolautosubmit attributes. Without toolautosubmit, invocation waits for manual
+  submission. Safe filters/search intended for unattended use must render that
+  attribute (React: toolautosubmit="", not a boolean). Preserve mandatory human
+  confirmation; never add autosubmit to bypass consent. Use respondWith for the
+  actual submit result when preventing navigation.
+  Style :tool-form-active and :tool-submit-active
   using feature-guarded CSS. Listen for toolactivated/toolcancel on the supported
   document.modelContext event target (older implementations may differ), match
   toolName, and provide visible accessible status with cleanup.

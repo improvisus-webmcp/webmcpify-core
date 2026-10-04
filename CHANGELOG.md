@@ -1,13 +1,20 @@
 # Changelog
 
+All notable changes to WebMCPify are documented here.
+
+## [1.0.7] - 2026-10-04
+
+### Fixed: declarative forms waiting for human submission
+
+- Require statically present form autosubmission for unattended declarative capabilities before generation/revision review; harmless filters/search render a string `toolautosubmit` attribute, including React spread attributes.
+- Include missing submission in the existing aggregated form-repair report. Reject comment/type-only flags, React boolean props, and attributes on unrelated forms without automatically editing consent boundaries or sensitive actions.
+- Preserve mandatory human confirmation and guide generation toward safe preparation/status capabilities or source-grounded omission instead of bypassing approval, clicking buttons, or extending timeouts.
+
 ### Changed: integrated generation diagnostics
 
 - Bring the source-only diagnostic and its focused fixture into the main checkout; diagnostic generation flags belong to `generate`, not `run`.
 - Retain safe provider/generation traces behind `WEBMCPIFY_TRACE=1`, without printing prompts or code during ordinary commands.
-
-All notable changes to WebMCPify are documented here.
-
-## [Unreleased]
+- Highlight agent readiness and clarify automatic `.gitignore` creation. Document opt-in agent analytics as a future roadmap, not a shipped feature.
 
 ### Changed: private approved task files
 

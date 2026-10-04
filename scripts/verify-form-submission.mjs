@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import { hasAutomaticFormSubmission } from "../dist/lib/form-submission.js";
+
+const check = (source, file = "Filter.tsx", name = "filter") => hasAutomaticFormSubmission(source, file, name);
+assert.equal(await check('<form toolname="filter" />'), false);
+assert.equal(await check('// toolautosubmit=""\nconst view = <form toolname="filter" />;'), false);
+assert.equal(await check('type Attributes = {toolautosubmit: string}; const view = <form toolname="filter" />;'), false);
+assert.equal(await check('<form toolname="filter" toolautosubmit="" />'), true);
+assert.equal(await check('<form toolname="filter" toolautosubmit />'), false, "React boolean custom attributes are not evidence of a rendered string attribute");
+assert.equal(await check('<form toolname="filter" toolautosubmit={true} />'), false);
+assert.equal(await check('const attrs = {toolname: "filter", toolautosubmit: ""}; const view = <form {...attrs} />;'), true);
+assert.equal(await check('const NAME = "filter"; const attrs = {toolname: NAME, toolautosubmit: ""} satisfies Record<string, string>; const view = <form {...attrs} />;'), true);
+assert.equal(await check('const attrs = {toolname: "filter", toolautosubmit: ""}; const view = <form {...attrs} toolautosubmit={undefined} />;'), false);
+assert.equal(await check('<><form toolname="filter" /><form toolname="other" toolautosubmit="" /></>'), false);
+assert.equal(await check('<form toolname="filter" toolautosubmit></form>', "filter.html"), true);
+assert.equal(await check('<!-- toolautosubmit --><form toolname="filter"></form>', "filter.html"), false);
+assert.equal(await check('<script>const x = "toolautosubmit";</script><form toolname="filter"></form>', "filter.html"), false);
+assert.equal(await check('<form toolname="filter"></form><form toolname="other" toolautosubmit></form>', "filter.html"), false);
+assert.equal(await check(`<form [attr.toolname]="name" [attr.toolautosubmit]="''"></form>`, "filter.component.html"), true);
+assert.equal(await check('<form [attr.toolname]="name" [attr.toolautosubmit]="null"></form>', "filter.component.html"), false);
+assert.equal(await check(`<form :toolname="name" :toolautosubmit="''"></form>`, "Filter.vue"), true);
+console.log("Form submission checks passed: missing/manual forms refused, static HTML and framework attributes accepted, unrelated/comment/type/boolean flags rejected.");

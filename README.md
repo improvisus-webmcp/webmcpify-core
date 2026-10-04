@@ -9,19 +9,22 @@ Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/w
 
 Make your app agent-ready without rebuilding it. Core discovers existing capabilities, drafts WebMCP integrations in an isolated workspace, and applies only the exact patch you approve. It then exercises the tools in a real browser and independently verifies their effects.
 
+**Version 1.0.7:** improved discovery, staged generation, agent-readiness guidance, browser verification and optional durable workflows. See the [changelog](CHANGELOG.md).
+
+**Agent-ready, not just tool-enabled.** Core proposes public capability references,
+`llms.txt`, scoped crawler guidance and one repository `AGENTS.md`, alongside usable
+tools and accessible agent feedback. Review, deploy and link these files so agents
+and LLM-backed search can understand your app; indexing is never guaranteed.
+
 ## Why use WebMCPify Core?
 
-- **Make your app agent-ready and easier to discover.** Expose usable WebMCP capabilities and add `AGENTS.md`, public capability references, `llms.txt`, and scoped crawler guidance so agents and LLM-backed search can understand your site. These support discovery and indexing eligibility—not guaranteed indexing, citations, or recommendations.
-- **Reuse what already works.** Integrate existing handlers, forms, authentication, and business rules; preserve the human interface and reuse existing WebMCP registrations instead of duplicating them.
-- **Reduce integration work.** Draft tool schemas, registrations, documentation, and accessible agent-activity feedback while preserving your JavaScript/TypeScript and framework conventions.
-- **Control exactly what ships.** Review every tool and changed file, remove unwanted capabilities, and approve the exact source patch. Rejected registrations and their dependent tests are excluded without removing ordinary app actions.
-- **Test in real browsers with real WebMCP calls.** Chrome DevTools MCP exercises approved capabilities through `list_webmcp_tools` and `call_webmcp_tool`; independent checks verify page state, not just compilation or the agent's claims.
-- **Cover realistic workflows and failure cases.** Generate tests for every proposed tool, with prerequisite setup, success checks, and applicable expected business-rule rejections; execute the approved set. Missing tools, provider failures, and browser errors cannot masquerade as passing negative tests.
-- **Compare against the existing interface.** UI-only baselines and final evaluation help you assess whether the agent-facing integration actually works alongside the human workflow.
-- **Find problems before production.** Build checks, security audits, and browser verification can expose wiring bugs, broken workflows, authorization gaps, unsafe inputs, and duplicate-action risks. Balanced security distinguishes UI-only state from consequential backend effects; static checks are not proof of production enforcement.
-- **Protect your working tree.** Draft in disposable workspaces, bind approval to source identity, and attempt rollback after failed apply/build checks. Keep local evidence for diagnosis; failure messages withhold prompts and source output.
-- **Fit your existing agent workflow.** Use the CLI or local MCP server with supported Codex, Claude Code, Gemini, OpenCode, or Antigravity installations; no GitHub access is required by Core.
-- **Handle long runs when needed.** Optional Temporal execution checkpoints the full pipeline from discovery through verification, with progress, deadlines, cancellation, and reattachment. Ordinary commands need no Temporal installation.
+- **Reuse your app.** Discover existing handlers, forms and business rules; preserve human workflows and JavaScript/TypeScript conventions.
+- **Control what ships.** Review tools, tests and every changed file. Remove unwanted capabilities and approve only the exact revised patch.
+- **Verify real behavior.** Test approved tools through Chrome DevTools WebMCP, with prerequisite setup, success cases, expected rejections and independent state checks.
+- **Find issues before production.** Build and balanced security checks distinguish local UI state from consequential backend effects; they reduce risk, not replace production enforcement.
+- **Measure the difference.** Opt into an ordinary-UI baseline and compare it with WebMCP results in saved evaluations.
+- **Protect your work.** Isolated drafting, source-identity checks, automatic apply-failure rollback and private diagnostics preserve the review boundary.
+- **Fit your workflow.** CLI/MCP support for existing coding providers; optional Temporal checkpoints from discovery onward. No GitHub account or Temporal installation is needed for ordinary commands.
 
 ```text
 Discover → Draft → Security check → Review → Apply → Test → Verify
@@ -157,6 +160,13 @@ After a successful metadata diagnostic, use `generate --continue-from-metadata <
 
 Core connects Chrome DevTools MCP before starting each task agent and binds the gateway to that task's isolated tab. The agent receives only `list_webmcp_tools` and `call_webmcp_tool` (delegating to the pinned server's `execute_webmcp_tool`). Clicks, injected JavaScript, `cua_repl`, other bridges, or claimed tool calls cannot substitute for recorded WebMCP execution. `baseline` separately exercises the human interface.
 
+Harmless declarative filters/search must render `toolautosubmit` to complete
+unattended calls; otherwise Chrome waits for human submission. React uses a
+string attribute (`toolautosubmit=""`), not a boolean prop. Pre-review form
+checks flag missing or unprovable attributes rather than allowing a timed-out
+test. Never bypass mandatory confirmation on sensitive forms to satisfy this
+check; expose safe preparation/status capabilities or omit the unsupported action.
+
 Success tasks declare prerequisite setup. Expected-rejection tasks preserve the specific unmet business prerequisite, such as logged-out checkout. They may use successful setup tools first; the last `requiredTools` entry is the primary rejected action. Core requires ordered successful setup, exactly one matching business error, and an independent unchanged-state check. Setup calls to the same tool with different inputs are also allowed. Missing tools, setup failures, undeclared input failures, cancellation, connection errors, or successful retries are not valid expected rejections.
 
 Verification runs on the acted-on tab with deadlines and cancellation; negative checks include a 500 ms unchanged-state settle window, not a guarantee against later effects. Checks must tolerate missing storage keys without creating state. Approved criteria never change silently: invalid checks require regeneration/review, while infrastructure failures must be resolved before source repair.
@@ -165,7 +175,10 @@ Verification runs on the acted-on tab with deadlines and cancellation; negative 
 
 ## Agent-ready websites and repositories
 
-Generation proposes the following guidance in the reviewed patch. Public references use an identifiable root-served directory; repository guidance remains separate:
+Readiness combines **usable capabilities, understandable public documentation,
+safe access boundaries and deployment checks**. Generation proposes the following
+files in the reviewed patch; public references use a root-served directory,
+separate from repository guidance and private run state:
 
 | File | Purpose |
 | --- | --- |
@@ -525,7 +538,8 @@ OpenCode uses `run --auto --format json` and an inline MCP overlay without repla
 
 Discovery adds `/.webmcpify/` to the target's `.gitignore` before saving its
 inventory. Fresh generation does the same before recording source identity;
-existing ignore rules are preserved. This housekeeping needs no Git commit or
+if `.gitignore` is missing, Core creates it. Existing rules are preserved and
+the ignore entry is not duplicated. This housekeeping needs no Git commit or
 human approval. Application integration changes still require review and apply.
 
 | Stage | Private files under `<target>/.webmcpify/` |
@@ -597,6 +611,16 @@ patch to your target app. The same `apply` recovery code is used by the worker;
 this check does not certify Temporal service or worker-crash recovery.
 
 Serena's `.serena` configuration/cache files are agent-local state, not generated application changes. Core excludes them from workspace copies and pending patches and rejects patches targeting them. Existing owner `.serena` files remain untouched.
+
+## Roadmap: agent analytics
+
+Next: opt-in monitoring of agent requests and capability actions, including
+successes, expected rejections and failures, with timing and outcome visibility.
+Planned destinations are your own database and, potentially, a free Improvisus
+Analytics connection. These integrations are **not available yet**; hosted
+availability and terms are not finalized. Collection should use owner-controlled
+retention and redaction, with no automatic upload of prompts, credentials or
+private application data. Current local test evidence is not site-wide analytics.
 
 ## Development
 
