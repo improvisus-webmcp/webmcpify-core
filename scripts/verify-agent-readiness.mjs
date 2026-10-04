@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { execa } from "execa";
 import { discoverProject } from "../dist/lib/discovery.js";
-import { agentPublicDirectory, updateAgentRobots, writeAgentReadiness } from "../dist/lib/agent-readiness.js";
+import { agentPublicDirectory, updateAgentRobots, updateWebmcpifyGitignore, writeAgentReadiness } from "../dist/lib/agent-readiness.js";
 import { fixtureProvider } from "./fixture-provider.mjs";
 import { assertGeneratedFormFeedback, assertGeneratedWebMcpWiring, runGenerate } from "../dist/commands/generate.js";
 import { readPatchMetadata } from "../dist/lib/patches.js";
@@ -15,6 +15,13 @@ const root = await mkdtemp(path.join(os.tmpdir(), "webmcpify-readiness-"));
 const previousProvider = process.env.WEBMCPIFY_OPENCODE_BIN;
 const previousManager = process.env.WEBMCPIFY_PACKAGE_MANAGER;
 try {
+  for (const existing of ["", "node_modules/", "# Owner rules\r\nnode_modules/\r\n", ".webmcpify/\n!.webmcpify/\n!.webmcpify/**\n"]) {
+    const updatedIgnore = updateWebmcpifyGitignore(existing);
+    assert.ok(updatedIgnore.startsWith(existing), "Owner ignore rules must be preserved byte-for-byte");
+    assert.ok(updatedIgnore.endsWith("/.webmcpify/" + (existing.includes("\r\n") ? "\r\n" : "\n")));
+    assert.equal(updateWebmcpifyGitignore(updatedIgnore), updatedIgnore, "Ignore rules must regenerate idempotently");
+  }
+  assert.equal(updateWebmcpifyGitignore("node_modules/\n.webmcpify/\n"), "node_modules/\n.webmcpify/\n");
   const policy = "# Keep owner policy\nUser-agent: SearchBot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin/\nDisallow: /api/\nSitemap: https://example.test/sitemap.xml\n\nUser-agent: TrainingBot\nDisallow: /\n";
   const updated = updateAgentRobots(policy);
   assert.match(updated, /User-agent: SearchBot\nDisallow: \/\n/);
@@ -43,10 +50,11 @@ const ext = ts ? 'ts' : 'js';
 const original = 'src/app.' + ext;
 const registration = 'src/webmcp.' + ext;
 const nl = String.fromCharCode(10);
-writeFileSync(original, readFileSync(original, 'utf8') + "\\nimport './webmcp.js';\\n");
+const metadataPass=process.argv.some(arg=>arg.includes('This is a read-only metadata pass'));
+if(!metadataPass)writeFileSync(original, readFileSync(original, 'utf8') + "\\nimport './webmcp.js';\\n");
 const typed = ts ? 'interface Context { registerTool(tool: { name: string; title: string; description: string; inputSchema: object; execute: () => object }, options: { signal: AbortSignal }): Promise<void> }\\n' : '';
 const context = ts ? '(document as Document & { modelContext?: Context }).modelContext' : 'document.modelContext';
-writeFileSync(registration, typed + "import { selectItem } from './app.js';\\nconst context = " + context + ";\\nif (context) { const controller = new AbortController(); context.registerTool({ name: 'select_item', title: 'Select item', description: 'Selects an item in local UI state', inputSchema: {type: 'object', properties: {}, additionalProperties: false}, execute: () => { selectItem(); return { selected: true }; } }, {signal: controller.signal}); }\\n");
+if(!metadataPass)writeFileSync(registration, typed + "import { selectItem } from './app.js';\\nconst context = " + context + ";\\nif (context) { const controller = new AbortController(); context.registerTool({ name: 'select_item', title: 'Select item', description: 'Selects an item in local UI state', inputSchema: {type: 'object', properties: {}, additionalProperties: false}, execute: () => { selectItem(); return { selected: true }; } }, {signal: controller.signal}); }\\n");
 const tool = { id:'select_item',name:'select_item',title:'Select item',description:'Selects an item in local UI state',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Only the local document selection changes.'},implementation:{handler:original+'#selectItem',action:'select item',state:'document.body.dataset.selected'},behavior:{success:'The item is selected',preconditions:[],expectedFailures:[]},placement:{strategy:'imperative',file:registration,rationale:'Registered from the actual application entry'},sourceFiles:[original]};
 const tasks = Array.from({length:5},(_,i)=>({id:'select_'+i,description:'Select item and verify local state',expectedOutcome:'success',requiredTools:['select_item'],verify:'document.body.dataset.selected === "true"'}));
 const fence = String.fromCharCode(96).repeat(3);
@@ -66,7 +74,8 @@ writeSync(1, payload);
     await writeFile(path.join(site, "index.html"), '<button onclick="selectItem()">Select</button>');
     const build = language === "js" ? "node --check src/app.js && node --check src/webmcp.js" : "tsc -p tsconfig.json";
     await writeFile(path.join(site, "package.json"), JSON.stringify({ name: `readiness-${language}`, type: "module", scripts: { build } }));
-    await writeFile(path.join(site, ".gitignore"), "node_modules/\n.webmcpify/\n");
+    const ownerIgnore = language === "js" ? "# Owner rules\nnode_modules/\n" : "node_modules/\n.webmcpify/\n";
+    await writeFile(path.join(site, ".gitignore"), ownerIgnore);
     if (language === "ts") {
       await writeFile(path.join(site, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true }, include: ["src"] }));
       if (process.platform === "win32") await writeFile(path.join(site, "node_modules/.bin/tsc.cmd"), `@"${process.execPath}" "${path.resolve("node_modules/typescript/bin/tsc")}" %*\r\n`);
@@ -86,6 +95,8 @@ writeSync(1, payload);
     const metadata = await readPatchMetadata(site);
     assert.equal(metadata.patchStatus, "awaiting-review");
     const patch = await readFile(metadata.patchPath, "utf8");
+    assert.ok(!metadata.changedFiles.includes(".gitignore"), "Housekeeping ignore rules must be initialized before the source baseline, not delayed until review");
+    assert.equal(await readFile(path.join(site, ".gitignore"), "utf8"), updateWebmcpifyGitignore(ownerIgnore));
     for (const file of ["AGENTS.md", "README.md", "docs/webmcp-readiness.md", "webmcp.html", "llms.txt", "webmcp.md", "robots.txt", `src/webmcp.${language}`]) assert.ok(metadata.changedFiles.includes(file), `${file} must be bound to the reviewed patch`);
     assert.ok(!metadata.changedFiles.includes(".agent.md"), "Generate only one combined agent guide");
     assert.ok(!metadata.changedFiles.some((file) => file.startsWith(".webmcpify/")), "Site guidance must never enter private run state");
@@ -101,7 +112,7 @@ writeSync(1, payload);
   const beforeMissingManager = (await readFile(path.join(root, "provider-calls"), "utf8")).split("\n").filter(Boolean).length;
   process.env.WEBMCPIFY_PACKAGE_MANAGER = path.join(root, "missing-manager");
   await assert.rejects(runGenerate({ path: path.join(root, "js"), provider: "opencode", productContextPrompt: false }), PreflightEnvironmentError);
-  assert.equal((await readFile(path.join(root, "provider-calls"), "utf8")).split("\n").filter(Boolean).length, beforeMissingManager + 1, "A missing package manager must not trigger an LLM source-repair invocation");
+  assert.equal((await readFile(path.join(root, "provider-calls"), "utf8")).split("\n").filter(Boolean).length, beforeMissingManager + 3, "Source/tools/tasks passes run, but a missing package manager must not trigger an LLM source repair");
   delete process.env.WEBMCPIFY_PACKAGE_MANAGER;
   const layouts = path.join(root, "layouts");
   await mkdir(layouts);
@@ -223,6 +234,21 @@ writeSync(1, payload);
   }
 
   const formSite = path.join(root, "forms");
+  const incompleteForms = path.join(root, "incomplete-forms");
+  await mkdir(incompleteForms);
+  await writeFile(path.join(incompleteForms, "filter.html"), '<form toolname="filter_coffee_roast"><input name="roast" /></form>');
+  await writeFile(path.join(incompleteForms, "search.html"), '<form toolname="search"><input name="query" /></form>');
+  await assert.rejects(assertGeneratedFormFeedback(incompleteForms, [
+    { name: "filter_coffee_roast", placement: { strategy: "declarative", file: "filter.html" } },
+    { name: "search", placement: { strategy: "declarative", file: "search.html" } },
+  ]), (error) => {
+    assert.match(error.message, /loaded styles/);
+    for (const [name, file] of [["filter_coffee_roast", "filter.html"], ["search", "search.html"]]) {
+      assert.ok(error.message.includes(`form "${name}" in ${file} needs an accessible agent-status region`));
+      assert.ok(error.message.includes(`form "${name}" in ${file} needs activation/submit feedback`));
+    }
+    return true;
+  }, "One report must include missing CSS, status regions and event feedback for every form");
   await mkdir(formSite);
   await writeFile(path.join(formSite, "index.html"), '<form toolname="search" tooldescription="Search"><input name="query" /><p role="status" aria-live="polite"></p></form><script>document.modelContext?.addEventListener("toolactivated", () => {});</script>');
   const formTool = { name: "search", placement: { strategy: "declarative", file: "index.html" } };

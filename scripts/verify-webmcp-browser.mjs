@@ -71,7 +71,7 @@ try {
     tasks, taskSetId: taskFingerprint(tasks),
     tools: ["add_item", "remove_item", "select_coffee", "checkout"],
   });
-  const originalTasks = await readFile(path.join(root, "tasks.json"), "utf8");
+  const originalTasks = await readFile(path.join(root, ".webmcpify", "tasks.json"), "utf8");
   const provider = await fixtureProvider(root, "webmcp-agent", `
     import {connectStdioMcp} from ${JSON.stringify(fileURLToPath(new URL("../dist/lib/mcp-stdio-client.js", import.meta.url)))};
     import {appendFile} from 'node:fs/promises';
@@ -131,7 +131,7 @@ try {
       assert.ok(unavailable.scores.results.every(result => result.failureKind === "infrastructure"));
       assert.match(unavailable.scores.results[1].detail, /Not executed/);
       await assert.rejects(runApprovedTask({ path: root, url, provider: "opencode", taskId: "add" }), /mandatory Chrome DevTools/);
-      assert.equal(await readFile(path.join(root, "tasks.json"), "utf8"), originalTasks, "Do not rewrite approved criteria during testing");
+      assert.equal(await readFile(path.join(root, ".webmcpify", "tasks.json"), "utf8"), originalTasks, "Do not rewrite approved criteria during testing");
       const cli = await execa(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "test", "--path", root, "--url", url, "--provider", "opencode"], { reject: false, timeout: 60_000 });
       assert.equal(cli.exitCode, 1, "A failed standalone test must fail CI, not silently exit zero");
       assert.match(cli.stdout + cli.stderr, /WebMCP audit failed/);
@@ -200,7 +200,7 @@ try {
       await assert.rejects(runApprovedTask({ path: root, url, provider: "opencode", taskId: "availability" }), /changed during the durable attempt/);
       delete process.env.WEBMCPIFY_FIXTURE_SOURCE_DRIFT;
       await writeApprovedTasksAtomically(root, { version: 1, approved: true, approvalId: "browser-fixture", draftPath: "fixture", tools: ["add_item", "remove_item", "select_coffee", "checkout"], tasks, taskSetId: taskFingerprint(tasks) });
-      assert.equal(await readFile(path.join(root, "tasks.json"), "utf8"), originalTasks);
+      assert.equal(await readFile(path.join(root, ".webmcpify", "tasks.json"), "utf8"), originalTasks);
     } finally { await closeScoringBrowser(); }
   });
   console.log("Real WebMCP browser verification passed: pinned Chrome MCP, exact isolated tab, real calls/rejections, async effects, same-tool setup, CLI failure status, baseline false-pass prevention, bounded verification, and CLI/durable source-drift guards");

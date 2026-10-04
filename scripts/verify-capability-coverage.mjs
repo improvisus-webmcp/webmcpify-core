@@ -79,21 +79,25 @@ if(process.argv.join(' ').includes('Correct only the capability report')){
   writeSync(1,['CAPABILITY_COVERAGE_JSON',fence+'json',JSON.stringify({candidates}),fence].join('\\n'));
   process.exit(0);
 }
-const count=Number(readFileSync(process.env.FIXTURE_COUNTER,'utf8'))+1;writeFileSync(process.env.FIXTURE_COUNTER,String(count));
+if(process.argv.some(arg=>arg.includes('Return only TASKS_JSON'))){const fence=String.fromCharCode(96).repeat(3);writeSync(1,'TASKS_JSON\\n'+fence+'json\\n'+readFileSync('.webmcpify/fixture-tasks.json','utf8')+'\\n'+fence);process.exit(0);}
+const invocation=Number(readFileSync(process.env.FIXTURE_COUNTER,'utf8'))+1;writeFileSync(process.env.FIXTURE_COUNTER,String(invocation));
+const count=Math.max(1,invocation-1);
 const mode=process.env.FIXTURE_MODE;
 const handlers=${JSON.stringify(handlers)};
 const omission=mode.startsWith('omission');
 const selected=omission?handlers.filter(h=>h!=='clearNotice'):(count===1&&mode!=='already-complete')||mode==='incomplete'?handlers.filter(h=>h!=='logout'):mode==='drop-tool'?handlers.filter(h=>h!=='removeFromCart'):handlers;
 const tools=selected.map(handler=>({id:handler,name:handler,title:handler,description:'Run the existing '+handler+' local UI action',parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Only local document state changes.'},implementation:{handler:'src/app.js#'+handler,action:'update local action state',state:'document.body.dataset.action'},behavior:{success:'Local action state updated',preconditions:[],expectedFailures:[]},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Registered through the loaded entry integration'},sourceFiles:['src/app.js']}));
 if(count===2&&mode==='contract-drift')tools[0].description='PRIVATE_CONTRACT_DRIFT';
-if(count===1)writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");
-if(mode!=='text-only'||count===1)writeFileSync('src/webmcp.js',"import * as actions from './app.js';const context=document.modelContext;if(context){\\n"+tools.map(tool=>"context.registerTool({name:"+JSON.stringify(tool.name)+",description:'Local UI action',inputSchema:{type:'object',properties:{}},execute:()=>{actions."+tool.name+"();return {};}});").join('\\n')+'\\n}');
+if(invocation===1)writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");
+if(invocation!==2&&(mode!=='text-only'||count===1))writeFileSync('src/webmcp.js',"import * as actions from './app.js';const context=document.modelContext;if(context){\\n"+tools.map(tool=>"context.registerTool({name:"+JSON.stringify(tool.name)+",description:'Local UI action',inputSchema:{type:'object',properties:{}},execute:()=>{actions."+tool.name+"();return {};}});").join('\\n')+'\\n}');
+if(invocation===1){writeSync(1,'Source integration completed.');process.exit(0);}
 if(mode==='git-drift'&&count===2){const {execFileSync}=await import('node:child_process');execFileSync('git',['add','src']);execFileSync('git',['commit','-qm','PRIVATE_IDENTITY_DRIFT']);}
 const tasks=tools.map(tool=>({id:tool.id+'_success',description:'Invoke '+tool.name+' and verify its local state',requiredTools:[tool.name],verify:'document.body.dataset.action === '+JSON.stringify(tool.name)}));
 tasks.push({id:'availability',description:'Check all declared tools are registered',requiredTools:tools.map(tool=>tool.name),setup:'Load the fixture page and inspect its tool registry without changing application state',verify:JSON.stringify(tools.map(tool=>tool.name))+'.every(name=>document.modelContext.getTools().some(tool=>tool.name===name))'});
 tasks.push({id:'repeat_add',description:'Repeat addToCart and verify the supported idempotent local fixture action',requiredTools:['addToCart'],setup:'Invoke addToCart once before repeating it',verify:'document.body.dataset.action === "addToCart"'});
 if(tools.length===7)tasks.push({id:'session_roundtrip',description:'Login then logout and verify the final session action',requiredTools:['login','logout'],setup:'Invoke login first',verify:'document.body.dataset.action === "logout"'});
 if(mode==='omission-metadata-fix'&&count===1)tasks[0].requiredTools=['PRIVATE_INVALID_METADATA'];
+writeFileSync('.webmcpify/fixture-tasks.json',JSON.stringify(tasks));
 const fence=String.fromCharCode(96).repeat(3);
 writeSync(1,['TOOL_PROPOSALS_JSON',fence+'json',JSON.stringify({tools}),fence,'TASKS_JSON',fence+'json',JSON.stringify(tasks),fence].join('\\n'));
 if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/discovery.json','utf8'));const candidate=discovery.actionCandidates.find(c=>c.handler==='clearNotice'&&c.resolved);writeSync(1,'\\nCAPABILITY_COVERAGE_JSON\\n'+fence+'json\\n'+JSON.stringify({candidates:[{candidateId:candidate.id,status:'skipped',reason:'Dismisses decorative feedback only; intentionally not exposed as an agent capability.'}]})+'\\n'+fence);}
@@ -129,7 +133,7 @@ if(omission&&count===1){const discovery=JSON.parse(readFileSync('.webmcpify/disc
       await assert.rejects(generate(),/capabilities could not be fully accounted/);
       await assert.rejects(readFile(path.join(site,".webmcpify/pending-diff.meta.json")),{code:"ENOENT"});
     }
-    assert.equal(await readFile(process.env.FIXTURE_COUNTER,"utf8"),['already-complete','omission'].includes(mode)?'1':'2',"Source completion must be bounded and skipped for fully accounted drafts");
+    assert.equal(await readFile(process.env.FIXTURE_COUNTER,"utf8"),['already-complete','omission'].includes(mode)?'2':'3',"Separate source/metadata passes; source completion must be bounded and skipped for fully accounted drafts");
     assert.equal(await readFile(path.join(site,"src/app.js"),"utf8"),source,"No target edits before approval");
     await assert.rejects(readFile(path.join(site,"src/webmcp.js")),{code:"ENOENT"});
     await assert.rejects(readFile(path.join(site,".webmcpify/approved-tools.json")),{code:"ENOENT"});

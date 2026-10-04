@@ -8,7 +8,7 @@ import type { DiscoveryResult } from "./discovery.js";
 import { validateGenerationMetadata } from "./generation-metadata.js";
 import { normalizeProviderOutput } from "./provider-output.js";
 import { gitSourceSnapshot } from "./patches.js";
-import { TASK_AUTHORING_PROMPT, TOOL_PROPOSAL_PROMPT } from "./prompts.js";
+import { TASK_AUTHORING_PROMPT, TOOL_PROPOSAL_PROMPT, GENERATION_EXECUTION_GUIDANCE } from "./prompts.js";
 import type { ProposedTool } from "./tool-proposals.js";
 import { createTrajectoryArtifact, createTrajectoryPath } from "./trajectories.js";
 
@@ -256,6 +256,7 @@ disposable workspace, never edit .webmcpify or agent-local files. Make actual
 source edits for new tools, not a text-only proposal. Return the full tool set,
 full task set, and capability coverage report. Core will check wiring, build,
 security, and the exact patch before human approval.
+${GENERATION_EXECUTION_GUIDANCE}
 \n${opts.instructions ?? ""}\n${TOOL_PROPOSAL_PROMPT}\n${TASK_AUTHORING_PROMPT}\n${CAPABILITY_COVERAGE_GUIDANCE}`,
     });
     if ((await gitSourceSnapshot(opts.workspace)).sourceVersion !== beforeIdentity.sourceVersion) throw new Error("Capability completion changed the workspace Git identity.");

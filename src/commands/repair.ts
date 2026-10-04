@@ -109,7 +109,8 @@ ${JSON.stringify(taskEvidence, null, 2)}
 
 Inspect the relevant source and existing WebMCP registrations. Patch only the
 cause of these failures, preserve approved tool names and schemas, and avoid
-unrelated refactors. Do not edit tasks.json or approval manifests.
+unrelated refactors. Do not edit .webmcpify/tasks.json, legacy root tasks.json,
+or approval manifests.
 
 Before patching, perform focused discovery rather than scanning the entire
 repository:

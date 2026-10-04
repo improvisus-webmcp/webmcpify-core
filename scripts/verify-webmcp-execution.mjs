@@ -176,6 +176,11 @@ for await (const line of createInterface({input:process.stdin})) {
   adapter = await connectStdioMcp(server, 2_000);
   const catalog = await adapter.request("tools/list");
   assert.deepEqual(catalog.tools.map(tool => tool.name), ["list_webmcp_tools", "call_webmcp_tool"]);
+  assert.doesNotMatch(bridge.instruction, /mcp__chrome-devtools__/);
+  assert.match(bridge.instruction, /actual callable names and schemas/);
+  assert.match(bridge.instruction, /native tool-catalog search\/loading/);
+  assert.match(bridge.instruction, /execute_webmcp_tool/);
+  assert.match(bridge.instruction, /advertised gateway alias/);
   const endpoint = JSON.parse(await readFile(server.args[1], "utf8"));
   assert.equal((await fetch(endpoint.url, { method: "POST", body: '{}' })).status, 403, "Unauthenticated loopback requests cannot execute tools");
   assert.equal((await fetch(endpoint.url, { method: "POST", headers: { Authorization: 'é'.repeat(71) }, body: '{}' })).status, 403, "Malformed multibyte credentials must not crash timing-safe authentication");
@@ -196,7 +201,7 @@ for await (const line of createInterface({input:process.stdin})) {
   const args = JSON.parse(await readFile(argsPath, "utf8"));
   assert.ok(args.includes('mcp_servers."chrome-devtools".required=true'));
   assert.ok(args.includes('mcp_servers."chrome-devtools".enabled=true'));
-  assert.ok(args.includes('mcp_servers."chrome-devtools".enabled_tools=["list_webmcp_tools","call_webmcp_tool"]'));
+  assert.ok(args.includes('mcp_servers.chrome-devtools.enabled_tools=["list_webmcp_tools","call_webmcp_tool"]'));
   assert.ok(args.includes("mcp_optional_startup_grace_ms=0"));
   await adapter.close(); adapter = undefined;
   await bridge.close(); bridge = undefined;

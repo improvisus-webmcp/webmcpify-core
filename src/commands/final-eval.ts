@@ -22,6 +22,7 @@ export interface FinalEvalOptions {
   url?: string;
   provider?: string;
   reviewPort?: string;
+  baseline?: boolean;
 }
 
 interface LevelResult {
@@ -49,6 +50,7 @@ interface FinalEvalCheckpoint {
   approvalRunId: string;
   stage: FinalEvalStage;
   updatedAt: string;
+  includeBaseline?: boolean;
   baselineEvaluationPath?: string;
   webmcpEvaluationPath?: string;
   repair?: FinalEvalResult["repair"];
@@ -69,11 +71,12 @@ export interface FinalEvalResult {
   taskSetId: string;
   tasks: Task[];
   levels: LevelResult[];
+  finalTestRunId?: string;
   repair?: { beforeEvaluation?: string; afterEvaluation?: string; status: string };
 }
 
-export function buildFinalEvalPlan(): string[] {
-  return ["prepare-and-review", "baseline", "apply-and-test", "repair-if-needed", "temporal-evaluation", "compare-and-record"];
+export function buildFinalEvalPlan(includeBaseline = false): string[] {
+  return ["prepare-and-review", ...(includeBaseline ? ["baseline"] : []), "apply-and-test", "repair-if-needed", "temporal-evaluation", "compare-and-record"];
 }
 
 /** A completed comparison is not necessarily a successful capability audit. */
@@ -186,7 +189,7 @@ function evaluationHasAvailabilityFailure(value: StoredTestEvaluation): boolean 
     ));
 }
 
-async function findResumableFinalEval(sitePath: string, context: { url: string; provider: string }): Promise<ResumableFinalEval | undefined> {
+async function findResumableFinalEval(sitePath: string, context: { url: string; provider: string; includeBaseline: boolean }): Promise<ResumableFinalEval | undefined> {
   const approvalPath = path.join(sitePath, ".webmcpify", "approved-tools.json");
   const metadataPath = path.join(sitePath, ".webmcpify", "pending-diff.meta.json");
   if (!existsSync(approvalPath) || !existsSync(metadataPath)) return undefined;
@@ -231,10 +234,11 @@ async function findResumableFinalEval(sitePath: string, context: { url: string; 
     const resumableApprovalRunId = approvalRunId ?? patch.runId;
     if (!resumableApprovalRunId) return undefined;
 
-    let stage: Exclude<FinalEvalStage, "complete"> = checkpoint?.stage ?? "baseline";
+    let stage: Exclude<FinalEvalStage, "complete"> = checkpoint?.stage ?? (context.includeBaseline ? "baseline" : "apply");
     if (!checkpoint) {
-      const baseline = await readMatchingEvaluation(sitePath, "baseline-eval", taskSetId, context);
-      stage = baseline ? "apply" : "baseline";
+      // A newly requested baseline must execute before this run's browser test;
+      // do not silently reuse an unrelated older baseline artifact.
+      stage = context.includeBaseline ? "baseline" : "apply";
     }
     return { tasks, taskSetId, approvalRunId: resumableApprovalRunId, checkpoint, stage };
   } catch {
@@ -335,7 +339,8 @@ export async function runFinalEval(opts: FinalEvalOptions): Promise<FinalEvalRes
 async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string, url: string, provider: string): Promise<FinalEvalResult> {
   console.log(`[final-eval] target: ${sitePath}`);
   console.log(`[final-eval] URL: ${url}`);
-  const evaluationContext = { url, provider };
+  const includeBaseline = opts.baseline === true;
+  const evaluationContext = { url, provider, includeBaseline };
   const resumable = await findResumableFinalEval(sitePath, evaluationContext);
   const canResume = resumable
     && (!resumable.checkpoint || (resumable.checkpoint.provider === provider && resumable.checkpoint.url === url))
@@ -351,6 +356,9 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
   let repair: FinalEvalResult["repair"];
 
   if (canResume && resumable) {
+    if (resumable.checkpoint?.includeBaseline !== undefined && resumable.checkpoint.includeBaseline !== includeBaseline) {
+      throw new Error(`[final-eval] This checkpoint was started ${resumable.checkpoint.includeBaseline ? "with --baseline" : "without --baseline"}. Resume with the same option, or decline resume to start a new run. No approved source changes were made.`);
+    }
     runId = resumable.checkpoint?.runId ?? randomUUID();
     tasks = resumable.tasks;
     taskSetId = resumable.taskSetId;
@@ -372,14 +380,14 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
     taskSetId = taskFingerprint(tasks);
     approvalRunId = review.sourceDiff.runId ?? "";
     if (!approvalRunId) throw new Error("Approved review did not identify the approved source-diff run.");
-    stage = "baseline";
+    stage = includeBaseline ? "baseline" : "apply";
     console.log(`[final-eval] approval confirmed: ${tasks.length} task(s), task set ${taskSetId}`);
     console.log("[final-eval] continuing automatically with:");
-    console.log("[final-eval]   1. baseline check (read-only, before applying source changes)");
-    console.log("[final-eval]   2. apply the approved patch and build the target project");
-    console.log("[final-eval]   3. run WebMCP browser tests");
-    console.log("[final-eval]   4. repair failed tasks if needed, with a second approval");
-    console.log("[final-eval]   5. run the durable Temporal evaluation");
+    if (includeBaseline) console.log("[final-eval]   UI-only baseline for every task (before applying source changes)");
+    console.log("[final-eval]   apply the approved patch and build the target project");
+    console.log("[final-eval]   run WebMCP browser tests");
+    console.log("[final-eval]   repair failed tasks if needed, with a second approval");
+    console.log("[final-eval]   run the durable Temporal evaluation");
   }
 
   const saveCheckpoint = async (nextStage: FinalEvalStage): Promise<void> => {
@@ -393,14 +401,19 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
       approvalRunId,
       stage: nextStage,
       updatedAt: new Date().toISOString(),
+      includeBaseline,
       baselineEvaluationPath,
       webmcpEvaluationPath,
       repair,
     });
   };
 
-  let baselineLevel: LevelResult;
-  if (stage === "baseline") {
+  let baselineLevel: LevelResult | undefined;
+  if (!includeBaseline) {
+    baselineEvaluationPath = undefined;
+    if (stage === "baseline") stage = "apply";
+    console.log("[final-eval] UI baseline skipped (add --baseline to include the full comparison)");
+  } else if (stage === "baseline") {
     // Retain the reviewed identity even if baseline execution is interrupted.
     await saveCheckpoint(stage);
     console.log("[final-eval] Level 1 — baseline (plain, read-only)...");
@@ -456,7 +469,8 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
 
   let webmcpLevel: LevelResult;
   if (stage === "webmcp-test") {
-    const existingWebmcp = await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext, webmcpEvaluationPath);
+    const existingWebmcp = includeBaseline && !webmcpEvaluationPath ? undefined
+      : await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext, webmcpEvaluationPath);
     const webmcpEvaluation = existingWebmcp?.value ?? await runTest({ path: sitePath, url, provider });
     compareTaskSets(tasks, webmcpEvaluation.tasks);
     const webmcpArtifact = existingWebmcp ?? await readMatchingEvaluation(sitePath, "test-eval", taskSetId, evaluationContext);
@@ -547,6 +561,7 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
   console.log("[final-eval] Level 3 — durable Temporal evaluation...");
   console.log(`[final-eval] connecting to Temporal at ${process.env.WEBMCPIFY_TEMPORAL_ADDRESS ?? "localhost:7233"}; worker task queue: ${process.env.WEBMCPIFY_TEMPORAL_TASK_QUEUE ?? "webmcpify"}`);
   let temporalLevel: LevelResult;
+  let finalTestRunId = webmcpLevel.runId;
   try {
     const beforeTemporal = await gitSourceSnapshot(sitePath);
     temporalLevel = await runTemporalLevel(sitePath, url, provider, tasks, runId, taskSetId, webmcpLevel.scores);
@@ -555,6 +570,7 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
       console.log("[final-eval] Temporal changed source; retesting every approved task against the final source instead of retaining earlier passes...");
       const verified = await runTest({ path: sitePath, url, provider });
       compareTaskSets(tasks, verified.tasks);
+      finalTestRunId = verified.runId;
       temporalLevel = { ...temporalLevel, scores: verified.scores, agentError: verified.agentError };
     }
   } catch (error) {
@@ -562,12 +578,12 @@ async function runFinalEvalWithBrowser(opts: FinalEvalOptions, sitePath: string,
     temporalLevel = { level: "temporal", runId, targetProject: sitePath, taskSetId, tasks, scores: failedSummary(tasks, error), status: "failed", error: error instanceof Error ? error.message : String(error) };
   }
 
-  const result: FinalEvalResult = { version: 1, runId, targetProject: sitePath, taskSetId, tasks, levels: [baselineLevel, webmcpLevel, temporalLevel], repair };
+  const result: FinalEvalResult = { version: 1, runId, targetProject: sitePath, taskSetId, tasks, finalTestRunId, levels: [...(baselineLevel ? [baselineLevel] : []), webmcpLevel, temporalLevel], repair };
   const artifact = await createTrajectoryArtifact("final-eval", result, { sitePath, targetProject: sitePath, runId, taskSetId, provider, url, levels: result.levels.map((level) => ({ level: level.level, status: level.status, passed: level.scores.passed, total: level.scores.total })), repair });
-  const comparisonComplete = finalEvalComparisonComplete(baselineLevel, temporalLevel);
+  const comparisonComplete = baselineLevel ? finalEvalComparisonComplete(baselineLevel, temporalLevel) : finalEvalVerified(temporalLevel);
   if (comparisonComplete) await saveCheckpoint("complete");
   else await saveCheckpoint("temporal");
-  console.log("\n[final-eval] comparison");
+  console.log(includeBaseline ? "\n[final-eval] UI baseline / WebMCP / Temporal comparison" : "\n[final-eval] WebMCP / Temporal results (UI baseline not requested)");
   for (const level of result.levels) console.log(`  ${level.level}: ${level.scores.passed}/${level.scores.total} (${level.status})`);
   console.log(`[final-eval] trajectory: ${artifact}`);
   if (temporalLevel.status === "failed") throw new Error(`Temporal level failed: ${temporalLevel.error}`);

@@ -8,8 +8,31 @@ import { connectStdioMcp, type McpToolResult, type StdioMcpClient, type StdioMcp
 import { createTrajectoryArtifact } from "./trajectories.js";
 import type { WebMcpEvidence } from "./webmcp-evidence.js";
 import { observeWebMcpExecution } from "./webmcp-observer.js";
+import { mcpDiagnosticName } from "./mcp-tool-log.js";
 
 export const WEBMCP_AGENT_TOOLS = "mcp__chrome-devtools__list_webmcp_tools,mcp__chrome-devtools__call_webmcp_tool";
+
+export const WEBMCP_TASK_INSTRUCTION = `Chrome DevTools MCP is already connected
+to Core's exact isolated task tab through the server configured as chrome-devtools.
+Use only its advertised methods with base names list_webmcp_tools and
+call_webmcp_tool. Select the actual callable names and schemas exposed in your
+session: provider prefixes, namespaces, separators or normalized server spelling
+can differ. Do not require a particular fully qualified name or declare a
+connection failure merely because that spelling is absent.
+If these methods are deferred or not immediately visible, use your provider's
+native tool-catalog search/loading mechanism, if available, only to locate these
+two methods on Core's configured gateway. Metadata-only tool discovery is allowed;
+it does not permit browser actions through other methods or another server.
+Google's upstream execution method is execute_webmcp_tool; this gateway advertises
+call_webmcp_tool as its guarded alias and forwards it to upstream. Use the
+advertised gateway alias, not a guessed upstream tool name.
+First call list_webmcp_tools, then call task-approved capabilities through
+call_webmcp_tool with toolName and JSON-stringified input. Core binds the page and
+independently records execution; a final report is not evidence.
+Do not use list_pages/select_page/evaluate_script, direct document.modelContext
+calls, clicks, shell, cua_repl, or another browser. If the two gateway methods
+remain genuinely uncallable after supported catalog discovery, report that
+failure and stop; never substitute another interface.`;
 
 function text(result: McpToolResult): string {
   return (result.content ?? []).filter(item => item.type === "text").map(item => item.text ?? "").join("\n");
@@ -72,7 +95,7 @@ export function webMcpExecutionResult(result: McpToolResult, observedError?: str
 }
 
 export interface ChromeWebMcpConnection {
-  bindTask(options: { url: string; marker: string; toolNames: string[]; workspace: string; page?: Page }): Promise<WebMcpTaskBridge>;
+  bindTask(options: { url: string; marker: string; toolNames: string[]; workspace: string; page?: Page; taskId?: string }): Promise<WebMcpTaskBridge>;
   close(): Promise<void>;
 }
 
@@ -129,7 +152,7 @@ async function bindWebMcpTask(
   client: StdioMcpClient,
   executionMethod: string,
   routedMethods: Set<string | undefined>,
-  options: { url: string; marker: string; toolNames: string[]; workspace: string; page?: Page },
+  options: { url: string; marker: string; toolNames: string[]; workspace: string; page?: Page; taskId?: string },
 ): Promise<WebMcpTaskBridge> {
   const inventory = await client.call("list_pages");
   if (inventory.isError) throw new Error("Chrome DevTools MCP cannot list the existing task tab.", { cause: inventory });
@@ -156,6 +179,8 @@ async function bindWebMcpTask(
   if (probe.isError) throw new Error("Chrome DevTools MCP cannot discover WebMCP tools on the isolated task tab. Check browser WebMCP support.", { cause: probe });
   const evidence: WebMcpEvidence = { source: "chrome-devtools-mcp", pageId, discovered: false, calls: [], policyViolations: [] };
   const diagnostics: unknown[] = [];
+  const activity = { initializations: 0, catalogs: 0, methodCalls: 0 };
+  const logPrefix = `[webmcp] task=${mcpDiagnosticName(options.taskId)} page=${selectedPageId}`;
   const allowed = new Set(options.toolNames);
   const token = randomBytes(32).toString("hex");
   let closed = false;
@@ -168,13 +193,28 @@ async function bindWebMcpTask(
   const handle = async (request: { id?: string | number | null; method?: string; params?: Record<string, unknown> }): Promise<unknown> => {
     const reply = (result: unknown) => ({ jsonrpc: "2.0", id: request.id ?? null, result });
     if (request.method?.startsWith("notifications/")) return undefined;
-    if (request.method === "initialize") return reply({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "chrome-devtools", version: "1" }, instructions: "Use only list_webmcp_tools and call_webmcp_tool. Core owns the exact task tab and independently records actual execution; final reports are not evidence." });
+    if (request.method === "initialize") {
+      activity.initializations++;
+      console.log(`${logPrefix} provider bridge initialized`);
+      return reply({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "chrome-devtools", version: "1" }, instructions: WEBMCP_TASK_INSTRUCTION });
+    }
     if (request.method === "ping") return reply({});
-    if (request.method === "tools/list") return reply({ tools: toolSchemas });
+    if (request.method === "tools/list") {
+      activity.catalogs++;
+      console.log(`${logPrefix} catalog delivered to provider: list_webmcp_tools, call_webmcp_tool`);
+      return reply({ tools: toolSchemas });
+    }
     if (request.method !== "tools/call") return { jsonrpc: "2.0", id: request.id ?? null, error: { code: -32601, message: "Unsupported task MCP method." } };
     const name = request.params?.name;
     const args = (request.params?.arguments ?? {}) as Record<string, unknown>;
-    const reject = (message: string) => { evidence.policyViolations.push(message); return reply(resultText(message, true)); };
+    activity.methodCalls++;
+    const callLabel = `${logPrefix} method=${mcpDiagnosticName(name)}${name === "call_webmcp_tool" ? `, capability=${mcpDiagnosticName(args?.toolName)}` : ""}`;
+    console.log(`${callLabel} requested; arguments/results withheld`);
+    const reject = (message: string) => {
+      console.log(`${callLabel} rejected by task policy`);
+      evidence.policyViolations.push(message);
+      return reply(resultText(message, true));
+    };
     if (closed) return reply(resultText("The task bridge is closed.", true));
     if (name !== "list_webmcp_tools" && name !== "call_webmcp_tool") return reject("Only Chrome DevTools WebMCP discovery and execution methods are permitted.");
     if (!args || typeof args !== "object" || Array.isArray(args)) return reject("WebMCP method arguments must be an object.");
@@ -211,16 +251,19 @@ async function bindWebMcpTask(
       if (name === "list_webmcp_tools") {
         if (result.isError) { diagnostics.push(result); throw new Error("WebMCP discovery is unavailable."); }
         evidence.discovered = true;
+        console.log(`${callLabel} discovery completed`);
       } else {
         const execution = webMcpExecutionResult(result, observedError);
         if (!execution) { diagnostics.push(result); throw new Error("Chrome DevTools did not return a real WebMCP execution result; a missing tool, invalid schema or browser error is not an expected business rejection."); }
         evidence.calls.push({ toolName: args.toolName as string, ...execution });
+        console.log(`${callLabel} execution=${execution.status}`);
         if (execution.status === "error" && observedError) {
           result = { ...result, content: [...(result.content ?? []), { type: "text", text: `Core observed the matching Chrome WebMCP invocation exception: ${observedError}` }] };
         }
       }
       return reply(result);
     } catch (error) {
+      console.log(`${callLabel} infrastructure failure; details withheld`);
       diagnostics.push({ reason: error instanceof Error ? error.message : "Chrome MCP call failed", stderr: client.diagnostics() });
       evidence.infrastructureError = "Chrome DevTools MCP could not complete WebMCP discovery/execution on the exact task tab.";
       return reply(resultText(evidence.infrastructureError + " Do not substitute clicks, evaluate_script, cua_repl, or another browser.", true));
@@ -259,9 +302,11 @@ async function bindWebMcpTask(
       directTools: ["list_webmcp_tools", "call_webmcp_tool"],
       approveTools: ["call_webmcp_tool"],
     } } }), { mode: 0o600 });
+    console.log(`${logPrefix} Chrome WebMCP probe succeeded; upstream execution method=${mcpDiagnosticName(executionMethod)}`);
+    console.log(`${logPrefix} bridge ready; offered methods: list_webmcp_tools, call_webmcp_tool; permitted capabilities: ${[...allowed].map(mcpDiagnosticName).join(", ") || "(discovery only)"}`);
     return {
       configPath, evidence, diagnostics,
-      instruction: "Chrome DevTools MCP is already connected to Core's exact isolated task tab. Use ONLY mcp__chrome-devtools__list_webmcp_tools and mcp__chrome-devtools__call_webmcp_tool. First discover the live tools, then call task-approved capabilities with toolName and JSON-stringified input. Do not use list_pages/select_page/evaluate_script, direct document.modelContext calls, clicks, shell, cua_repl, or another browser. Core selects the page and verifies state independently. If these two MCP methods are unavailable, report the connection failure and stop; never substitute another interface.",
+      instruction: WEBMCP_TASK_INSTRUCTION,
       close: async () => {
         if (closed) { await queue; return; }
         closed = true;
@@ -270,6 +315,8 @@ async function bindWebMcpTask(
         // Finish any in-flight request before evidence is persisted or the
         // shared browser client moves to the next task.
         await queue;
+        console.log(`${logPrefix} session summary: initialize=${activity.initializations}, tools/list=${activity.catalogs}, tools/call=${activity.methodCalls}, discovery=${evidence.discovered}, executions=${evidence.calls.length}`);
+        diagnostics.push({ activity: { ...activity }, discovered: evidence.discovered, executions: evidence.calls.length });
         // Upstream 1.7 lists pages only after consulting its current selection.
         // Leave it on a surviving page before Core closes the isolated context;
         // otherwise the next task's list_pages fails on the stale closed tab.

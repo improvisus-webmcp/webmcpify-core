@@ -60,7 +60,7 @@ flowchart LR
 | `src/commands/eval.ts` | Prints the latest project-scoped WebMCP test result. |
 | `src/commands/repair.ts` | Drafts a focused patch from failed task evidence; optionally starts a Temporal workflow. |
 | `src/commands/baseline.ts` | Measures the same approved tasks against the existing interface for comparison. |
-| `src/commands/final-eval.ts` | Coordinates baseline, WebMCP, optional repair, Temporal comparison, checkpoints, and final evidence. |
+| `src/commands/final-eval.ts` | Coordinates WebMCP, optional repair, Temporal evaluation, checkpoints, and final evidence; `--baseline` opts into the full UI comparison before apply/test. |
 
 ## Core libraries
 
@@ -176,7 +176,7 @@ Core writes these only inside the selected target project:
 | `.webmcpify/pending-diff.patch` and `.meta.json` | Exact pending patch and its source identity/status. |
 | `.webmcpify/approved-tools.json` | Human-approved tool/task manifest and fingerprint. |
 | `.webmcpify/security-report.json` | Static Core access-control report shown before approval. |
-| `tasks.json` | Approved browser-verifiable task set. |
+| `.webmcpify/tasks.json` | Approved browser-verifiable task set; legacy root files remain readable for compatibility. |
 | `.webmcpify/chrome-devtools-mcp.json` | Generated/merged browser MCP config when the target config is incomplete. |
 | `.webmcpify/trajectories/` | Provider output, evaluations, and audit evidence. |
 | `.webmcpify/rollback/` | Temporary snapshots used while applying a patch. |

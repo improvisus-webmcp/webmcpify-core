@@ -45,6 +45,19 @@ pages, candidate actions, the real handler and state location for each, and
 which actions are proposed or deliberately skipped with the reason.
 `.trim();
 
+export const GENERATION_EXECUTION_GUIDANCE = `
+DEPENDENCY AND VALIDATION OWNERSHIP
+The disposable workspace intentionally omits node_modules. Missing dependencies
+here are not a request to install them. Do not install, update, or download
+packages, change dependency manifests/lockfiles for validation, run builds,
+typechecks, linters or tests, or start servers during this generation step.
+Inspect and edit source, then return the requested completion promptly.
+Core runs the target's checks afterward using its already-installed dependencies
+and requests a bounded source repair if needed. If those dependencies are absent,
+Core tells the owner to install them in the target project. Do not access another
+checkout or shared dependency tree to work around the workspace boundary.
+`.trim();
+
 export const TOOL_PLACEMENT_GUIDANCE = `
 When placing or drafting generated WebMCP code, follow the site's existing
 file organization and runtime conventions.
@@ -70,8 +83,8 @@ file organization and runtime conventions.
   \`const discoveredContext = (navigator as Navigator & { modelContext?: WebMCPContext }).modelContext; if (!discoveredContext) return; const modelContext: WebMCPContext = discoveredContext;\`.
   Use \`modelContext\` inside every nested callback; never capture
   \`discoveredContext\` after the guard.
-  Run the site's typecheck/build in the disposable workspace and fix all
-  compile errors before reporting the draft.
+  Preserve the site's typecheck/build configuration. Core runs those checks
+  after the draft is returned; do not install dependencies or run checks yourself.
 `.trim();
 
 export const TASK_AUTHORING_PROMPT = `

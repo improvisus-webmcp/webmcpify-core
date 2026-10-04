@@ -4,13 +4,15 @@ import type { DiscoveryResult } from "./discovery.js";
 import type { ProposedTool } from "./tool-proposals.js";
 import { projectDisplayName } from "./project-identity.js";
 import { capabilityHtml, deploymentChecklist } from "./agent-discovery-content.js";
+export { updateWebmcpifyGitignore } from "./project-state.js";
 
 export const AGENT_READINESS_GUIDANCE = `
 AGENT-READY INTEGRATION
 - Keep the target's language: JavaScript/JSX/mjs/cjs projects get JavaScript,
   never TypeScript syntax, .ts files, or a new tsconfig just for WebMCP. For
   TypeScript projects, use local interfaces only where necessary. Match ESM
-  versus CommonJS and the installed framework version. Use existing build checks.
+  versus CommonJS and the installed framework version. Preserve existing build checks;
+  Core runs them after generation, not the drafting agent.
 - Register a small, useful capability set with clear schemas and structured
   results. Preserve real handlers, business guards, authentication, consent,
   keyboard operation, and normal human interactions. Label controls, retain
@@ -45,6 +47,8 @@ AGENT-READY INTEGRATION
   directory is configured (public/ for most JS frameworks, static/ for SvelteKit,
   angular.json root-output assets for Angular). Do not create duplicate llm.txt,
   robot.txt, .agent.md, fake MCP endpoints, unsupported manifests, or invented sitemap URLs.
+- Core initializes a root .gitignore rule for private .webmcpify run state before
+  discovery/generation. Preserve existing ignore rules; keep public guidance tracked.
 - Preserve existing robots.txt groups, disallows, and training/search policies.
   Crawl permission never authorizes purchases or authenticated capabilities.
   Do not add a blanket Allow: / or expose API/admin/account pages to satisfy readiness.

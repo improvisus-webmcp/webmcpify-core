@@ -1,8 +1,43 @@
 # Changelog
 
+### Changed: integrated generation diagnostics
+
+- Bring the source-only diagnostic and its focused fixture into the main checkout; diagnostic generation flags belong to `generate`, not `run`.
+- Retain safe provider/generation traces behind `WEBMCPIFY_TRACE=1`, without printing prompts or code during ordinary commands.
+
 All notable changes to WebMCPify are documented here.
 
 ## [Unreleased]
+
+### Changed: private approved task files
+
+- Save approved browser tasks to `.webmcpify/tasks.json` instead of the target root. Review, testing, baseline and Temporal share the canonical path; existing root task files remain readable only when the private file is absent, without changing approval fingerprints or deleting owner files.
+- Consolidate discovery, ignore policy, task storage and retention guidance in the README.
+
+### Changed: private-state Git ignore rule from discovery
+
+- Initialize a root `/.webmcpify/` rule before standalone discovery and before recording a fresh generation's source baseline, preserving owner ignore rules and line endings without duplicate rules.
+- Keep metadata replay and existing repair/approval identities unchanged. Application integration still requires human approval; public capability guidance remains tracked, and local evidence stays available to normal and Temporal workflows.
+
+### Changed: opt-in full UI baseline
+
+- `test` and `final-eval` skip the UI baseline by default. Add `--baseline` to run every approved task through the human interface before WebMCP testing; final evaluation measures it before applying the patch.
+- Keep standalone UI-only `baseline` and durable `run --baseline`. Saved `eval` reports show linked per-task comparisons and matching final-evaluation scores without rerunning the browser or attaching unrelated historical results.
+- Preserve source/task identity guards and checkpoint the baseline choice. Baseline execution failures cannot masquerade as a successful comparison; low UI scores alone do not invalidate WebMCP results.
+
+### Added: browser task connection diagnostics
+
+- Match the advertised gateway method names and schemas rather than requiring one provider-specific fully qualified prefix. Permit metadata-only native tool discovery for deferred methods, without relaxing approved capabilities or browser isolation; clarify that Core's call_webmcp_tool alias delegates to Google's execute_webmcp_tool.
+- Log per-task bridge initialization, offered/requested tool catalogs, WebMCP method and capability names, execution status and session counts. Codex MCP events log attempted server/method names separately from independent bridge evidence; prompts, arguments, results, raw errors and authentication tokens remain private.
+
+### Fixed: source generation and metadata handoff
+
+- Publish the saved discovery inventory when metadata continuation produces a review draft, so review can open without a separate discovery run. Diagnostic-only modes still preserve existing state.
+- Report missing loaded form styles, accessible status regions and activation/submit feedback together for every declarative form. The single bounded source repair receives the complete private report and affected component paths, rather than fixing CSS before discovering the next missing requirement.
+- Separate compact source editing from read-only tool-contract and browser-task authoring. Neither stage requests a large combined response schema; capability accounting uses the existing source mappings and bounded report/completion path.
+- Freeze generated source and Git identity during metadata authoring, retain source provenance, and preserve existing bounded corrections, build/security checks and human approval.
+- Save unapproved source checkpoints before metadata. Source-only and metadata-only diagnostics allow isolated retries without repeating source generation or changing target source/approval state; stale checkpoints are refused.
+- Continue completed diagnostics with `generate --continue-from-metadata <file>`, binding metadata provenance to the saved source and freezing its contents before existing checks and human review, without repeating initial source/tool/task generation.
 
 ### Fixed: repeated generation metadata failures
 

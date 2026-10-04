@@ -16,7 +16,7 @@ const tasks = Array.from({ length: 5 }, (_, index) => ({ id: `task_${index + 1}`
 const taskSetId = taskFingerprint(tasks);
 await mkdir(path.join(sitePath, ".webmcpify"), { recursive: true });
 await writeFile(source, '<!doctype html><body data-repaired="false"><main>ready</main></body>\n');
-await writeFile(path.join(sitePath, "tasks.json"), `${JSON.stringify(tasks, null, 2)}\n`);
+await writeFile(path.join(sitePath, ".webmcpify", "tasks.json"), `${JSON.stringify(tasks, null, 2)}\n`);
 await writeFile(path.join(sitePath, "package.json"), JSON.stringify({ name: "repair-fixture", scripts: { build: "node -e \"process.exit(0)\"" } }, null, 2));
 await execa("git", ["init", "-q"], { cwd: sitePath });
 await execa("git", ["config", "user.email", "fixture@example.invalid"], { cwd: sitePath });

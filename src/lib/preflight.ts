@@ -101,10 +101,22 @@ export async function runGenerationPreflight(
 ): Promise<void> {
   const project = await readProjectPackage(sitePath);
   const scripts = project.scripts ?? {};
-  const manager = await resolvePackageManager(sitePath);
   const tscBinary = process.platform === "win32" ? "tsc.cmd" : "tsc";
-  const hasTypeScript = existsSync(path.join(sitePath, "tsconfig.json"))
-    && existsSync(path.join(sitePath, "node_modules", ".bin", tscBinary));
+  const hasTypeScript = existsSync(path.join(sitePath, "tsconfig.json"));
+  if (!scripts.typecheck && !hasTypeScript && !scripts.build) {
+    console.log("[generate] preflight skipped; no typecheck, TypeScript, or build check found");
+    return;
+  }
+  const hasDependencies = Object.keys(project.dependencies ?? {}).length + Object.keys(project.devDependencies ?? {}).length > 0;
+  if (!(await linkDependencies(sitePath, workspace)) && hasDependencies) {
+    const artifact = await createTrajectoryArtifact("preflight-failure", { reason: "target-dependencies-missing" }, { sitePath, status: "failed" });
+    throw new PreflightEnvironmentError(artifact, "Target project dependencies are not installed. Install them in the target project with its package manager, then rerun generation. Core will not ask the agent to install packages or skip the declared build/typecheck validation.");
+  }
+  if (!scripts.typecheck && hasTypeScript && !existsSync(path.join(sitePath, "node_modules", ".bin", tscBinary))) {
+    const artifact = await createTrajectoryArtifact("preflight-failure", { reason: "target-typescript-compiler-missing" }, { sitePath, status: "failed" });
+    throw new PreflightEnvironmentError(artifact, "The target has tsconfig.json but its local TypeScript compiler is missing. Install the target project's TypeScript/build dependencies, then rerun generation; TypeScript validation was not skipped.");
+  }
+  const manager = scripts.typecheck || scripts.build ? await resolvePackageManager(sitePath) : "";
   const checks: Array<{ label: string; command: string; args: string[] }> = [];
   if (scripts.typecheck) {
     checks.push({ label: "typecheck", command: manager, args: ["run", "typecheck"] });
@@ -117,19 +129,6 @@ export async function runGenerationPreflight(
   if (scripts.build) {
     checks.push({ label: "build", command: manager, args: ["run", "build"] });
   }
-  if (checks.length === 0) {
-    console.log("[generate] preflight skipped; no typecheck, TypeScript, or build check found");
-    return;
-  }
-
-  const hasDependencies = Object.keys(project.dependencies ?? {}).length + Object.keys(project.devDependencies ?? {}).length > 0;
-  if (!(await linkDependencies(sitePath, workspace)) && hasDependencies) {
-    console.warn(
-      `[generate] preflight skipped; ${checks.map((check) => check.label).join(" and ")} requires dependencies but target node_modules is not installed`
-    );
-    return;
-  }
-
   const startedMs = Date.now();
   console.log(`[generate] preflight running ${checks.map((check) => check.label).join(" + ")} in disposable workspace...`);
 

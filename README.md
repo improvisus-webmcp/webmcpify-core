@@ -43,6 +43,9 @@ Requirements are stage-specific:
 - **Browser test/baseline:** a running development or staging URL plus Chrome 150+ or a compatible Chromium build with WebMCP support.
 - **Durable run/repair and final-eval:** the optional Temporal packages, a Temporal service, and `webmcpify-worker`.
 
+Git provides the source identity and exact-patch checks for approval, apply and
+rollback; a remote repository or a new commit before every run is not required.
+
 Core detects an installed provider when `--provider` is omitted; set `WEBMCPIFY_PROVIDER` for a fixed default. Antigravity accepts edits only inside the disposable workspace. Text-only suggestions do not become a source patch.
 
 Disposable source copies keep internal symlinks inside the snapshot. If a source link points outside the selected project, choose a common project root containing that source; Core refuses an unsafe copy rather than exposing the original file to edits.
@@ -80,9 +83,13 @@ its diagnostics before continuing. Rejection leaves application source unchanged
 approval alone does not apply the patch.
 
 For Temporal checkpoints throughout this workflow, choose `run --durable` from
-the beginning. `final-eval` is an optional, separate baseline/WebMCP/Temporal
-comparison—not the required next command after `test`. Start it before applying
-the proposal so it can measure the original human interface first.
+the beginning. `final-eval` is an optional, separate WebMCP/Temporal evaluation—not
+the required next command after `test`. The full UI baseline is **off by default**.
+Add `--baseline` to `test` to run every approved task through the ordinary UI
+before WebMCP testing. `eval` then shows both scores and per-task comparisons;
+it does not run the browser again. Standalone `baseline` remains available.
+For an original-interface comparison, start `final-eval --baseline` before
+applying the proposal: it measures the UI before apply and WebMCP testing.
 
 Or select a provider explicitly:
 
@@ -138,9 +145,13 @@ Initial and revised drafts target 30% extra tests and accept a minimum of `ceil(
 
 After confirmation, CLI activity shows review connections closing. Standalone `review` then exits without applying or testing; run `apply` and `test`, or use `run` for the complete workflow. Repair reviews keep their previously approved tools/tests fixed; reject a repair and generate a new draft to change capabilities. Initial durable review permits tool selection.
 
-Invalid generated metadata gets one correction attempt without changing valid contracts or source. Failed correction stops generation without applying a patch. Full review and failure scenarios are in the [step-by-step test guide](docs/testing/end-to-end.md).
+Generation first edits source with a compact prompt, then authors tool contracts and browser tasks in separate read-only passes without a large combined response schema. Core accounts for capabilities from their source mappings and requests a coverage report only where needed. Metadata passes must leave source and Git state unchanged. Invalid metadata gets one bounded correction. Build and security checks still run before human review; nothing is applied during generation. Full review and failure scenarios are in the [step-by-step test guide](docs/testing/end-to-end.md).
+
+For focused generation debugging, run `generate --diagnostic-source-only` once to save a private, unapproved `.webmcpify/generation-source.json` checkpoint, then retry with `generate --diagnostic-metadata-only`. Metadata-only retries restore that source in a disposable copy and skip the source provider. They stop before correction, coverage, build, security, review and apply, preserve existing approval state, and cannot create an approved patch. A Git checkout is required to detect stale checkpoint source; reviewed patches also require a target commit. Changing target source requires a new checkpoint. Normal generation also checkpoints source before metadata, so a future metadata failure can be investigated without generating source again.
 
 Coverage reports accept labelled JSON with or without Markdown fences, or one unambiguous JSON report without a heading. Core can recover a unique one-character copied candidate-ID typo when the named handler and proposed tool's source file agree. It distinguishes current-draft tools from pre-existing registrations and can correct report metadata once while retaining source, tools and tests. Actions still need a valid mapping or a source-grounded omission reason before review.
+
+After a successful metadata diagnostic, use `generate --continue-from-metadata <metadata-file>` with the complete metadata artifact printed by that run. Core verifies it belongs to the same source checkpoint, freezes its contents, skips initial source/tool/task generation, and continues through the existing metadata, coverage, build and security checks to a pending review draft. Invalid input may require the existing bounded corrections; continuation never approves or applies source automatically.
 
 ### Browser testing and verification
 
@@ -268,17 +279,19 @@ Core works from the target's real source rather than assuming a blank applicatio
 - Actual discovery/call results are recorded by Core, separately from provider reports; an initially-true postcondition without required calls cannot pass.
 - Security gating follows the selected `run --security` policy; human approval of the exact patch is always required.
 - Verification reads the resulting application state instead of trusting the agent's report.
-- Run evidence stays in the target project's ignored `.webmcpify/` directory.
-- Provider failures withhold prompts and source output from the terminal; raw diagnostics remain in local trajectory files.
-
-“Private diagnostics” means local error/provider-output files, not a remote service.
-They can contain prompts and source code; do not publish them unredacted.
+- Run evidence and approved tasks stay in the target's ignored `.webmcpify/` directory; see [Project artifacts](#project-artifacts).
+- Provider failures withhold prompts and source output from the terminal. Private diagnostics are local files that can contain prompts and code—do not publish them unredacted.
 
 Core reduces risk; it does not guarantee that generated code or WebMCP tools are safe. Review every proposal before approval.
 
 Disposable workspaces copy current files on disk, including saved uncommitted edits and relevant untracked/ignored files—not just the last commit. **Save editor buffers first**; no new commit is required. Root and nested `.git`, `.webmcpify`, `.serena`, and `node_modules` are excluded, but Git-ignored build assets are not blindly omitted.
 
 Where supported, copy-on-write shares unchanged disk blocks until a copy is edited; otherwise Core uses ordinary copying. Editable source is never hard-linked, and the included files and approval boundary stay the same. Savings depend on the filesystem. Temporary workspaces are removed after use; patches and evidence remain in `.webmcpify`.
+
+Core reuses the target's installed dependencies for disposable build checks;
+it does not copy `node_modules` or ask the coding agent to install packages.
+Install missing dependencies in the target yourself before retrying a
+dependency-based check. This is separate from installing Core.
 
 ## Commands
 
@@ -288,13 +301,13 @@ Where supported, copy-on-write shares unchanged disk blocks until a copy is edit
 | `webmcpify discover` | Inspect the target and write `.webmcpify/discovery.json`. |
 | `webmcpify generate [--security balance\|ignore\|strict]` | Draft tools, tasks, form feedback, agent-readiness files, and a pending patch; balanced by default. |
 | `webmcpify security [--strict]` | Audit proposed/approved tools and write a security report. |
-| `webmcpify review` | Review and approve or reject the exact draft locally. |
+| `webmcpify review` | Approve or reject the exact draft; approval saves `.webmcpify/tasks.json`. |
 | `webmcpify apply` | Apply the approved patch and verify the target build. |
 | `webmcpify test --url <url>` | Test approved tools in an isolated browser session. |
 | `webmcpify eval` | Print the latest project-scoped verification result. |
 | `webmcpify repair` | Draft a repair for failed approved tasks. |
-| `webmcpify baseline` | Run a comparison against the existing interface. |
-| `webmcpify final-eval` | Advanced baseline, WebMCP, repair, and Temporal comparison. |
+| `webmcpify baseline` | Run all approved tasks through the ordinary UI, without WebMCP calls. |
+| `webmcpify final-eval` | Advanced WebMCP, repair, and Temporal evaluation; add `--baseline` for the full UI comparison. |
 
 Every command accepts `--path`; it defaults to the current directory where practical. Run `webmcpify <command> --help` for its options.
 
@@ -349,7 +362,7 @@ The report is written to `.webmcpify/security-report.json` and shown during revi
 
 ## Advanced durable workflows
 
-Normal `run` and one-shot `repair` do not require Temporal. Use `run --durable` for checkpoints **from discovery onward**; `repair --durable` and the three-level `final-eval` also require Temporal. Install the optional peers alongside Core:
+Normal `run` and one-shot `repair` do not require Temporal. Use `run --durable` for checkpoints **from discovery onward**; `repair --durable` and `final-eval` also require Temporal. Install the optional peers alongside Core:
 
 ```bash
 npm install --global \
@@ -428,6 +441,8 @@ For targeted repairs/comparisons, existing commands remain available:
 ```bash
 webmcpify repair --durable --url http://localhost:5173 --task YOUR_APPROVED_TASK_ID --provider codex --max-repairs 3
 webmcpify final-eval --url http://localhost:5173 --provider codex
+# Optional full UI comparison, measured before apply/WebMCP testing:
+webmcpify final-eval --url http://localhost:5173 --provider codex --baseline
 ```
 
 Durable repair captures the approved task fingerprint at start, requires exact
@@ -436,12 +451,22 @@ longer reports success just because a workflow finished: all final task results
 must pass, and a source-changing Temporal repair triggers a full final-source
 retest instead of retaining earlier passes. Already-passing independent WebMCP
 results can still be reused when no repair/source change is needed.
-An unusable UI baseline also leaves the comparison incomplete (nonzero exit),
+Durable repair first retests the selected approved task, even if it passed
+earlier. For a test-only Temporal smoke check, use the same command with
+`--max-repairs 0`: it performs one fresh test and cannot generate or apply a
+repair. Select a task ID from `.webmcpify/tasks.json`; a passing single task
+checks that path, not the complete workflow or all capabilities.
+When `--baseline` is requested, an unusable UI baseline leaves the comparison incomplete (nonzero exit),
 even if final WebMCP tasks pass; low baseline scores alone are valid and do not
 cause this failure. The approved patch/test flow and its evidence are preserved.
-The comparison checks the optional Temporal client and connection settings before
-starting Chrome or generation, and saves the reviewed checkpoint before baseline
-execution. Temporal service/worker availability is still required for the durable
+The comparison prints at the end of `final-eval` and is saved in its trajectory;
+`eval` also displays it when it belongs to the exact latest test run. Unrelated
+older baselines are not attached to a new test. Resume with the same `--baseline`
+choice as the saved run. Baselines test the same tasks, but UI/WebMCP scores are
+not equivalent for capabilities with no human-interface counterpart.
+The evaluation checks the optional Temporal client and connection settings before
+starting Chrome or generation, and saves reviewed progress checkpoints. Temporal
+service/worker availability is still required for the durable
 level; installed packages alone do not provide a running service.
 
 Worker/clients share `WEBMCPIFY_TEMPORAL_ADDRESS`, `WEBMCPIFY_TEMPORAL_NAMESPACE`,
@@ -482,6 +507,10 @@ WEBMCPIFY_CDP_URL=http://127.0.0.1:9222
 
 Provider executable overrides are available as `WEBMCPIFY_CODEX_BIN`, `WEBMCPIFY_CLAUDE_BIN`, `WEBMCPIFY_GEMINI_BIN`, `WEBMCPIFY_OPENCODE_BIN`, and `WEBMCPIFY_ANTIGRAVITY_BIN`.
 
+For troubleshooting, prefix a command with `WEBMCPIFY_TRACE=1` to show safe
+generation stages, provider event types and stream byte counts. Trace output
+does not include prompts, code, tool arguments or raw provider diagnostics.
+
 Core checks executable files on `PATH`, not shell aliases or functions. Codex also falls back to an executable in `~/.local/bin` or a supported editor installation. Relative executable paths and relative `PATH` entries are resolved before changing to the disposable workspace. Launch errors distinguish missing CLIs from a missing working directory or a broken launcher/interpreter; use an absolute override when necessary.
 
 Browser agents run in empty disposable workspaces with a fresh context per task. Verification reads the acted-on tab, preserving DOM/component state, storage, cookies, and navigation; baselines also score tasks separately. The gateway and scorer share `WEBMCPIFY_CDP_URL` without overwriting owner MCP configuration.
@@ -491,6 +520,33 @@ The gateway enforces its two-method, approved-tool, exact-tab boundary for every
 OpenCode uses `run --auto --format json` and an inline MCP overlay without replacing `opencode.json`. Gemini receives merged workspace MCP settings; workspace trust remains the owner's choice. All providers have Core-level deadlines (normal runs: 5 minutes for browser tasks, 15 for generation/repair; durable runs: remaining activity budget with cleanup time reserved); override with `WEBMCPIFY_<PROVIDER>_TIMEOUT`, for example `WEBMCPIFY_CODEX_TIMEOUT=20m`. Antigravity's separate print-timeout setting remains available.
 
 ## Project artifacts
+
+Discovery adds `/.webmcpify/` to the target's `.gitignore` before saving its
+inventory. Fresh generation does the same before recording source identity;
+existing ignore rules are preserved. This housekeeping needs no Git commit or
+human approval. Application integration changes still require review and apply.
+
+| Stage | Private files under `<target>/.webmcpify/` |
+| --- | --- |
+| Discovery | `discovery.json` |
+| Generation | `proposed-tools.json`, `security-report.json`, `pending-diff.patch` and its metadata |
+| Approval | `approved-tools.json` and `tasks.json` with the exact approved task set |
+| Execution/recovery | Browser configuration, `trajectories/`, rollback data and durable/resume checkpoints |
+
+Core no longer writes `tasks.json` at the target root. Legacy root task files
+remain readable when the private file is absent, with the same approval checks;
+Core does not automatically delete existing owner files. `AGENTS.md` and served
+capability/crawler guidance stay outside private state, in the reviewed patch.
+
+Keep `.webmcpify/` locally for reports, repair, rollback and resume; it is not
+automatically deleted after success. Ignoring it does not affect CLI or Temporal
+access. Exclude it from deployment separately; Git ignore rules do not untrack
+already-committed files or prevent uploads. On older projects missing the rule,
+run discovery before generation/review, not between approval and apply.
+
+The leading dot may hide the folder on macOS/Linux; IDE and Windows visibility
+is cosmetic, not security. Use editor `files.exclude`/`search.exclude` if desired.
+Core does not require GitHub access or upload the target repository.
 
 Local `npm pack` archives (`*.tgz`) are ignored in the Core repository. They are
 installation/test artifacts, not source files; packing does not commit them.
@@ -520,19 +576,25 @@ of arbitrary build-script side effects, or an automatic undo after later browser
 test failures. There is currently no standalone `webmcpify rollback` command;
 use your normal Git/recovery workflow for manually reverting a successful apply.
 
-Core writes local state under `<target>/.webmcpify/`, including discovery, proposed tools, `security-report.json`, the pending patch, approvals, evaluations, rollback data, and timestamped evidence. Keep this directory out of source control. The proposed combined `AGENTS.md`, public capability documentation, crawler policy, and UI styles are ordinary target files included in the reviewed patch; they are separate from private run evidence. Core does not require GitHub access and does not upload the target repository.
+Before applying, save or commit your current work if you want a lasting undo
+point. A browser test does not create a recovery snapshot, and a failed browser
+test leaves the applied code in place for diagnosis or reviewed repair.
+
+To smoke-test automatic recovery from the Core checkout:
+
+```bash
+pnpm build
+pnpm run verify:patch
+```
+
+This focused check creates and deletes disposable Git repositories, applies
+fixture approvals, deliberately fails builds/typechecks, and checks cancellation,
+file restoration and damaged-backup handling. It needs Git and a package manager,
+not the coffee server, Chrome, a model provider, or Temporal. It never applies a
+patch to your target app. The same `apply` recovery code is used by the worker;
+this check does not certify Temporal service or worker-crash recovery.
 
 Serena's `.serena` configuration/cache files are agent-local state, not generated application changes. Core excludes them from workspace copies and pending patches and rejects patches targeting them. Existing owner `.serena` files remain untouched.
-
-Keep `.webmcpify` local and project-specific: approvals, resume checkpoints, and
-rollback depend on it. The leading dot hides it by convention on macOS/Linux;
-Windows and IDE explorers may still show it. Hiding is cosmetic, not security.
-Core currently does not automatically change the target's ignore policy. Add
-`/.webmcpify/` to `.gitignore` (or Git's local exclude), and exclude it from
-deployment/build contexts. In VS Code/Cursor you may optionally use
-`files.exclude` and `search.exclude` for `**/.webmcpify`. Do not hide or ignore
-the site-facing guidance files, and do not delete run state until approval,
-verification, and any required rollback/resume are complete.
 
 ## Development
 

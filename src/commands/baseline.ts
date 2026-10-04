@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { runAgent } from "../lib/agent.js";
 import { resolveProvider } from "../lib/ai-provider.js";
 import { resetScoringState, scoreTask, type TaskResult } from "../lib/scoring.js";
-import { loadApprovedTasks, taskFingerprint } from "../lib/tasks.js";
+import { existingTasksPath, loadApprovedTasks, taskFingerprint } from "../lib/tasks.js";
 import {
   createTrajectoryArtifact,
   createTrajectoryPath,
@@ -53,7 +53,7 @@ export async function runBaseline(opts: {
         runId,
         sitePath,
         url,
-        tasksPath: path.join(sitePath, "tasks.json"),
+        tasksPath: existingTasksPath(sitePath),
         taskCount: tasks.length,
         taskId: task.id,
         taskSetId,

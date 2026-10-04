@@ -62,6 +62,9 @@ program
   .option("--product-context <text>", "optional product functionality context for generation")
   .option("--no-product-context-prompt", "do not show the optional product-context prompt")
   .addOption(new Option("--security <policy>", "security policy for generation and approval").choices([...SECURITY_POLICIES]).default("balance"))
+  .option("--diagnostic-source-only", "debug comparison: source edits only, no response schema, validation, review or apply")
+  .option("--diagnostic-metadata-only", "debug tools/tasks from the saved source checkpoint; no source provider, checks, review or apply")
+  .option("--continue-from-metadata <file>", "reuse saved source and completed metadata, then run existing checks and create a review draft")
   .action(runGenerate);
 
 program
@@ -108,6 +111,7 @@ program
     "path to the site's codebase (defaults to the current directory)"
   )
   .option("--provider <name>", providerHelp)
+  .option("--baseline", "run all approved tasks through the UI before the WebMCP test (off by default)")
   .action(async (opts) => {
     await withManagedChrome(opts.url, async () => {
       try {
@@ -115,6 +119,7 @@ program
         if (evaluation.scores.passed !== evaluation.scores.total) {
           throw new Error(`WebMCP audit failed: ${evaluation.scores.passed}/${evaluation.scores.total} tasks passed. Inspect the saved evaluation and private diagnostics before retrying.`);
         }
+        if (evaluation.baseline?.agentError) throw new Error("WebMCP tasks passed, but the requested UI baseline had an infrastructure failure. The comparison is incomplete; inspect the saved baseline diagnostics.");
       } finally {
         await closeScoringBrowser();
       }
@@ -131,7 +136,7 @@ program
   .option("-u, --url <url>", "URL of the running site (required with --durable)")
   .option(
     "-t, --task <task>",
-    "approved tasks.json task id (required with --durable)"
+    "approved .webmcpify/tasks.json task id (required with --durable)"
   )
   .option("--max-repairs <number>", "maximum durable repair attempts", "3")
   .option("--durable", "run the repair loop through Temporal (requires --url and --task)")
@@ -161,14 +166,14 @@ program
 
 program
   .command("baseline")
-  .description("Run the one-shot, self-verifying baseline for comparison")
+  .description("Run all approved tasks through the ordinary UI for comparison")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
   .requiredOption("-u, --url <url>", "URL of the running site")
   .option("--provider <name>", providerHelp)
   .action(async (opts) => {
     await withManagedChrome(opts.url, async () => {
       try {
-        const baseline = await runBaseline(opts);
+        const baseline = await runBaseline({ ...opts, readOnly: true });
         if (baseline.agentError) throw new Error("Baseline browser/provider session failed. Inspect the saved private evaluation.");
       } finally {
         await closeScoringBrowser();
@@ -178,10 +183,11 @@ program
 
 program
   .command("final-eval")
-  .description("Run the advanced baseline, WebMCP, and Temporal comparison")
+  .description("Run advanced WebMCP and Temporal evaluation, optionally comparing the UI baseline")
   .option("-p, --path <dir>", "target codebase (defaults to the current directory)")
   .option("-u, --url <url>", "running target URL (required unless WEBMCPIFY_URL is set)")
   .option("--provider <name>", providerHelp)
+  .option("--baseline", "include the full UI baseline before apply and WebMCP testing (off by default)")
   .option("--review-port <number>", "port for the human review checkpoint", "4173")
   .action(async (opts) => {
     await runFinalEval(opts);
