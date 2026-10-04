@@ -172,6 +172,9 @@ async function codexMcpArgs(mcpConfig?: string): Promise<string[]> {
   const args: string[] = [];
   for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
     if (!server.command) continue;
+    if (!/^[A-Za-z0-9_-]+$/.test(name) || Object.keys(server.env ?? {}).some(key => !/^[A-Za-z0-9_-]+$/.test(key))) {
+      throw new ProviderLaunchError("Codex MCP server names and environment keys must use letters, numbers, underscores or hyphens; dots and quotes are not supported by CLI configuration overrides. Rename the keys in the MCP configuration.");
+    }
     // Codex splits override keys on dots; quotes become literal key characters.
     const key = `mcp_servers.${name}`;
     args.push("-c", `${key}.command=${JSON.stringify(server.command)}`);

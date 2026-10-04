@@ -4,6 +4,8 @@ All notable changes to WebMCPify are documented here.
 
 ## [1.0.7] - 2026-10-04
 
+- Fail clearly on Codex MCP override keys containing dots or quotes instead of silently configuring the wrong server; update regressions for unquoted CLI override keys.
+
 ### Fixed: declarative forms waiting for human submission
 
 - Require statically present form autosubmission for unattended declarative capabilities before generation/revision review; harmless filters/search render a string `toolautosubmit` attribute, including React spread attributes.

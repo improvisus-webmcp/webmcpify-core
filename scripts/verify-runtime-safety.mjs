@@ -87,7 +87,7 @@ writeFileSync(process.env.FIXTURE_CAPTURE, JSON.stringify({ argv: process.argv.s
 process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture complete' } }) + String.fromCharCode(10));
 `);
   const config = path.join(root, "mcp.json");
-  await writeFile(config, JSON.stringify({ mcpServers: { "browser.with.dot": { command: "fixture-mcp", args: ["arg"], env: { "KEY.with.dot": "synthetic-value" } } } }));
+  await writeFile(config, JSON.stringify({ mcpServers: { "browser-server": { command: "fixture-mcp", args: ["arg"], env: { "FIXTURE_KEY": "synthetic-value" } } } }));
   process.env.FIXTURE_CAPTURE = path.join(root, "capture.json");
   for (const provider of ["opencode", "gemini", "codex", "claude"]) {
     process.env[`WEBMCPIFY_${provider.toUpperCase()}_BIN`] = captureProvider;
@@ -100,15 +100,22 @@ process.stdout.write(JSON.stringify({ type: 'text', part: { text: 'fixture compl
     if (provider === "opencode") {
       assert.ok(captured.argv.includes("--auto"));
       assert.ok(!captured.argv.includes("--dangerously-skip-permissions"));
-      assert.equal(captured.config.mcp["browser.with.dot"].type, "local");
+      assert.equal(captured.config.mcp["browser-server"].type, "local");
       assert.equal(captured.config.mcp.servers, undefined);
       assert.equal(await readFile(path.join(browserWorkspace, "opencode.json"), "utf8"), '{"model":"owner-model"}');
     } else if (provider === "gemini") {
       assert.equal(captured.config.ui.theme, "owner-theme");
-      assert.equal(captured.config.mcpServers["browser.with.dot"].command, "fixture-mcp");
+      assert.equal(captured.config.mcpServers["browser-server"].command, "fixture-mcp");
     } else if (provider === "codex") {
-      assert.ok(captured.argv.includes('mcp_servers."browser.with.dot".env."KEY.with.dot"="synthetic-value"'));
+      assert.ok(captured.argv.includes('mcp_servers.browser-server.env.FIXTURE_KEY="synthetic-value"'));
     }
+  }
+  for (const server of [
+    { "browser.with.dot": { command: "fixture-mcp" } },
+    { browser: { command: "fixture-mcp", env: { "KEY.with.dot": "synthetic-value" } } },
+  ]) {
+    await writeFile(config, JSON.stringify({ mcpServers: server }));
+    await assert.rejects(runAgent({ provider: "codex", prompt: "fixture prompt", cwd: browserWorkspace, mcpConfig: config, saveTo: path.join(root, "invalid-codex.json") }), /dots and quotes are not supported/);
   }
   assert.ok(getInvocation({ provider: "opencode", prompt: "fixture", cwd: root, saveTo: "fixture.json" }).args.includes("--format"));
   process.env.WEBMCPIFY_TEMPORAL_ADDRESS = "fixture.example:7233";
