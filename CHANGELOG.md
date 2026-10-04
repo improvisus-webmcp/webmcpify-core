@@ -10,6 +10,7 @@ All notable changes to WebMCPify are documented here.
 - Run provider fixtures via their Node shebang on Windows instead of shell wrappers that corrupt multiline prompt arguments.
 - Preserve safe missing-executable diagnostics when Windows reports a shell launch failure without `ENOENT`; restore macOS Chrome's `.app` bundle layout in CI for sandboxed subprocess communication.
 - Classify missing explicit package-manager/build executables as environment errors on Windows, preserving private diagnostics rather than blaming generated source.
+- Give Windows CI Chrome's sandboxed child processes read/execute access to the downloaded Chrome installation, without disabling sandboxing or granting write access.
 
 ## [1.0.7] - 2026-10-04
 

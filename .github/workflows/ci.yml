@@ -26,6 +26,18 @@ jobs:
       - run: npm install --ignore-scripts
       - uses: browser-actions/setup-chrome@v2
         id: chrome
+      - name: Allow sandboxed Chrome to read its Windows installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          $chromeDirectory = Split-Path -Parent $env:CHROME_PATH
+          if (!(Test-Path -LiteralPath $env:CHROME_PATH -PathType Leaf)) { throw "Chrome executable is missing" }
+          # Chrome's AppContainer/LPAC processes need read/execute ACLs on
+          # unpacked binaries. Keep sandboxing enabled and grant no write access.
+          & icacls $chromeDirectory /grant '*S-1-15-2-1:(OI)(CI)(RX)' '*S-1-15-2-2:(OI)(CI)(RX)' /T /Q
+          if ($LASTEXITCODE -ne 0) { throw "Could not prepare Chrome sandbox permissions" }
       - name: Restore Chrome app bundle on macOS
         if: runner.os == 'macOS'
         id: macchrome
