@@ -133,9 +133,11 @@ export async function runGenerationPreflight(
   console.log(`[generate] preflight running ${checks.map((check) => check.label).join(" + ")} in disposable workspace...`);
 
   let activeCheck = "project validation";
+  let activeCommand = "";
   try {
     for (const check of checks) {
       activeCheck = check.label;
+      activeCommand = check.command;
       await runOperationCommand(check.command, check.args, {
         cwd: workspace,
         // We intentionally reuse installed dependency links. pnpm 11's
@@ -150,7 +152,10 @@ export async function runGenerationPreflight(
   } catch (error) {
     const details = outputFromError(error).slice(-4_000);
     const artifact = await createTrajectoryArtifact("preflight-failure", { error: outputFromError(error) }, { sitePath, status: "failed" });
-    if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new PreflightEnvironmentError(artifact);
+    // Windows can report a missing explicit executable as exit 1 instead of
+    // ENOENT. A missing validation tool is not a generated-source failure.
+    const explicitPathMissing = /[\\/]/.test(activeCommand) && !existsSync(activeCommand);
+    if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "") || explicitPathMissing) throw new PreflightEnvironmentError(artifact);
     if (details.includes("ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY")) throw new PreflightEnvironmentError(artifact, "The project's validation attempted an interactive pnpm dependency install and stopped because no terminal was available. Use already-installed dependencies for build checks; do not force a purge of the linked dependency tree.");
     throw new GenerationPreflightError(details, artifact, activeCheck);
   }

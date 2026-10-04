@@ -9,6 +9,7 @@ All notable changes to WebMCPify are documented here.
 - Resolve macOS temporary-directory aliases when confining disposable-workspace symlinks, preserving external-link rejection.
 - Run provider fixtures via their Node shebang on Windows instead of shell wrappers that corrupt multiline prompt arguments.
 - Preserve safe missing-executable diagnostics when Windows reports a shell launch failure without `ENOENT`; restore macOS Chrome's `.app` bundle layout in CI for sandboxed subprocess communication.
+- Classify missing explicit package-manager/build executables as environment errors on Windows, preserving private diagnostics rather than blaming generated source.
 
 ## [1.0.7] - 2026-10-04
 
