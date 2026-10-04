@@ -167,6 +167,7 @@ ${WEBMCP_SPEC_GUIDANCE}\n${TASK_AUTHORING_PROMPT}`,
     progress("Auditing retained-tool security");
     const security = auditToolSecurity(selected, discovery, sitePath, securityPolicy, { root: workspace });
     if (security.status === "block") throw new Error("Selected tools still have blocking security findings.");
+    progress("Checking source identity before saving the revised draft");
     const afterIdentity = await gitSourceSnapshot(sitePath);
     if (JSON.stringify(identity) !== JSON.stringify(afterIdentity)
       || sourcePatchHash(await readPendingPatch(sitePath, metadata)) !== sourcePatchHash(originalPatch)) throw new Error("Source or pending patch changed during revision; review must restart.");

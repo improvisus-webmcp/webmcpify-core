@@ -1,14 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { createTrajectoryArtifact } from "./trajectories.js";
 import type { SecurityPolicy } from "./security-audit.js";
 import type { AIProvider } from "./ai-provider.js";
 
 const execFileAsync = promisify(execFile);
+const gitTimeoutMs = 30_000;
 
 export type PatchStatus = "awaiting-review" | "approved" | "rejected" | "applied" | "failed" | "invalid";
 
@@ -141,12 +143,25 @@ function normalizeUnifiedDiff(patch: string): string {
   if (original.startsWith("diff --git ")) {
     // Preserve valid Git output byte-for-byte. Trimming or repairing it can
     // destroy trailing-space context and binary-patch terminators.
-    const checked = spawnSync("git", ["apply", "--numstat", "-z"], {
-      input: original,
-      encoding: "utf8",
-      maxBuffer: 50 * 1024 * 1024,
-    });
-    if (checked.status === 0) return original;
+    // Avoid synchronous stdin pipe handling: a stalled parser blocks the
+    // review server and its polling/cancellation timers as well. Give Git a
+    // private file and a hard deadline, preserving valid bytes unchanged.
+    const directory = mkdtempSync(path.join(tmpdir(), "webmcpify-patch-check-"));
+    try {
+      const filename = path.join(directory, "draft.patch");
+      writeFileSync(filename, original, { mode: 0o600 });
+      const checked = spawnSync("git", ["apply", "--numstat", "-z", filename], {
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
+        timeout: gitTimeoutMs,
+        killSignal: "SIGKILL",
+        maxBuffer: 50 * 1024 * 1024,
+      });
+      if ((checked.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") throw new Error("Git patch inspection timed out; retry the review. No approval was created.");
+      if (checked.status === 0) return original;
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
   let normalized = patch.trim();
   const chunks = normalized.split(/\n(?=diff --git )/);
@@ -279,9 +294,10 @@ export function extractUnifiedDiff(rawProviderOutput: string): { patch: string; 
 
 async function gitOutput(sitePath: string, args: string[]): Promise<string | undefined> {
   try {
-    const result = await execFileAsync("git", args, { cwd: sitePath, maxBuffer: 50 * 1024 * 1024 });
+    const result = await execFileAsync("git", args, { cwd: sitePath, timeout: gitTimeoutMs, killSignal: "SIGKILL", maxBuffer: 50 * 1024 * 1024 });
     return result.stdout;
-  } catch {
+  } catch (error) {
+    if ((error as { killed?: boolean }).killed) throw new Error("Git source-identity inspection timed out; refusing incomplete patch validation.");
     return undefined;
   }
 }
@@ -293,6 +309,8 @@ async function validateAgainstGit(sitePath: string, patch: string): Promise<void
   try {
     await execFileAsync("git", ["apply", "--check", "--whitespace=nowarn", temporaryPath], {
       cwd: sitePath,
+      timeout: gitTimeoutMs,
+      killSignal: "SIGKILL",
       maxBuffer: 10 * 1024 * 1024,
     });
   } catch (error) {

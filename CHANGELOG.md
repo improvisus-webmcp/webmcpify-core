@@ -4,6 +4,7 @@ All notable changes to WebMCPify are documented here.
 
 ## Unreleased
 
+- Bound Git patch inspection and source-identity checks; parse private patch files instead of synchronously piping patch input, so review cannot hang indefinitely or approve incomplete identity checks.
 - Fix GitHub's Linux Chrome sandbox setup without disabling browser sandboxing; retain Windows/macOS browser checks.
 - Restore declared Node 20 support by using Execa 9.6 instead of the Node-22-only Execa 10.
 - Resolve macOS temporary-directory aliases when confining disposable-workspace symlinks, preserving external-link rejection.

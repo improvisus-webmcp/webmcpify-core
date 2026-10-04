@@ -34,7 +34,7 @@
     "repair": "node dist/cli.js repair",
     "eval": "node dist/cli.js eval",
     "baseline": "node dist/cli.js baseline",
-    "verify:patch": "node scripts/verify-patch-lifecycle.mjs",
+    "verify:patch": "node scripts/verify-patch-parsing.mjs && node scripts/verify-patch-lifecycle.mjs",
     "verify:discovery": "node scripts/verify-discovery.mjs",
     "verify:capability-coverage": "node scripts/verify-capability-coverage.mjs",
     "verify:temporal-optional": "node scripts/verify-optional-temporal.mjs",
