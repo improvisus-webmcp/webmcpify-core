@@ -12,6 +12,7 @@ import { createTrajectoryArtifact, createTrajectoryPath } from "../lib/trajector
 import { createBrowserAgentWorkspace, removeAgentWorkspace } from "../lib/agent-workspace.js";
 import { normalizeTargetUrl } from "../lib/target-url.js";
 import { withCliProgress } from "../lib/cli-progress.js";
+import { printCliBlock, printCliLine, printStage, renderTable } from "../lib/cli-output.js";
 import { gitSourceSnapshot } from "../lib/patches.js";
 import { connectChromeWebMcp, WEBMCP_AGENT_TOOLS, type ChromeWebMcpConnection, type WebMcpTaskBridge } from "../lib/webmcp-task-bridge.js";
 
@@ -169,7 +170,7 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
   const approvalPath = path.join(sitePath, ".webmcpify", "approved-tools.json");
   let baseline: StoredTestEvaluation["baseline"];
   if (opts.baseline === true) {
-    console.log("[test] running the full UI-only baseline before WebMCP testing...");
+    printCliLine("test", "running the full UI-only baseline before WebMCP testing...");
     const measured = await runBaseline({ path: sitePath, url, provider, readOnly: true });
     const afterBaseline = await gitSourceSnapshot(sitePath);
     if (taskFingerprint(measured.tasks) !== taskSetId || taskFingerprint(await loadApprovedTasks(sitePath)) !== taskSetId
@@ -181,22 +182,22 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
     if (baseline.agentError) console.error("[test] UI baseline execution failed; WebMCP testing will still run, but the comparison will be incomplete.");
   }
   const mcpConfig = await writeChromeDevtoolsMcpConfig(sitePath);
-  console.log(`[test] using generated browser MCP config at ${mcpConfig}`);
+  printCliLine("test", `using generated browser MCP config at ${mcpConfig}`);
   const connection = await withCliProgress("test", "Connecting mandatory Chrome DevTools WebMCP", () => connectChromeWebMcp(mcpConfig, sitePath));
   const trajectories: string[] = [];
   const results: TaskResult[] = [];
   let agentError: string | undefined;
-  console.log(`[test] running isolated ${provider} WebMCP-only audit against ${url}...`);
+  printCliLine("test", `running isolated ${provider} WebMCP-only audit against ${url}...`);
   try {
     for (const [index, task] of tasks.entries()) {
       const label = `task ${index + 1}/${tasks.length}`;
-      console.log(`[test] ${label} started: ${task.id}`);
+      printStage("test", `${label} | ${task.id}`);
       const trajectory = createTrajectoryPath("test", task.id, sitePath);
       const attempted = await attemptTask({ connection, sitePath, provider, url, task, approval, runId, taskSetId, trajectory, label });
       if (existsSync(trajectory)) trajectories.push(trajectory);
       if (attempted.agentError) agentError = agentError ? `${agentError}; ${attempted.agentError}` : attempted.agentError;
       results.push(attempted.result);
-      console.log(`[test] ${label} ${attempted.result.passed ? "passed" : "failed"}: ${task.id}${attempted.result.failureKind ? ` (${attempted.result.failureKind})` : ""}`);
+      printCliLine("test", `${label} ${attempted.result.passed ? "PASS" : "FAIL"} | ${task.id}${attempted.result.failureKind ? ` | ${attempted.result.failureKind}` : ""}`);
       if (attempted.result.failureKind === "infrastructure") {
         console.error("[test] stopped: Chrome DevTools WebMCP/provider connection failed. Remaining tasks were not executed; this is not an application business-rule rejection.");
         for (const remaining of tasks.slice(index + 1)) results.push({ task: remaining.id, passed: false, failureKind: "infrastructure", detail: "Not executed because the mandatory Chrome DevTools WebMCP task connection failed." });
@@ -213,10 +214,11 @@ export async function runTest(opts: TestOptions): Promise<StoredTestEvaluation> 
   const scores = { passed: results.filter(result => result.passed).length, total: results.length, results };
   const evaluation: StoredTestEvaluation = { version: TEST_EVALUATION_VERSION, executionVersion: 1, sourceSnapshot, mode: "webmcp", runId, targetProject: sitePath, taskSetId, provider, url, recordedAt: new Date().toISOString(), tasks, scores, agentError, baseline };
   const evaluationPath = await createTrajectoryArtifact("test-eval", evaluation, { provider, url, sitePath, taskCount: scores.total, sourceTrajectories: trajectories, approvalPath });
-  console.log(`[test] result: ${scores.passed}/${scores.total} tasks passed`);
-  if (trajectories.length) console.log(`[test] raw trajectories saved to ${trajectories.join(", ")}`);
-  else console.log("[test] no raw provider trajectory was written; inspect the task failure diagnostics in the saved evaluation");
-  console.log(`[test] evaluation saved to ${evaluationPath}`);
-  if (baseline) console.log(`[test] comparison: UI baseline ${baseline.scores.passed}/${baseline.scores.total}; WebMCP ${scores.passed}/${scores.total}${baseline.agentError ? " (baseline infrastructure failed; incomplete comparison)" : ""}. Run "webmcpify eval" for per-task results.`);
+  printCliBlock(renderTable(["Browser audit", "Result"], [["Tasks passed", `${scores.passed}/${scores.total}`],
+    ["Tasks failed", String(scores.total - scores.passed)]]));
+  if (trajectories.length) printCliLine("test", `${trajectories.length} private task trajectories saved in ${path.dirname(evaluationPath)}; individual paths are recorded in evaluation metadata.`);
+  else printCliLine("test", "no raw provider trajectory was written; inspect task failure diagnostics in the saved evaluation.");
+  printCliLine("test", `Evaluation saved: ${evaluationPath}`);
+  if (baseline) printCliLine("test", `comparison: UI baseline ${baseline.scores.passed}/${baseline.scores.total}; WebMCP ${scores.passed}/${scores.total}${baseline.agentError ? " (baseline infrastructure failed; incomplete comparison)" : ""}. Run "webmcpify eval" for per-task results.`);
   return evaluation;
 }

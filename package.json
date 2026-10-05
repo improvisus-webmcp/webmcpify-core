@@ -59,7 +59,7 @@
     "verify:task-scaling": "node scripts/verify-task-scaling.mjs",
     "verify:review-browser": "node scripts/verify-review-browser.mjs",
     "verify:repair": "node scripts/verify-repair.mjs",
-    "verify:evaluation": "node scripts/verify-evaluation.mjs",
+    "verify:evaluation": "node scripts/verify-cli-output.mjs && node scripts/verify-evaluation.mjs",
     "verify:final-eval": "node scripts/verify-final-eval.mjs",
     "temporal:worker": "node dist/temporal/worker.js",
     "dev": "tsx watch src/cli.ts",

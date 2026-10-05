@@ -1,3 +1,4 @@
+import { printCliLine, traceCliLine } from "./cli-output.js";
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
@@ -195,13 +196,13 @@ async function bindWebMcpTask(
     if (request.method?.startsWith("notifications/")) return undefined;
     if (request.method === "initialize") {
       activity.initializations++;
-      console.log(`${logPrefix} provider bridge initialized`);
+      traceCliLine("webmcp", `${logPrefix} provider bridge initialized`);
       return reply({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "chrome-devtools", version: "1" }, instructions: WEBMCP_TASK_INSTRUCTION });
     }
     if (request.method === "ping") return reply({});
     if (request.method === "tools/list") {
       activity.catalogs++;
-      console.log(`${logPrefix} catalog delivered to provider: list_webmcp_tools, call_webmcp_tool`);
+      traceCliLine("webmcp", `${logPrefix} catalog delivered to provider: list_webmcp_tools, call_webmcp_tool`);
       return reply({ tools: toolSchemas });
     }
     if (request.method !== "tools/call") return { jsonrpc: "2.0", id: request.id ?? null, error: { code: -32601, message: "Unsupported task MCP method." } };
@@ -209,9 +210,9 @@ async function bindWebMcpTask(
     const args = (request.params?.arguments ?? {}) as Record<string, unknown>;
     activity.methodCalls++;
     const callLabel = `${logPrefix} method=${mcpDiagnosticName(name)}${name === "call_webmcp_tool" ? `, capability=${mcpDiagnosticName(args?.toolName)}` : ""}`;
-    console.log(`${callLabel} requested; arguments/results withheld`);
+    traceCliLine("webmcp", `${callLabel} requested; arguments/results withheld`);
     const reject = (message: string) => {
-      console.log(`${callLabel} rejected by task policy`);
+      printCliLine("webmcp", `POLICY | ${mcpDiagnosticName(name)} rejected by task policy`);
       evidence.policyViolations.push(message);
       return reply(resultText(message, true));
     };
@@ -251,19 +252,19 @@ async function bindWebMcpTask(
       if (name === "list_webmcp_tools") {
         if (result.isError) { diagnostics.push(result); throw new Error("WebMCP discovery is unavailable."); }
         evidence.discovered = true;
-        console.log(`${callLabel} discovery completed`);
+        printCliLine("webmcp", "DISCOVER | Live tool catalog received");
       } else {
         const execution = webMcpExecutionResult(result, observedError);
         if (!execution) { diagnostics.push(result); throw new Error("Chrome DevTools did not return a real WebMCP execution result; a missing tool, invalid schema or browser error is not an expected business rejection."); }
         evidence.calls.push({ toolName: args.toolName as string, ...execution });
-        console.log(`${callLabel} execution=${execution.status}`);
+        printCliLine("webmcp", `CALL | ${mcpDiagnosticName(args.toolName)} | ${execution.status === "success" ? "SUCCESS" : "ERROR (checked during verification)"}`);
         if (execution.status === "error" && observedError) {
           result = { ...result, content: [...(result.content ?? []), { type: "text", text: `Core observed the matching Chrome WebMCP invocation exception: ${observedError}` }] };
         }
       }
       return reply(result);
     } catch (error) {
-      console.log(`${callLabel} infrastructure failure; details withheld`);
+      printCliLine("webmcp", "CONNECTION | Discovery/execution failed; details saved privately");
       diagnostics.push({ reason: error instanceof Error ? error.message : "Chrome MCP call failed", stderr: client.diagnostics() });
       evidence.infrastructureError = "Chrome DevTools MCP could not complete WebMCP discovery/execution on the exact task tab.";
       return reply(resultText(evidence.infrastructureError + " Do not substitute clicks, evaluate_script, cua_repl, or another browser.", true));
@@ -302,8 +303,9 @@ async function bindWebMcpTask(
       directTools: ["list_webmcp_tools", "call_webmcp_tool"],
       approveTools: ["call_webmcp_tool"],
     } } }), { mode: 0o600 });
-    console.log(`${logPrefix} Chrome WebMCP probe succeeded; upstream execution method=${mcpDiagnosticName(executionMethod)}`);
-    console.log(`${logPrefix} bridge ready; offered methods: list_webmcp_tools, call_webmcp_tool; permitted capabilities: ${[...allowed].map(mcpDiagnosticName).join(", ") || "(discovery only)"}`);
+    traceCliLine("webmcp", `${logPrefix} Chrome WebMCP probe succeeded; upstream execution method=${mcpDiagnosticName(executionMethod)}`);
+    printCliLine("webmcp", `READY | Chrome connected | ${allowed.size} permitted capabilities`);
+    traceCliLine("webmcp", `${logPrefix} permitted capabilities: ${[...allowed].map(mcpDiagnosticName).join(", ") || "(discovery only)"}`);
     return {
       configPath, evidence, diagnostics,
       instruction: WEBMCP_TASK_INSTRUCTION,
@@ -315,7 +317,8 @@ async function bindWebMcpTask(
         // Finish any in-flight request before evidence is persisted or the
         // shared browser client moves to the next task.
         await queue;
-        console.log(`${logPrefix} session summary: initialize=${activity.initializations}, tools/list=${activity.catalogs}, tools/call=${activity.methodCalls}, discovery=${evidence.discovered}, executions=${evidence.calls.length}`);
+        printCliLine("webmcp", `SESSION | ${evidence.calls.length} recorded executions | discovery ${evidence.discovered ? "observed" : "not observed"}`);
+        traceCliLine("webmcp", `${logPrefix} session summary: initialize=${activity.initializations}, tools/list=${activity.catalogs}, tools/call=${activity.methodCalls}`);
         diagnostics.push({ activity: { ...activity }, discovered: evidence.discovered, executions: evidence.calls.length });
         // Upstream 1.7 lists pages only after consulting its current selection.
         // Leave it on a surviving page before Core closes the isolated context;

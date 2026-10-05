@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createTrajectoryArtifact, latestTrajectoryPath } from "../dist/lib/trajectories.js";
 import { taskFingerprint } from "../dist/lib/tasks.js";
 import { readFile } from "node:fs/promises";
-import { matchesFinalComparison, runEval } from "../dist/commands/eval.js";
+import { matchesFinalComparison, runEval, showSavedEvaluation } from "../dist/commands/eval.js";
 
 const projectA = "/tmp/webmcpify-evaluation-project-a";
 const projectB = "/tmp/webmcpify-evaluation-project-b";
@@ -49,5 +49,16 @@ try {
   await runEval(projectA);
 } finally { console.log = log; }
 assert.ok(output.some(line => line.includes("UI baseline 2/5; WebMCP 4/5")));
-assert.equal(output.filter(line => line.includes("UI baseline:")).length, tasks.length);
+const table = output.find(line => line.includes("Verification") && line.includes("UI baseline"));
+assert.ok(table, "Linked baseline results must appear in the task table");
+for (const task of tasks) assert.ok(table.includes(task.id), "Every approved task must appear in the table");
+assert.ok(table.includes("FAIL"), "Failed checks must remain visible alongside passes");
+await assert.rejects(runEval(projectA, { runId: "different-workflow" }), /does not belong/);
+await assert.rejects(runEval(projectB, { evaluationPath: scopedWebmcpPath }), /does not belong/);
+const olderOutput = [];
+try {
+  console.log = (...args) => olderOutput.push(args.join(" "));
+  await showSavedEvaluation(projectA, "run", { evaluationPath: scopedWebmcpPath });
+} finally { console.log = log; }
+assert.ok(olderOutput.join("\n").includes("webmcp-fixture"), "A resumed durable result must display its exact saved artifact");
 console.log("evaluation verification passed: shared tasks, per-task comparison, run identity, and project-scoped lookup");

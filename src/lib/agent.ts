@@ -19,6 +19,8 @@ import {
 import { resolveRecordArtifacts } from "./config.js";
 import { currentOperationSignal, currentOperationDeadline } from "./operation-context.js";
 import { logProviderMcpToolEvent } from "./mcp-tool-log.js";
+import { startCliProgress } from "./cli-progress.js";
+import { clearCliProgress, printCliLine, traceCliLine } from "./cli-output.js";
 
 export interface AgentRunOptions {
   provider: AIProvider;
@@ -356,26 +358,12 @@ function providerTimeoutMs(opts: AgentRunOptions): number {
   return parseTimeoutMs(process.env[`WEBMCPIFY_${opts.provider.toUpperCase()}_TIMEOUT`] ?? "", fallback);
 }
 
-function startAgentProgress(opts: AgentRunOptions, startedMs: number): () => void {
+function startAgentProgress(opts: AgentRunOptions): () => void {
   const role = typeof opts.trajectoryMetadata?.role === "string"
     ? opts.trajectoryMetadata.role
     : inferredRole(opts.saveTo);
-  const elapsed = (): string => `${Math.round((Date.now() - startedMs) / 1000)}s`;
-  console.error(`[${opts.provider}] ${role} agent started...`);
-  const interactive = Boolean(process.stderr.isTTY);
-  const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  let frame = 0;
-  const render = (): void => {
-    if (!interactive) return;
-    process.stderr.write(`\r\x1b[2K[${opts.provider}] ${role} agent working ${elapsed()} ${spinner[frame++ % spinner.length]}`);
-  };
-  render();
-  const timer = setInterval(render, 250);
-  return () => {
-    clearInterval(timer);
-    if (interactive) process.stderr.write("\r\x1b[2K");
-    console.error(`[${opts.provider}] ${role} agent finished (${elapsed()} elapsed).`);
-  };
+  const stop = startCliProgress(opts.provider, `${role} agent`);
+  return () => stop("finished");
 }
 
 function trajectoryMetadata(
@@ -464,9 +452,9 @@ async function preserveFailedOutput(
 export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
   const startedMs = Date.now();
   const startedAt = new Date(startedMs).toISOString();
-  const stopProgress = startAgentProgress(opts, startedMs);
+  const stopProgress = startAgentProgress(opts);
   const trace = (message: string): void => {
-    if (process.env.WEBMCPIFY_TRACE === "1") console.log(message);
+    if (process.env.WEBMCPIFY_TRACE === "1") { clearCliProgress(); console.log(message); }
   };
 
   try {
@@ -578,13 +566,16 @@ export async function runAgent(opts: AgentRunOptions): Promise<unknown> {
             const itemType = event.item?.type && items.includes(event.item.type) ? event.item.type : "none/unknown";
             trace(`[trace ${opts.provider}] event=${event.type}, item=${itemType}, elapsed=${Math.round((Date.now() - startedMs) / 1000)}s`);
           }
-          if (opts.trajectoryMetadata?.role === "test") logProviderMcpToolEvent(event, opts.trajectoryMetadata.taskId);
+          if (opts.trajectoryMetadata?.role === "test" && process.env.WEBMCPIFY_TRACE === "1") {
+            clearCliProgress();
+            logProviderMcpToolEvent(event, opts.trajectoryMetadata.taskId);
+          }
           if (event.type === "turn.started") {
-            console.log("[codex] turn started");
+            traceCliLine("codex", "turn started");
           } else if (event.type === "turn.completed") {
-            console.log("[codex] turn completed");
+            traceCliLine("codex", "turn completed");
           } else if (event.type === "error" || event.item?.type === "error") {
-            console.error("[codex] provider diagnostic received; waiting for turn outcome");
+            printCliLine("codex", "provider diagnostic received; waiting for turn outcome", process.stderr);
           }
         } catch {
           // Keep the raw output for the trajectory; progress logging is best effort.

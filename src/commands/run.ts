@@ -8,6 +8,8 @@ import { closeScoringBrowser } from "../lib/scoring.js";
 import { ensureTargetReachable, normalizeTargetUrl } from "../lib/target-url.js";
 import { resolveSecurityPolicy } from "../lib/security-audit.js";
 import { resolveDurable } from "../lib/config.js";
+import { printCliLine, printStage, printWorkflowBanner } from "../lib/cli-output.js";
+import { showSavedEvaluation } from "./eval.js";
 
 export interface RunOptions {
   path?: string;
@@ -31,6 +33,7 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
   if (opts.executionId && !opts.resume) throw new Error("--execution-id requires --resume.");
   if (opts.resume && opts.durable === false) throw new Error("--resume is a durable operation; omit --no-durable.");
   if (await resolveDurable(opts.durable) || opts.resume) {
+    printWorkflowBanner("run", { durable: true, baseline: opts.baseline, resume: Boolean(opts.resume) });
     const { runDurableWorkflow } = await import("../lib/durable-run.js");
     return runDurableWorkflow(opts);
   }
@@ -45,11 +48,12 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
   }
   const url = normalizeTargetUrl(targetUrl);
 
+  printWorkflowBanner("run");
   await ensureTargetReachable(url);
-  console.log(`[run] target: ${sitePath}`);
-  console.log(`[run] site: ${url}`);
-  console.log(`[run] security: ${security}`);
-  console.log("[run] 1/4 discover and draft");
+  printCliLine("run", `Target: ${sitePath}`);
+  printCliLine("run", `Site: ${url}`);
+  printCliLine("run", `Security: ${security}`);
+  printStage("run", "1/4 | Discover, generate and validate the draft");
   await runGenerate({
     path: sitePath,
     provider: opts.provider,
@@ -59,20 +63,20 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
     productContextPrompt: opts.productContextPrompt,
   });
 
-  console.log("[run] 2/4 review");
+  printStage("run", "2/4 | Human review and exact patch approval");
   const review = await runReviewPrompt(sitePath, opts.reviewPort);
   if (!review.approved) {
-    console.log("[run] stopped: the draft was rejected; the target was not changed");
+    printCliLine("run", "stopped: the draft was rejected; the target was not changed");
     return;
   }
 
-  console.log("[run] approval received; continuing with the exact approved patch");
+  printCliLine("run", "approval received; continuing with the exact approved patch");
   if (!review.sourceDiff.runId || !review.sourceDiff.patchHash) throw new Error("Review returned no exact source patch identity; refusing apply.");
-  console.log("[run] 3/4 apply and build");
+  printStage("run", "3/4 | Apply approved patch and check the build");
   await runApply({ path: sitePath, expectedRunId: review.sourceDiff.runId, expectedPatchHash: review.sourceDiff.patchHash });
 
-  console.log("[run] 4/4 test and independently verify");
-  console.log("[run] preparing the browser; each approved task will be executed and checked independently");
+  printStage("run", "4/4 | Real agent browser tests and independent verification");
+  printCliLine("run", "preparing the browser; each approved task will be executed and checked independently");
   const evaluation = await withManagedChrome(url, async () => {
     try {
       return await runTest({ path: sitePath, url, provider: opts.provider });
@@ -81,6 +85,7 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
     }
   });
 
+  await showSavedEvaluation(sitePath, "run", { runId: evaluation.runId });
   if (evaluation.scores.passed !== evaluation.scores.total) {
     throw new Error(
       `${evaluation.scores.total - evaluation.scores.passed} of ${evaluation.scores.total} approved tasks failed verification. Run webmcpify eval --path ${JSON.stringify(sitePath)} for details.`,
@@ -90,5 +95,4 @@ export async function runWorkflow(opts: RunOptions): Promise<void> {
   console.log(
     `[run] complete: ${evaluation.scores.passed}/${evaluation.scores.total} approved tasks verified`,
   );
-  console.log(`[run] report: webmcpify eval --path ${JSON.stringify(sitePath)}`);
 }

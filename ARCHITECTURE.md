@@ -29,6 +29,7 @@ flowchart LR
 - High-impact names alone do not turn a source-backed demo store action into a purchase. A narrowly recognized local Zustand setter can receive a human scope-review notice; unknown calls, custom storage/on-set callbacks, shadowed factories, and external source paths retain consequential checks. Generation inspects its validated workspace; review reconstructs supported exact pending text hunks only in memory, never borrowing an old local handler's classification for a changed backend action. This is not general effect analysis or deployed-runtime proof.
 - Browser agents receive empty disposable workspaces, not copied source. Each task uses a fresh browser context and independent scoring of the exact acted-on page. Non-Claude adapters do not enforce the requested tool allowlist as an OS sandbox. See the [runtime audit](docs/audits/2026-10-01-runtime-compatibility.md).
 - Core owns the real Chrome DevTools MCP connection and binds the task tab by a unique marker. Its authenticated, task-scoped stdio gateway exposes only `list_webmcp_tools` and `call_webmcp_tool` (delegating to upstream `execute_webmcp_tool`), rejects unapproved tools/routing/scripts, and records execution independently of provider reports. Agent access is revoked and pending calls settle before scoring. The UI baseline is intentionally separate.
+- Task `requiredTools` lists are ordered call sequences. Normalization trims names while preserving repeated calls and their positions, including the final primary action in a rejection scenario. Generation metadata correction and review supplementation preserve valid retained tasks; new tasks are merged before count/coverage validation. Approval binds the complete sequence, and apply does not rewrite approved tasks or their manifest. Canonical task sets approved before this change remain readable.
 - The independent scorer evaluates each approved `verify` expression against fresh live-page state.
 - WebMCP scoring requires actual discovery and ordered required calls before considering postconditions. Rejection tests need one matching recorded business error and an unchanged-state postcondition, including a bounded 500 ms settle window; protocol/browser errors cannot pass. Individual verification reads have deadlines and respect cancellation. Infrastructure/evidence/verifier failures do not authorize application repair, including durable task attempts.
 - Core waits briefly for matching guard exceptions arriving on its separate CDP observer after the MCP response; it never retries the capability to recover an error. A timed-out MCP request closes the owned connection to avoid overlapping uncertain executions.
@@ -50,7 +51,7 @@ flowchart LR
 
 | File | Responsibility |
 | --- | --- |
-| `src/commands/run.ts` | Runs discover → draft → review → apply → test → verify, or lazily starts/reattaches the optional full Temporal pipeline. |
+| `src/commands/run.ts` | Runs discover → draft → review → apply → test → verify saves evaluation results and automatically displays the saved report; standalone `eval` displays it again. Lazily starts/reattaches the optional full Temporal pipeline when durable mode is selected. |
 | `src/commands/discover.ts` | CLI wrapper for static project discovery. |
 | `src/commands/generate.ts` | Creates a disposable workspace, invokes a provider, validates its source changes, and stores a pending proposal. |
 | `src/commands/security.ts` | Audits proposed or approved tools and writes the project security report. |
@@ -60,7 +61,7 @@ flowchart LR
 | `src/commands/eval.ts` | Prints the latest project-scoped WebMCP test result. |
 | `src/commands/repair.ts` | Drafts a focused patch from failed task evidence; optionally starts a Temporal workflow. |
 | `src/commands/baseline.ts` | Measures the same approved tasks against the existing interface for comparison. |
-| `src/commands/final-eval.ts` | Coordinates WebMCP, optional repair, Temporal evaluation, checkpoints, and final evidence; `--baseline` opts into the full UI comparison before apply/test. |
+| `src/commands/final-eval.ts` | Coordinates WebMCP, optional repair, Temporal evaluation, checkpoints, and final evidence; requires optional Temporal packages and a reachable service. `--baseline` opts into the full UI comparison before apply/test. |
 
 ## Core libraries
 
@@ -81,14 +82,15 @@ flowchart LR
 | `src/lib/review-selection.ts` | Revises a pending patch for selected tools in a disposable workspace, checks retained contracts/source/security, updates tasks/docs, and returns a new unapproved draft. |
 | `src/lib/review-ui.ts` | Locks review controls immediately, polls revision progress, and automatically reopens a fresh draft. |
 | `src/lib/review-files.ts` | Describes every actual patch path with change type and grounded file-role/tool-placement explanations. |
-| `src/lib/cli-progress.ts` | Provides safe stderr-only phase activity with elapsed time and cleanup on success or failure. |
+| `src/lib/cli-output.ts` | Renders workflow banners, stage sections and saved evaluation tables within terminal width; wraps long identifiers/paths, accounts for Unicode width and clears transient progress before permanent output. |
+| `src/lib/cli-progress.ts` | Provides a shared bounded stderr progress line with elapsed time and cleanup on success or failure; separates live MCP messages from the spinner. |
 | `src/lib/canonical-json.ts` | Compares immutable JSON contracts without treating object-key order as a change. |
 | `src/lib/prompts.ts` | Holds deterministic discovery, placement, proposal, and task-authoring instructions. |
 | `src/lib/webmcp-spec-guidance.ts` | Holds the WebMCP compatibility, lifecycle, privacy, and security rules supplied to providers. |
 | `src/lib/tool-proposals.ts` | Parses, normalizes, validates, persists, and reloads structured tool proposals. |
 | `src/lib/security-audit.ts` | Checks declared user/agent binding, backend authorization, origins, quotas, replay protection, sensitive inputs, and schema bounds. |
 | `src/lib/task-verification.ts` | Checks task verification expressions for unsafe or invalid patterns. |
-| `src/lib/tasks.ts` | Validates uncapped task sets with a rounded-up 20% minimum margin (30% authoring target) over initial/retained tool count, enforces coverage, fingerprints them, and binds them to approval. Legacy approved task sets remain readable. |
+| `src/lib/tasks.ts` | Validates uncapped task sets with a rounded-up 20% minimum margin (30% authoring target) over initial/retained tool count, enforces coverage, preserves ordered/repeated required calls, fingerprints tasks, and binds them to approval. Legacy approved task sets remain readable. |
 | `src/lib/duplicate-imports.ts` | Removes identical repeated named imports only in changed disposable-workspace files before generation preflight; preserves conflicting bindings, type/value distinctions, comments and external source. |
 | `src/lib/patches.ts` | Extracts safe Git patches, validates paths and source state, and stores patch metadata. |
 | `src/lib/preflight.ts` | Runs target typecheck/build inside the disposable workspace before review. |
@@ -143,6 +145,8 @@ flowchart LR
 | `scripts/verify-security-audit.mjs` | Tests pass/block decisions for consequential access-control contracts. |
 | `scripts/verify-review.mjs` | Tests read-only tasks/contracts, tamper rejection, confirmation, persistence, cancellation, and rejection. |
 | `scripts/verify-partial-review.mjs` | Tests removal of rejected registrations, retained-only contracts/tasks/docs, preserved original app actions, fresh patch confirmation, and refused unsafe revisions. |
+| `scripts/verify-task-order.mjs` | Tests repeated primary calls, metadata extraction/correction, immutable retained/new merging, pruning, stable legacy/new approvals, and ordered success/rejection evidence. |
+| `scripts/verify-task-scaling.mjs` | Tests uncapped task counts, retained-only review supplementation, exact retained tasks, and unchanged approved task/manifest bytes after apply, including repeated calls. |
 | `scripts/verify-review-browser.mjs` | Tests real Chrome review locking across tabs/refreshes, automatic reopen, repeated removal, and final confirmation. |
 | `scripts/verify-patch-lifecycle.mjs` | Tests patch validation, approval gating, apply, and rollback. |
 | `scripts/verify-optional-temporal.mjs` | Tests isolated production CLI/MCP startup without optional peers and clear durable/worker installation messages. |
@@ -150,8 +154,10 @@ flowchart LR
 | `scripts/verify-temporal-live.mjs` | Opt-in isolated real Temporal test for ordered stages, heartbeats, cancellation, completed-stage restart and current/legacy history replay. |
 | `scripts/verify-temporal-pipeline.mjs` | Opt-in real Core CLI/worker/Temporal/Chrome pipeline on a disposable JS app, with credential-free provider, baseline, expected rejection, subset revision and reattachment. |
 | `scripts/verify-repair.mjs` | Tests failure selection, focused repair patches, review boundaries, and regression evidence. |
+| `scripts/verify-cli-output.mjs` | Tests narrow/wide terminal layouts, Unicode alignment, control stripping, progress/MCP separation, unchanged report data and existing apply/eval prerequisites. |
 | `scripts/verify-evaluation.mjs` | Tests shared task identity and project-scoped evaluation lookup. |
 | `scripts/verify-final-eval.mjs` | Tests orchestration order, task-set consistency, and new-file diff capture. |
+| `.github/workflows/ci.yml` | Runs the fixture suite and real Chrome browser-state checks on Node 20/22 across Linux, macOS, and Windows; prepares OS-specific Chrome sandbox permissions and preserves the macOS app bundle. |
 | `package.json` | Defines package metadata, commands, runtime dependencies, optional Temporal peers, tests, and publish contents. |
 | `pnpm-lock.yaml` | Locks the development dependency graph. |
 | `pnpm-workspace.yaml` | Defines approved dependency build scripts and the patched development resolution. |

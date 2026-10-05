@@ -39,6 +39,21 @@ On PowerShell omit `hash -r` and use `Get-Command webmcpify`; quote executable p
 containing spaces. Run the same suite on each native OS—Linux success does not prove
 Windows/macOS success. Chrome/Chromium and provider executables must be installed.
 
+The GitHub runtime-compatibility workflow runs Node 20 and 22 on Linux, macOS, and
+Windows, including `npm test` and real Chrome browser-state checks. It preserves
+the macOS Chrome app bundle and prepares Linux/Windows sandbox permissions.
+
+For focused repeated-call and review/apply regression checks after building:
+
+```bash
+pnpm run verify:task-order
+pnpm run verify:task-scaling
+```
+
+Both checks are included in `pnpm test`. They verify sequence preservation,
+retained/new task merging, legacy approval compatibility, ordered execution
+evidence, and unchanged approved tasks/manifest after application.
+
 ## 2. Prepare and start the target
 
 Terminal A:
@@ -95,6 +110,11 @@ Check the review UI in the next step for:
 - An empty cart/logged-out checkout and removing an absent item can pass only as
   expected-rejection tests. Network failures, crashes, or completed forbidden actions
   must fail. A rejected action never counts as a completed purchase/removal.
+- `requiredTools` lists every required invocation in order, including repeats.
+  For a coffee rejection scenario, a sequence such as
+  `toggle_coffee_comparison → open_tasting_flight → set_tasting_preferences → open_tasting_flight`
+  must retain the final call; the expected rejection belongs to that final action.
+  Use the actual proposed tool names and source-backed error for your target.
 - No `.serena`, `.tgz`, secrets, target runtime state, unrelated refactors, invented
   backend controls, or dead integration files in the source patch.
 - Public docs, README, one root AGENTS.md, loaded styles, and accessible status are
@@ -129,7 +149,10 @@ coding provider. Rejected-only and mixed/dependent tasks disappear; unaffected
 task IDs and criteria stay unchanged. Both initial and revised drafts must have
 at least `ceil(tool count × 1.2)` tests with every tool covered; generation
 targets 30% extra scenarios (10 tools → 12 minimum, 13 target). If removals cause a count shortfall, Core adds
-grounded scenarios without rewriting retained tests. Retained-only docs are reconciled;
+grounded scenarios without rewriting retained tests. Compare retained tasks before
+and after revision: IDs, setup, verification criteria, and ordered/repeated
+`requiredTools` entries must match. New-ID supplements are merged with retained
+tasks before the combined count and coverage are validated. Retained-only docs are reconciled;
 the page automatically reopens for fresh review. Remove another tool
 and repeat if at least one remains. No approval/application happens
 automatically. Confirm rejected registrations are actually absent, while original
@@ -184,6 +207,10 @@ Expected: only the exact approved source patch applies, with build checks passin
 Generated docs are now real files outside `.webmcpify`. Unapproved, changed, stale,
 or tampered drafts must refuse application. Test those failure cases only in a
 throwaway fixture/clone; do not damage the real app to test rollback.
+
+Approved `.webmcpify/tasks.json` and `.webmcpify/approved-tools.json` must remain
+unchanged by apply, including repeated required calls and the approved task-set
+identity. The focused task-scaling check verifies this byte for byte.
 
 Run normal human flows: filtering, selecting, adding/removing items, validation,
 navigation, and safe checkout guards. Existing functionality must remain intact.
@@ -327,6 +354,16 @@ webmcpify run --url http://127.0.0.1:5173 --provider codex --no-product-context-
 
 Expected stages: discover/draft → human review → apply/build → test/independent
 verification. It intentionally waits for review; rejection stops before apply.
+
+Both `run` and `final-eval` begin with a wrapped workflow banner explaining the
+stages and time needed. Progress lines must stay separate from MCP activity,
+including in a narrow terminal. Testing computes and saves evaluation results;
+`run` automatically displays the saved table before reporting success or failed
+tasks. Run `webmcpify eval` to display it again. Normal `run` does not launch
+advanced `final-eval` or require Temporal unless durable mode is selected.
+After advanced evaluation, `final-eval` displays the saved report with matching
+WebMCP/Temporal results and optional UI-baseline columns. Errors before any test
+result exists must not fabricate an evaluation report.
 
 Run `pnpm run test:mcp` in Core for a real stdio protocol smoke test. Configure your
 agent client using the README MCP example; for this local build use the absolute

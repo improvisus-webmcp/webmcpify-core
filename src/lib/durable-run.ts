@@ -10,6 +10,8 @@ import { resolveSecurityPolicy } from "./security-audit.js";
 import { normalizeTargetUrl } from "./target-url.js";
 import { loadTemporalClient, temporalConnectionOptions } from "./temporal.js";
 import { withCliProgress } from "./cli-progress.js";
+import { showSavedEvaluation } from "../commands/eval.js";
+import { printCliLine } from "./cli-output.js";
 import { collectProductContext } from "./product-context.js";
 
 type CoreWorkflow = (opts: CoreWorkflowOptions) => Promise<CoreWorkflowResult>;
@@ -89,8 +91,8 @@ export async function runDurableWorkflow(opts: RunOptions): Promise<void> {
       if (progress.path !== sitePath || (opts.url && progress.url !== normalizeTargetUrl(opts.url))) {
         throw new Error("The resumed workflow belongs to another target path or URL. Use the original target; nothing was started.");
       }
-      console.log(`[run] attached to durable workflow: ${workflowId}`);
-      if (historicalResult) console.log("[run] reading the saved result of a finished execution; this does not run a fresh audit of the current source");
+      printCliLine("run", `attached to durable workflow: ${workflowId}`);
+      if (historicalResult) printCliLine("run", "reading the saved result of a finished execution; this does not run a fresh audit of the current source");
     } else {
       try {
         const started = await client.workflow.start<CoreWorkflow>("coreWorkflow", { workflowId,
@@ -103,11 +105,11 @@ export async function runDurableWorkflow(opts: RunOptions): Promise<void> {
         }
         throw error;
       }
-      console.log(`[run] durable workflow started: ${workflowId}`);
+      printCliLine("run", `durable workflow started: ${workflowId}`);
     }
-    console.log(`[run] execution: ${executionId}`);
-    console.log(`[run] reattach after a client disconnect: webmcpify run --durable --resume ${workflowId} --execution-id ${executionId} --path ${JSON.stringify(sitePath)}`);
-    if (!historicalResult) console.log("[run] worker and target server must remain available. Ctrl+C disconnects this client; it does not cancel the workflow.");
+    printCliLine("run", `execution: ${executionId}`);
+    printCliLine("run", `reattach after a client disconnect: webmcpify run --durable --resume ${workflowId} --execution-id ${executionId} --path ${JSON.stringify(sitePath)}`);
+    if (!historicalResult) printCliLine("run", "worker and target server must remain available. Ctrl+C disconnects this client; it does not cancel the workflow.");
     let polling = false;
     let ended = false;
     let lastPhase = "";
@@ -119,9 +121,9 @@ export async function runDurableWorkflow(opts: RunOptions): Promise<void> {
         const progress = await connection.withDeadline(Date.now() + 3000, () => handle.query<CoreProgress>("coreProgress"));
         if (ended) return;
         const phase = `${progress.phase}${progress.totalTasks ? ` (${progress.completedTasks}/${progress.totalTasks} tasks)` : ""}`;
-        if (phase !== lastPhase) { console.log(`[run] ${phase}`); lastPhase = phase; }
+        if (phase !== lastPhase) { printCliLine("run", phase); lastPhase = phase; }
         if (progress.reviewUrl && progress.reviewUrl !== lastReviewUrl) {
-          console.log(`[run] ACTION REQUIRED: review ${progress.reviewUrl} on the worker machine`);
+          printCliLine("run", `ACTION REQUIRED: review ${progress.reviewUrl} on the worker machine`);
           lastReviewUrl = progress.reviewUrl;
         }
       } catch { /* A queued workflow or brief service outage is not a new run. */ }
@@ -142,10 +144,11 @@ export async function runDurableWorkflow(opts: RunOptions): Promise<void> {
       } catch { /* Saved phase remains useful if the service is unavailable. */ }
       throw new Error(durableFailureMessage(error, lastPhase));
     } finally { ended = true; clearInterval(timer); }
-    if (result.status === "rejected") { console.log("[run] stopped: draft rejected; no patch was applied"); return; }
-    if (result.baselinePath) console.log(`[run] UI baseline: ${result.baselinePath}`);
-    if (result.evaluationPath) console.log(`[run] evaluation: ${result.evaluationPath}`);
+    if (result.status === "rejected") { printCliLine("run", "stopped: draft rejected; no patch was applied"); return; }
+    if (result.baselinePath) printCliLine("run", `UI baseline: ${result.baselinePath}`);
+    if (result.evaluationPath) printCliLine("run", `evaluation: ${result.evaluationPath}`);
+    await showSavedEvaluation(sitePath, "run", { evaluationPath: result.evaluationPath });
     if (result.status !== "passed") throw new Error(`${result.total - result.passed} of ${result.total} approved tasks failed independent verification. Inspect the saved evaluation.`);
-    console.log(`[run] complete: ${result.passed}/${result.total} approved tasks verified through Temporal`);
+    printCliLine("run", `complete: ${result.passed}/${result.total} approved tasks verified through Temporal`);
   } finally { await connection.close(); }
 }
