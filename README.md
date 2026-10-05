@@ -9,8 +9,6 @@ Create, review, test, and verify [WebMCP](https://webmachinelearning.github.io/w
 
 Make your app agent-ready without rebuilding it. Core discovers existing capabilities, drafts WebMCP integrations in an isolated workspace, and applies only the exact patch you approve. It then exercises the tools in a real browser and independently verifies their effects.
 
-**Version 1.0.7:** improved discovery, staged generation, agent-readiness guidance, browser verification and optional durable workflows. See the [changelog](CHANGELOG.md).
-
 **Agent-ready, not just tool-enabled.** Core proposes public capability references,
 `llms.txt`, scoped crawler guidance and one repository `AGENTS.md`, alongside usable
 tools and accessible agent feedback. Review, deploy and link these files so agents
