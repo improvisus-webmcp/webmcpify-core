@@ -11,8 +11,9 @@ Make your app agent-ready without rebuilding it. Core discovers existing capabil
 
 **Agent-ready, not just tool-enabled.** Core proposes public capability references,
 `llms.txt`, scoped crawler guidance and one repository `AGENTS.md`, alongside usable
-tools and accessible agent feedback. Review, deploy and link these files so agents
-and LLM-backed search can understand your app; indexing is never guaranteed.
+tools and accessible agent feedback. Review, deploy and link these files to help
+LLMs, AI agents and crawlers understand your app, navigate its public content and
+use its capabilities.
 
 ## Why use WebMCPify Core?
 
@@ -192,7 +193,7 @@ Core merges its marked sections on later generations and preserves owner content
 
 `AGENTS.md` has no public route configured by Core. If deployment serves the repository root, review document exposure and block private `.webmcpify` state. Public guidance excludes local paths, internal security notes, and schema default values; it describes proposed capabilities, not certified browser-test results.
 
-GEO/AEO readiness means readable, source-grounded content and deliberate crawler access—not guaranteed discovery or citations by GPT, Claude, Improvisus, or another agent. Link the public reference, verify deployment, and maintain real canonical URLs/sitemaps. Core does not invent domains, submit indexing requests, register crawlers, or enable training bots. Search and training controls are separate; Google requires no special `llms.txt` or AI schema. See the [research and implementation notes](docs/audits/2026-10-02-agent-discovery.md).
+GEO/AEO readiness provides readable, source-grounded content and deliberate crawler access to help LLMs, agents and crawlers understand and navigate the site. Link the public reference, verify deployment, and maintain real canonical URLs/sitemaps. Core does not invent domains, submit indexing requests, register crawlers, or enable training bots. Search and training controls are separate; Google requires no special `llms.txt` or AI schema. See the [research and implementation notes](docs/audits/2026-10-02-agent-discovery.md).
 
 Common React/Next/Vue/Astro projects use `public/`; literal Vite `root`/`publicDir`
 settings are honored. Svelte uses `static/` or its literal configured assets
@@ -210,9 +211,9 @@ Readiness also requires accessible names and labels, stable page layout, clear
 schemas, truthful structured outcomes, state-aware tool availability, and
 verification of real effects. These are emphasized by Chrome's
 [agent-ready toolkit](https://developer.chrome.com/blog/agent-ready-toolkit).
-`llms.txt` is an [emerging optional convention](https://llmstxt.org/), not a
-guarantee that every agent discovers or consumes the site. Existing sitemaps
-and semantic metadata should remain grounded in real public URLs.
+`llms.txt` is an [emerging optional convention](https://llmstxt.org/) that links
+LLMs and agents to useful site guidance. Existing sitemaps and semantic metadata
+should remain grounded in real public URLs.
 
 ## JavaScript, TypeScript, and framework feedback
 

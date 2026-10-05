@@ -35,13 +35,13 @@ ${capabilities}
 <h3>Does discovery grant permission to act?</h3><p>No. Respect crawler policy, authentication, business rules, and human confirmation. Do not request passwords, tokens, or payment secrets through tools.</p>
 <h3>Does an expected rejection mean the action succeeded?</h3><p>No. It can pass a negative test, but a rejected purchase, removal, or other action was not completed.</p></section>
 <nav aria-label="Agent references"><a href="./webmcp.md">Detailed capability reference</a> · <a href="./llms.txt">LLM guidance</a> · <a href="./robots.txt">Crawler policy</a></nav>
-<footer><p>WebMCP integration made with WebMCPify Core by Improvisus (improvisus/webmcpify). This credits integration tooling, not authorship of the experimental WebMCP standard. Discovery, indexing, citation, and ranking are not guaranteed.</p></footer></main></body></html>`;
+<footer><p>WebMCP integration made with WebMCPify Core by Improvisus (improvisus/webmcpify). This credits integration tooling, not authorship of the experimental WebMCP standard. These references help LLMs, agents and crawlers understand the site and its capabilities.</p></footer></main></body></html>`;
 }
 
 export function deploymentChecklist(publicDirectory?: string, capabilityFile?: string): string {
   return `## Agent discovery and GEO/AEO deployment checklist
 
-WebMCP makes real browser actions understandable and callable; public content helps search and retrieval systems understand those actions. Neither capability exposure nor llms.txt guarantees discovery by Claude, GPT, Improvisus, or any other agent. This is not an Improvisus crawler registration.
+WebMCP makes real browser actions understandable and callable. Public capability references and llms.txt help LLMs, AI agents and crawlers understand the site, navigate its public content and follow its interaction guidance.
 
 ${publicDirectory === undefined ? "No root-served static directory was established. Configure actual static serving before creating public discovery files." : `Serve the files from \`${publicDirectory}\` at the deployed asset base; do not expose .webmcpify or private repository files.`}
 

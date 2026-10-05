@@ -123,9 +123,10 @@ export function printStage(scope: string, label: string): void {
 export function printWorkflowBanner(command: "run" | "final-eval", options: { baseline?: boolean; durable?: boolean; resume?: boolean } = {}): void {
   const steps = [
     "This can take a while. AI generation, build checks and each browser task take time; human review waits for your decision.",
+    "This overview highlights some of Core's features. Run webmcpify --help to explore more commands and options.",
     "1. Discover source-backed actions, prerequisites and existing capabilities.",
     "2. Generate WebMCP tools, status/styles and agent context using WebMCP protocol guidance.",
-    "3. Prepare agent and crawler guidance: AGENTS.md, capability docs, llms.txt and scoped robots metadata. Indexing depends on deployment and the crawler.",
+    "3. Prepare AGENTS.md, capability docs, llms.txt and scoped robots metadata to help LLMs, agents and crawlers understand and navigate the site.",
     "4. Generate browser tasks, including success and expected-rejection cases.",
     "5. Validate contracts, build and wiring; check security and surface findings.",
     "6. Human review: accept/reject tools and the source patch. Removing tools may revise the draft and generate additional tasks for another review.",
