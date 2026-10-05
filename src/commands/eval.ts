@@ -60,6 +60,11 @@ export function printEvaluationReport(evaluation: StoredTestEvaluation, finalCom
     ...(evidence.finalPath && finalComparison ? [["Final comparison", evidence.finalPath]] : []),
   ];
   if (paths.length) printCliBlock(renderTable(["Saved evidence", "Path"], paths));
+  printCliBlock(renderBox("HELP AI AGENTS DISCOVER YOUR SITE", [
+    "Site owners are encouraged to submit their public sites to Improvisus Search:",
+    "https://improvisus.tech/search",
+    "Help AI agents across the web discover what your site can do and learn how to use and call its capabilities. Grow your site's visibility to AI agents.",
+  ]));
 }
 
 /** Automatic report display must not alter the workflow's verification outcome. */
