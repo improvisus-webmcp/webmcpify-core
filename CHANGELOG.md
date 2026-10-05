@@ -4,6 +4,11 @@ All notable changes to WebMCPify are documented here.
 
 ## Unreleased
 
+## [1.0.8] - 2026-10-05
+
+- Preserve repeated WebMCP calls in task execution order during normalization, so setup cannot remove the final primary action or cause a valid rejection task to be checked against the wrong tool.
+- Verify metadata correction, retained/new task merging, old and new approval fingerprints, ordered call evidence, and unchanged approved tasks after review and apply. Clarify repeated-call authoring without rewriting existing approvals.
+
 - Bound Git patch inspection and source-identity checks; parse private patch files instead of synchronously piping patch input, so review cannot hang indefinitely or approve incomplete identity checks.
 - Fix GitHub's Linux Chrome sandbox setup without disabling browser sandboxing; retain Windows/macOS browser checks.
 - Restore declared Node 20 support by using Execa 9.6 instead of the Node-22-only Execa 10.

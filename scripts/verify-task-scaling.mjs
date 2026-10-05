@@ -54,7 +54,7 @@ if(selection){if(!selection.sourceAlreadyPruned)throw new Error('Expected a sour
 const tools=selection?selection.selected:Array.from({length:10},(_,i)=>({id:'action_'+i,name:'action_'+i,title:'Action '+i,description:'Updates local state for action '+i,parameters:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false,consequentialHint:false},security:{executionScope:'ui-state',userAuthentication:'none',agentIdentity:'none',authorization:'client-only',originScope:'same-origin',rateLimit:{enforced:false,scope:'agent-user-tool'},idempotency:{enforced:false},notes:'Only local UI state.'},implementation:{handler:'src/app.js#act',action:'update local state',state:'document.body.dataset.action'},placement:{strategy:'imperative',file:'src/webmcp.js',rationale:'Loaded entry integration'},sourceFiles:['src/app.js'],behavior:{success:'Local state updated',preconditions:[],expectedFailures:[]}}));
 if(!selection&&!metadataPass){writeFileSync('src/app.js',readFileSync('src/app.js','utf8')+"\\nimport './webmcp.js';\\n");writeFileSync('src/webmcp.js',"import {act} from './app.js';const context=document.modelContext;if(context){\\n"+tools.map((tool,i)=>"context.registerTool({name:"+JSON.stringify(tool.name)+",description:'Updates local state',inputSchema:{type:'object',properties:{}},execute:()=>{act("+i+");return {};}});").join('\\n')+'\\n}');}
 const count=selection?selection.additionalTasksNeeded:13;
-const tasks=Array.from({length:count},(_,i)=>{const tool=tools[i%tools.length];const repeat=Boolean(selection)||i>=tools.length;return {id:(selection?'supplement_':'scenario_')+i,description:(repeat?'Repeat ':'Run ')+tool.name+' and verify local action/count state',requiredTools:[tool.name],...(repeat?{setup:'Invoke '+tool.name+' once, then invoke it again to exercise repeated use'}:{}),verify:"document.body.dataset.action === '"+Number(tool.name.slice(7))+"' && document.body.dataset.count === '"+(repeat?2:1)+"'"};});
+const tasks=Array.from({length:count},(_,i)=>{const tool=tools[i%tools.length];const repeat=Boolean(selection)||i>=tools.length;return {id:(selection?'supplement_':'scenario_')+i,description:(repeat?'Repeat ':'Run ')+tool.name+' and verify local action/count state',requiredTools:repeat?[tool.name,tool.name]:[tool.name],...(repeat?{setup:'Invoke '+tool.name+' once, then invoke it again to exercise repeated use'}:{}),verify:"document.body.dataset.action === '"+Number(tool.name.slice(7))+"' && document.body.dataset.count === '"+(repeat?2:1)+"'"};});
 const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(!selection?['TOOL_PROPOSALS_JSON',fence+'json',JSON.stringify({tools}),fence]:[]),'TASKS_JSON',fence+'json',JSON.stringify(tasks),fence].join('\\n'));
 `);
   process.env.WEBMCPIFY_OPENCODE_BIN = provider;
@@ -104,7 +104,13 @@ const fence=String.fromCharCode(96).repeat(3);writeSync(1,[...(!selection?['TOOL
   assert.equal((await fetch("http://127.0.0.1:4403/approve", { method: "POST", body: form })).status, 200);
   assert.equal((await review).tasks.length, 11);
   assert.deepEqual(await loadApprovedTasks(directSite), directTasks);
+  const taskBytesBeforeApply = await readFile(path.join(directSite, ".webmcpify/tasks.json"), "utf8");
+  const approvalBytesBeforeApply = await readFile(path.join(directSite, ".webmcpify/approved-tools.json"), "utf8");
+  assert.ok(directTasks.some(task => task.requiredTools.length > new Set(task.requiredTools).size), "Review fixture must include repeated calls");
   await runApply({ path: directSite });
+  assert.deepEqual(await loadApprovedTasks(directSite), directTasks, "Post-review apply must preserve approved call order");
+  assert.equal(await readFile(path.join(directSite, ".webmcpify/tasks.json"), "utf8"), taskBytesBeforeApply);
+  assert.equal(await readFile(path.join(directSite, ".webmcpify/approved-tools.json"), "utf8"), approvalBytesBeforeApply, "Apply must preserve approval identity");
   assert.doesNotMatch(await readFile(path.join(directSite, "src/webmcp.js"), "utf8"), /action_[89]/);
 
   const supplementSite = await createSite("supplement");

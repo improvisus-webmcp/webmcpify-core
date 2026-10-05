@@ -254,7 +254,9 @@ function validateTask(candidate: unknown, index: number, ids = new Set<string>()
     if (!Array.isArray(task.requiredTools) || task.requiredTools.some((tool) => typeof tool !== "string" || !tool.trim())) {
       throw new Error(`Task "${id}" has invalid required WebMCP tool names.`);
     }
-    requiredTools = [...new Set(task.requiredTools.map((tool) => tool.trim()))];
+    // This is an execution sequence: repeated calls and the final primary action
+    // must survive normalization, review merging, approval, and scoring.
+    requiredTools = task.requiredTools.map((tool) => tool.trim());
   }
   if (task.setup !== undefined && typeof task.setup !== "string") {
     throw new Error(`Task "${id}" has an invalid setup instruction.`);

@@ -144,7 +144,9 @@ Each task must declare expectedOutcome as either "success" or "rejection".
 Success tasks are self-contained because Core resets browser state before every
 task. A successful checkout task must explicitly set up login and cart contents
 through approved tools before checkout. Record required tool names in execution
-order and describe that setup.
+order and describe that setup. Repeat a tool name for every required call,
+including successful setup calls to the same tool before the final action.
+requiredTools is an ordered call sequence, not a list of unique tool names.
 
 Use a rejection task for a real, discovered business-rule guard: for example,
 checkout without authentication or cart contents, or remove_item with an empty
